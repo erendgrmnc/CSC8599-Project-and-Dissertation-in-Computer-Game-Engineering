@@ -1,0 +1,29 @@
+struct ShaderConstants
+{
+	matrix orthoMatrix;
+
+	matrix viewProjMatrix;
+	matrix viewMatrix;
+	matrix projMatrix;
+
+	matrix inverseViewProjMatrix;
+	matrix inverseViewMatrix;
+	matrix inverseProjMatrix;
+
+	int gBuffAlbedoIndex;
+	int gBuffNormalIndex;
+	int gBuffDepthIndex;
+	int diffuseLightIndex;
+	int specularLightIndex;
+
+	float3 cameraPos;
+	float2 pixelSize;
+ 
+};
+
+#ifndef __cplusplus 
+ConstantBuffer constants : register(c0)
+{
+	ShaderConstants Constants;
+}
+#endif
