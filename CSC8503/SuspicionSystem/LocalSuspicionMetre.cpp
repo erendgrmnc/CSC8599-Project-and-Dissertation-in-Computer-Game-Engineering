@@ -3,7 +3,7 @@
 #include <algorithm>
 
 #include "NetworkObject.h"
-#include "../DebugNetworkedGame.h"
+#include "../MultiplayerGameScene.h"
 #include "../SceneManager.h"
 
 #include "../LevelManager.h"
@@ -71,7 +71,7 @@ double SuspicionSystem::LocalSuspicionMetre::GetPercentageBasedOnDistance(const 
 void LocalSuspicionMetre::HandleActiveSusCauseNetworking(const activeLocalSusCause& inCause, const int& playerNo, const bool& toApply){
 #ifdef USEGEL
     int localPlayerId = 0;
-    DebugNetworkedGame* game = reinterpret_cast<DebugNetworkedGame*>(SceneManager::GetSceneManager()->GetCurrentScene());
+    MultiplayerGameScene* game = reinterpret_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetCurrentScene());
     if (!SceneManager::GetSceneManager()->IsInSingleplayer()) {
         const auto* localPlayer = game->GetLocalPlayer();
         localPlayerId = localPlayer->GetPlayerID();
@@ -167,7 +167,7 @@ void LocalSuspicionMetre::ChangePlayerLocalSusMetre(const int &playerNo, const f
 void LocalSuspicionMetre::HandleLocalSusChangeNetworking(const int& changedValue, const int& playerNo) {
 #ifdef USEGL
     int localPlayerId = 0;
-    DebugNetworkedGame* game = reinterpret_cast<DebugNetworkedGame*>(SceneManager::GetSceneManager()->GetCurrentScene());
+    MultiplayerGameScene* game = reinterpret_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetCurrentScene());
     if (!SceneManager::GetSceneManager()->IsInSingleplayer()) {
         const auto* localPlayer = game->GetLocalPlayer();
         localPlayerId = localPlayer->GetPlayerID();

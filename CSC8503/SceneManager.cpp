@@ -1,6 +1,6 @@
 ﻿#include "SceneManager.h"
 #include "PushdownMachine.h"
-#include "DebugNetworkedGame.h"
+#include "MultiplayerGameScene.h"
 #include "MainMenuScene.h"
 #include "SceneStates.h"
 #include "GameSceneManager.h"
@@ -24,7 +24,7 @@ void SceneManager::InitScenes() {
 	MainMenuScene* mainMenuScene = new MainMenuScene();
 	GameSceneManager* singlePlayerScene = new GameSceneManager();
 #ifdef USEGL
-	DebugNetworkedGame* multiplayerScene = new DebugNetworkedGame();
+	MultiplayerGameScene* multiplayerScene = new MultiplayerGameScene();
 #endif
 	mCurrentSceneType = Scenes::MainMenu;
 

@@ -2,7 +2,7 @@
 #include "Debug.h"
 #include "Plane.h"
 #include "../CSC8503/LevelManager.h"
-#include "../CSC8503/DebugNetworkedGame.h"
+#include "../CSC8503/MultiplayerGameScene.h"
 #include "../CSC8503/SceneManager.h"
 #include "GameWorld.h"
 #include "RenderObject.h"
@@ -66,7 +66,7 @@ void CCTV::UpdateObject(float dt) {
 	//if Multiplayer
 #ifdef USEGL
 	else{
-		DebugNetworkedGame* game = reinterpret_cast<DebugNetworkedGame*>(SceneManager::GetSceneManager()->GetCurrentScene());
+		MultiplayerGameScene* game = reinterpret_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetCurrentScene());
 		if(game->GetLocalPlayer() !=nullptr && game->GetLocalPlayer()->GetRenderObject()!=nullptr)
 			UpdateForPlayerObject(game->GetLocalPlayer(), dt);
 	}

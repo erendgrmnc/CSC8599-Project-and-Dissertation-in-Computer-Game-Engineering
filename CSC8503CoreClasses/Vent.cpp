@@ -3,7 +3,7 @@
 #include "GameServer.h"
 #include "NetworkObject.h"
 #include "../CSC8503/LevelManager.h"
-#include "../CSC8503/DebugNetworkedGame.h"
+#include "../CSC8503/MultiplayerGameScene.h"
 #include "../CSC8503/SceneManager.h"
 #include "GameClient.h"
 
@@ -43,7 +43,7 @@ void Vent::HandlePlayerUse(GameObject* userObj) {
 		SetIsOpen(false, true);
 #endif
 #ifdef USEGL
-		DebugNetworkedGame* networkedGame = static_cast<DebugNetworkedGame*>(SceneManager::GetSceneManager()->GetCurrentScene());
+		MultiplayerGameScene* networkedGame = static_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetCurrentScene());
 		if (networkedGame) {
 			SetIsOpen(false, networkedGame->GetIsServer());
 		}
@@ -68,7 +68,7 @@ void Vent::HandleItemUse(GameObject* userObj) {
 #endif
 #ifdef USEGL
 				{
-					DebugNetworkedGame* networkedGame = static_cast<DebugNetworkedGame*>(SceneManager::GetSceneManager()->GetCurrentScene());
+					MultiplayerGameScene* networkedGame = static_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetCurrentScene());
 					if (networkedGame) {
 						SetIsOpen(true, networkedGame->GetIsServer());
 					}
@@ -88,7 +88,7 @@ void Vent::HandleItemUse(GameObject* userObj) {
 void Vent::SyncVentStatusInMultiplayer() const {
 # ifdef USEGL
 	auto* sceneManager = SceneManager::GetSceneManager();
-	DebugNetworkedGame* networkedGame = static_cast<DebugNetworkedGame*>(sceneManager->GetCurrentScene());
+	MultiplayerGameScene* networkedGame = static_cast<MultiplayerGameScene*>(sceneManager->GetCurrentScene());
 	if (networkedGame) {
 		auto* networkObj = GetNetworkObject();
 		if (networkObj) {

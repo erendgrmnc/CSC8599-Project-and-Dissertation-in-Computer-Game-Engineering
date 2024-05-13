@@ -2,7 +2,7 @@
 #include "GameObject.h"
 #include "../CSC8503/LevelManager.h"
 #include "NetworkObject.h"
-#include "../CSC8503/DebugNetworkedGame.h"
+#include "../CSC8503/MultiplayerGameScene.h"
 #include "../CSC8503/SceneManager.h"
 #include "Interactable.h"
 using namespace NCL::CSC8503;
@@ -49,7 +49,7 @@ void PrisonDoor::SetIsOpen(bool toOpen) {
 	if (!isSingleplayer)
 	{
 #ifdef USEGL
-		DebugNetworkedGame* networkedGame = static_cast<DebugNetworkedGame*>(sceneManager->GetCurrentScene());
+		MultiplayerGameScene* networkedGame = static_cast<MultiplayerGameScene*>(sceneManager->GetCurrentScene());
 		const bool isServer = networkedGame->GetIsServer();
 		if (isServer)
 			SyncInteractableDoorStatusInMultiplayer(toOpen);
@@ -66,7 +66,7 @@ void PrisonDoor::SetIsOpen(bool toOpen) {
 #ifdef USEGL
 void PrisonDoor::SyncInteractableDoorStatusInMultiplayer(bool toOpen){
 	auto* sceneManager = SceneManager::GetSceneManager();
-	DebugNetworkedGame* networkedGame = static_cast<DebugNetworkedGame*>(sceneManager->GetCurrentScene());
+	MultiplayerGameScene* networkedGame = static_cast<MultiplayerGameScene*>(sceneManager->GetCurrentScene());
 	if (networkedGame) {
 		auto* networkObj = GetNetworkObject();
 		if (networkObj) {

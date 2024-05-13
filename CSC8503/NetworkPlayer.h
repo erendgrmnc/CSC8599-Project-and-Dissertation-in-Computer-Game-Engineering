@@ -7,7 +7,7 @@
 #include "Ray.h"
 
 namespace NCL::CSC8503{
-	class DebugNetworkedGame;
+	class MultiplayerGameScene;
 }
 
 namespace NCL {
@@ -36,7 +36,7 @@ namespace NCL {
 		class NetworkPlayer : public PlayerObject, public PlayerBuffsObserver, public PlayerInventoryObserver {
 		public:
 			NetworkPlayer(NetworkedGame* game, int num);
-			NetworkPlayer(DebugNetworkedGame* game, int num, const std::string& objName);
+			NetworkPlayer(MultiplayerGameScene* game, int num, const std::string& objName);
 			~NetworkPlayer();
 
 			void OnCollisionBegin(GameObject* otherObject) override;
@@ -62,7 +62,7 @@ namespace NCL {
 			//TODO(erendgrmc): set player camera start rotation. 
 			float mCameraYaw = 0.f;
 			
-			DebugNetworkedGame* game;
+			MultiplayerGameScene* game;
 
 			PlayerInputs mPlayerInputs;
 			

@@ -2,7 +2,7 @@
 
 #include <algorithm>
 
-#include "../DebugNetworkedGame.h"
+#include "../MultiplayerGameScene.h"
 #include "../SceneManager.h"
 
 using namespace SuspicionSystem;
@@ -99,7 +99,7 @@ void GlobalSuspicionMetre::SetMinGlobalSusMetre(float amount) {
 void GlobalSuspicionMetre::HandleGlobalSusChangeNetworking(const int& changedValue){
 #ifdef USEGL
     int localPlayerId = 0;
-    DebugNetworkedGame* game = reinterpret_cast<DebugNetworkedGame*>(SceneManager::GetSceneManager()->GetCurrentScene());
+    MultiplayerGameScene* game = reinterpret_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetCurrentScene());
     if (!SceneManager::GetSceneManager()->IsInSingleplayer()) {
         const bool isServer = game->GetIsServer();
         if (isServer) {

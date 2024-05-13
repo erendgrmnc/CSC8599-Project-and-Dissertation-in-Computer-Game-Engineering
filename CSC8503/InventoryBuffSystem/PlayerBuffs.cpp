@@ -1,5 +1,5 @@
 #include "PlayerBuffs.h"
-#include "../DebugNetworkedGame.h"
+#include "../MultiplayerGameScene.h"
 #include "../SceneManager.h"
 #include "../NetworkPlayer.h"
 #include <algorithm>
@@ -48,7 +48,7 @@ void PlayerBuffs::RemoveBuffFromPlayer(const buff& inBuff, const int& playerNo){
 //returns localPlayerID or 0 if singleplayer
 void PlayerBuffs::HandleBuffNetworking(const buff& inBuff, const int& playerNo, const bool& toApply) {
 	int localPlayerId = 0;
-	DebugNetworkedGame* game = reinterpret_cast<DebugNetworkedGame*>(SceneManager::GetSceneManager()->GetCurrentScene());
+	MultiplayerGameScene* game = reinterpret_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetCurrentScene());
 	if (!SceneManager::GetSceneManager()->IsInSingleplayer()) {
 		auto* localPlayer = game->GetLocalPlayer();
 		localPlayerId = localPlayer->GetPlayerID();
@@ -137,7 +137,7 @@ float PlayerBuffs::GetBuffDuration(PlayerBuffs::buff inBuff) {
 
 void PlayerBuffs::SyncPlayerBuffs(int playerID, int localPlayerID, buff buffToSync, bool toApply){
 #ifdef USEGL
-	DebugNetworkedGame* game = reinterpret_cast<DebugNetworkedGame*>(SceneManager::GetSceneManager()->GetCurrentScene());
+	MultiplayerGameScene* game = reinterpret_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetCurrentScene());
 	const bool isServer = game->GetIsServer();
 	if (localPlayerID != playerID && !isServer)
 		return;

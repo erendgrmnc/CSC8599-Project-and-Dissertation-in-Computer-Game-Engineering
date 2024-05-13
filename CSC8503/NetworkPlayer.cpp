@@ -2,7 +2,7 @@
 #ifdef USEGL
 #include "NetworkPlayer.h"
 
-#include "DebugNetworkedGame.h"
+#include "MultiplayerGameScene.h"
 #include "LevelManager.h"
 #include "GameClient.h"
 #include "Interactable.h"
@@ -39,7 +39,7 @@ NetworkPlayer::NetworkPlayer(NetworkedGame* game, int num) :
 	mPlayerID = num;
 }
 
-NetworkPlayer::NetworkPlayer(DebugNetworkedGame* game, int num, const std::string& objName) : PlayerObject(game->GetLevelManager()->GetGameWorld(),
+NetworkPlayer::NetworkPlayer(MultiplayerGameScene* game, int num, const std::string& objName) : PlayerObject(game->GetLevelManager()->GetGameWorld(),
 	LevelManager::GetLevelManager()->GetInventoryBuffSystem(),LevelManager::GetLevelManager()->GetSuspicionSystem(),
 	LevelManager::GetLevelManager()->GetUiSystem(), new SoundObject(LevelManager::GetLevelManager()->GetSoundManager()->AddWalkSound()), "") {
 	this->game = game;

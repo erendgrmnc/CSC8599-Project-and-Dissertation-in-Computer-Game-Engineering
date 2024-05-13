@@ -5,34 +5,34 @@
 
 namespace NCL {
 	namespace CSC8503 {
-		class DebugNetworkedGame;
+		class MultiplayerGameScene;
 
 
 		class MultiplayerLobby : public PushdownState {
 		public:
-			MultiplayerLobby(DebugNetworkedGame* currentGameState);
+			MultiplayerLobby(MultiplayerGameScene* currentGameState);
 
 			PushdownResult OnUpdate(float dt, PushdownState** newState)  override;
 
 			void OnAwake() override;
 
-			DebugNetworkedGame* mGameSceneManager;
+			MultiplayerGameScene* mGameSceneManager;
 		};
 
 		class InitialisingMultiplayerLevel : public PushdownState {
 		public:
-			InitialisingMultiplayerLevel(DebugNetworkedGame* currentGameState);
+			InitialisingMultiplayerLevel(MultiplayerGameScene* currentGameState);
 
 			PushdownResult OnUpdate(float dt, PushdownState** newState)  override;
 
 			void OnAwake() override;
 
-			DebugNetworkedGame* mGameSceneManager;
+			MultiplayerGameScene* mGameSceneManager;
 		};
 
 		class PlayingMultiplayerLevel : public PushdownState {
 		public:
-			PlayingMultiplayerLevel(DebugNetworkedGame* currentGameState) {
+			PlayingMultiplayerLevel(MultiplayerGameScene* currentGameState) {
 				mGameSceneManager = currentGameState;
 			}
 
@@ -40,12 +40,12 @@ namespace NCL {
 
 			void OnAwake() override;
 
-			DebugNetworkedGame* mGameSceneManager;
+			MultiplayerGameScene* mGameSceneManager;
 		};
 
 		class MultiplayerVictory : public PushdownState {
 		public:
-			MultiplayerVictory(DebugNetworkedGame* currentGameState) {
+			MultiplayerVictory(MultiplayerGameScene* currentGameState) {
 				mGameSceneManager = currentGameState;
 			}
 
@@ -53,18 +53,18 @@ namespace NCL {
 
 			void OnAwake() override;
 
-			DebugNetworkedGame* mGameSceneManager;
+			MultiplayerGameScene* mGameSceneManager;
 		};
 
 		class MultiplayerDefeat : public PushdownState {
 		public:
-			MultiplayerDefeat(DebugNetworkedGame* currentGameState);
+			MultiplayerDefeat(MultiplayerGameScene* currentGameState);
 
 			PushdownResult OnUpdate(float dt, PushdownState** newState)  override;
 
 			void OnAwake() override;
 
-			DebugNetworkedGame* mGameSceneManager;
+			MultiplayerGameScene* mGameSceneManager;
 		};
 	}
 }

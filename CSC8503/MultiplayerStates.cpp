@@ -1,5 +1,5 @@
 #include "MultiplayerStates.h"
-#include "DebugNetworkedGame.h"
+#include "MultiplayerGameScene.h"
 #include "GameClient.h"
 #include "GameServer.h"
 #include "SceneManager.h"
@@ -7,7 +7,7 @@
 #include "LevelManager.h"
 #include "Debug.h"
 
-MultiplayerLobby::MultiplayerLobby(DebugNetworkedGame* currentGameState) {
+MultiplayerLobby::MultiplayerLobby(MultiplayerGameScene* currentGameState) {
 	mGameSceneManager = currentGameState;
 }
 
@@ -50,7 +50,7 @@ void MultiplayerLobby::OnAwake() {
 	mGameSceneManager->SetIsGameStarted(false);
 }
 
-InitialisingMultiplayerLevel::InitialisingMultiplayerLevel(DebugNetworkedGame* currentGameState){
+InitialisingMultiplayerLevel::InitialisingMultiplayerLevel(MultiplayerGameScene* currentGameState){
 	mGameSceneManager = currentGameState;
 	
 }
@@ -100,7 +100,7 @@ void MultiplayerVictory::OnAwake() {
 }
 
 
-MultiplayerDefeat::MultiplayerDefeat(DebugNetworkedGame* currentGameState) {
+MultiplayerDefeat::MultiplayerDefeat(MultiplayerGameScene* currentGameState) {
 	mGameSceneManager = currentGameState;
 }
 

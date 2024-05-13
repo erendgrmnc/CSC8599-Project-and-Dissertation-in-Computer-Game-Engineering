@@ -7,7 +7,7 @@
 #include "RenderObject.h"
 #include "NetworkObject.h"
 #include "../CSC8503/LevelManager.h"
-#include "../CSC8503/DebugNetworkedGame.h"
+#include "../CSC8503/MultiplayerGameScene.h"
 #include "../CSC8503/SceneManager.h"
 #include "Debug.h"
 
@@ -128,7 +128,7 @@ void GameObject::SetObjectState(GameObjectState state) {
 		SceneManager* sceneManager = SceneManager::GetSceneManager();
 		bool isServer = sceneManager->IsServer();
 		if (isServer) {
-			DebugNetworkedGame* scene = static_cast<DebugNetworkedGame*>(sceneManager->GetCurrentScene());
+			MultiplayerGameScene* scene = static_cast<MultiplayerGameScene*>(sceneManager->GetCurrentScene());
 			scene->SendObjectStatePacket(mNetworkObject->GetnetworkID(), mObjectState);
 		}
 	}

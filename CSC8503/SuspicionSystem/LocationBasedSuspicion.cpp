@@ -2,7 +2,7 @@
 #include <algorithm>
 #include <limits>
 #include "GameClient.h"
-#include "../DebugNetworkedGame.h"
+#include "../MultiplayerGameScene.h"
 #include "../SceneManager.h"
 
 using namespace SuspicionSystem;
@@ -257,7 +257,7 @@ float LocationBasedSuspicion::Calculate2DDistance(Vector3 inPos1, Vector3 inPos2
 #ifdef USEGL
 void LocationBasedSuspicion::HandleActiveSusCauseNetworking(const activeLocationSusCause& inCause, const CantorPair& pairedLocation, const bool& toApply){
 	int localPlayerId = 0;
-	DebugNetworkedGame* game = reinterpret_cast<DebugNetworkedGame*>(SceneManager::GetSceneManager()->GetCurrentScene());
+	MultiplayerGameScene* game = reinterpret_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetCurrentScene());
 	if (!SceneManager::GetSceneManager()->IsInSingleplayer()) {
 		const bool isServer = game->GetIsServer();
 		if (isServer) {
@@ -268,7 +268,7 @@ void LocationBasedSuspicion::HandleActiveSusCauseNetworking(const activeLocation
 
 void LocationBasedSuspicion::HandleSusChangeNetworking(const int& changedValue, const CantorPair& pairedLocation){
 	int localPlayerId = 0;
-	DebugNetworkedGame* game = reinterpret_cast<DebugNetworkedGame*>(SceneManager::GetSceneManager()->GetCurrentScene());
+	MultiplayerGameScene* game = reinterpret_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetCurrentScene());
 	if (!SceneManager::GetSceneManager()->IsInSingleplayer()) {
 		const bool isServer = game->GetIsServer();
 		if (isServer) {

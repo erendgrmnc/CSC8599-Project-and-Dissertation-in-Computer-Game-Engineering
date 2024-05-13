@@ -4,7 +4,7 @@
 #include "GameClient.h"
 #include "NetworkObject.h"
 #include "../LevelManager.h"
-#include "../DebugNetworkedGame.h"
+#include "../MultiplayerGameScene.h"
 #include "../LevelManager.h"
 #include "../SceneManager.h"
 #include <algorithm>
@@ -60,7 +60,7 @@ int PlayerInventory::AddItemToPlayer(const item& inItem, const int& playerNo) {
 
 #ifdef USEGL
 			if (!SceneManager::GetSceneManager()->IsInSingleplayer()) {
-				DebugNetworkedGame* game = reinterpret_cast<DebugNetworkedGame*>(SceneManager::GetSceneManager()->GetCurrentScene());
+				MultiplayerGameScene* game = reinterpret_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetCurrentScene());
 				auto* localPlayer = game->GetLocalPlayer();
 				localPlayerId = localPlayer->GetPlayerID();
 
@@ -108,7 +108,7 @@ void PlayerInventory::RemoveItemFromPlayer(const int& playerNo, const int& invSl
 	//Potentially move the multiplayer related code below to a function like HandleMultiplayerItemRemoval(...);
 	int localPlayerId = 0;
 #ifdef USEGL
-	DebugNetworkedGame* game = reinterpret_cast<DebugNetworkedGame*>(SceneManager::GetSceneManager()->GetCurrentScene());
+	MultiplayerGameScene* game = reinterpret_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetCurrentScene());
 	if (!SceneManager::GetSceneManager()->IsInSingleplayer()) {
 		const auto* localPlayer = game->GetLocalPlayer();
 		localPlayerId = localPlayer->GetPlayerID();
@@ -166,7 +166,7 @@ void PlayerInventory::UseItemInPlayerSlot(const int& playerNo, const int& invSlo
 
 #ifdef USEGL
 		if (!SceneManager::GetSceneManager()->IsInSingleplayer()) {
-			DebugNetworkedGame* game = reinterpret_cast<DebugNetworkedGame*>(SceneManager::GetSceneManager()->GetCurrentScene());
+			MultiplayerGameScene* game = reinterpret_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetCurrentScene());
 			auto* localPlayer = game->GetLocalPlayer();
 			localPlayerId = localPlayer->GetPlayerID();
 

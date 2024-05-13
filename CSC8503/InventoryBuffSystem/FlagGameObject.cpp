@@ -5,7 +5,7 @@
 #include "../SuspicionSystem/GlobalSuspicionMetre.h"
 #include "GameClient.h"
 #include "Interactable.h"
-#include "../CSC8503/DebugNetworkedGame.h"
+#include "../CSC8503/MultiplayerGameScene.h"
 #include "../CSC8503/SceneManager.h"
 #include "../CSC8503/NetworkPlayer.h"
 using namespace NCL;
@@ -60,7 +60,7 @@ void FlagGameObject::UpdateInventoryObserver(InventoryEvent invEvent, int player
 		auto* sceneManager = SceneManager::GetSceneManager();
 		if (sceneManager->IsInSingleplayer()) break;
 #ifdef USEGL
-		DebugNetworkedGame* networkedGame = static_cast<DebugNetworkedGame*>(sceneManager->GetCurrentScene());
+		MultiplayerGameScene* networkedGame = static_cast<MultiplayerGameScene*>(sceneManager->GetCurrentScene());
 
 		if (networkedGame->GetIsServer()) {
 			networkedGame->SendInteractablePacket(this->GetNetworkObject()->GetnetworkID(), this->IsRendered(), InteractableItems::HeistItem);
@@ -84,7 +84,7 @@ const bool FlagGameObject::IsMultiplayerAndIsNotServer() {
 	const bool isSingleplayer = sceneManager->IsInSingleplayer();
 	if (isSingleplayer)
 		return false;
-	DebugNetworkedGame* networkedGame = static_cast<DebugNetworkedGame*>(sceneManager->GetCurrentScene());
+	MultiplayerGameScene* networkedGame = static_cast<MultiplayerGameScene*>(sceneManager->GetCurrentScene());
 	const bool isServer = networkedGame->GetIsServer();
 	if (!isServer)
 		return true;

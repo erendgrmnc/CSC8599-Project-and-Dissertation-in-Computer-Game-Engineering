@@ -1,7 +1,7 @@
 ﻿#include "SceneStates.h"
 #include "Scene.h"
 
-#include "DebugNetworkedGame.h"
+#include "MultiplayerGameScene.h"
 #include "LevelManager.h"
 #include "GameClient.h"
 #include "GameSceneManager.h"
@@ -80,7 +80,7 @@ PushdownState::PushdownResult ServerState::OnUpdate(float dt, PushdownState** ne
 	bool isInMenuState = currentState == MenuState;
 	if (isInMenuState) {
 		*newState = new MainMenuSceneState();
-		DebugNetworkedGame* networkGame = (DebugNetworkedGame*)SceneManager::GetSceneManager()->GetCurrentScene();
+		MultiplayerGameScene* networkGame = (MultiplayerGameScene*)SceneManager::GetSceneManager()->GetCurrentScene();
 		if (networkGame->GetIsServer()) {
 			GameServer* server = networkGame->GetServer();
 			server->Shutdown();
@@ -92,7 +92,7 @@ PushdownState::PushdownResult ServerState::OnUpdate(float dt, PushdownState** ne
 
 void ServerState::OnAwake(){
 	SceneManager* sceneManager = SceneManager::GetSceneManager();
-	DebugNetworkedGame* server = (DebugNetworkedGame*)SceneManager::GetSceneManager()->GetScene(Scenes::Multiplayer);
+	MultiplayerGameScene* server = (MultiplayerGameScene*)SceneManager::GetSceneManager()->GetScene(Scenes::Multiplayer);
 
 	mHostedSuccessfully = server->StartAsServer(mPlayerName);
 	if (mHostedSuccessfully) {
@@ -115,7 +115,7 @@ PushdownState::PushdownResult ClientState::OnUpdate(float dt, PushdownState** ne
 	bool isInMenuState = currentState == MenuState;
 	if (isInMenuState) {
 		*newState = new MainMenuSceneState();
-		DebugNetworkedGame* networkGame = (DebugNetworkedGame*)SceneManager::GetSceneManager()->GetCurrentScene();
+		MultiplayerGameScene* networkGame = (MultiplayerGameScene*)SceneManager::GetSceneManager()->GetCurrentScene();
 		if (!networkGame->GetIsServer()) {
 			GameClient* client = networkGame->GetClient();
 			client->Disconnect();
@@ -127,7 +127,7 @@ PushdownState::PushdownResult ClientState::OnUpdate(float dt, PushdownState** ne
 
 void ClientState::OnAwake() {
 	SceneManager* sceneManager = SceneManager::GetSceneManager();
-	DebugNetworkedGame* client = (DebugNetworkedGame*)SceneManager::GetSceneManager()->GetScene(Scenes::Multiplayer);
+	MultiplayerGameScene* client = (MultiplayerGameScene*)SceneManager::GetSceneManager()->GetScene(Scenes::Multiplayer);
 
 	mIsClientConnected = client->StartAsClient(ipToConnect[0], ipToConnect[1], ipToConnect[2], ipToConnect[3], mPlayerName);
 	if (mIsClientConnected) {

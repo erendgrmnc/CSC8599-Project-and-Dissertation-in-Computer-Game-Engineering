@@ -1,5 +1,5 @@
 ﻿#ifdef USEGL
-#include "DebugNetworkedGame.h"
+#include "MultiplayerGameScene.h"
 
 #include <iostream>
 #include <string>
@@ -37,7 +37,7 @@ namespace {
 
 }
 
-DebugNetworkedGame::DebugNetworkedGame() {
+MultiplayerGameScene::MultiplayerGameScene() {
 	mThisServer = nullptr;
 	mThisClient = nullptr;
 
@@ -61,14 +61,14 @@ DebugNetworkedGame::DebugNetworkedGame() {
 	}
 }
 
-DebugNetworkedGame::~DebugNetworkedGame() {
+MultiplayerGameScene::~MultiplayerGameScene() {
 }
 
-bool DebugNetworkedGame::GetIsServer() const {
+bool MultiplayerGameScene::GetIsServer() const {
 	return mIsServer;
 }
 
-bool DebugNetworkedGame::PlayerWonGame() {
+bool MultiplayerGameScene::PlayerWonGame() {
 	if (mIsGameFinished && mWinningPlayerId == mLocalPlayerId) {
 		return true;
 	}
@@ -90,18 +90,18 @@ bool DebugNetworkedGame::PlayerWonGame() {
 	return false;
 }
 
-bool DebugNetworkedGame::PlayerLostGame() {
+bool MultiplayerGameScene::PlayerLostGame() {
 	if (mIsGameFinished && mWinningPlayerId != mLocalPlayerId) {
 		return true;
 	}
 	return false;
 }
 
-const bool DebugNetworkedGame::GetIsGameStarted() const {
+const bool MultiplayerGameScene::GetIsGameStarted() const {
 	return mIsGameStarted;
 }
 
-bool DebugNetworkedGame::StartAsServer(const std::string& playerName) {
+bool MultiplayerGameScene::StartAsServer(const std::string& playerName) {
 	mThisServer = new GameServer(NetworkBase::GetDefaultPort(), MAX_PLAYER);
 	if (mThisServer) {
 
@@ -119,13 +119,13 @@ bool DebugNetworkedGame::StartAsServer(const std::string& playerName) {
 
 		AddToPlayerPeerNameMap(SERVER_PLAYER_PEER, playerName);
 
-		std::thread senderThread(&DebugNetworkedGame::SendPacketsThread, this);
+		std::thread senderThread(&MultiplayerGameScene::SendPacketsThread, this);
 		senderThread.detach();
 	}
 	return mThisServer;
 }
 
-bool DebugNetworkedGame::StartAsClient(char a, char b, char c, char d, const std::string& playerName) {
+bool MultiplayerGameScene::StartAsClient(char a, char b, char c, char d, const std::string& playerName) {
 	mThisClient = new GameClient();
 	const bool isConnected = mThisClient->Connect(a, b, c, d, NetworkBase::GetDefaultPort(), playerName);
 
@@ -159,7 +159,7 @@ bool DebugNetworkedGame::StartAsClient(char a, char b, char c, char d, const std
 
 }
 
-void DebugNetworkedGame::UpdateGame(float dt) {
+void MultiplayerGameScene::UpdateGame(float dt) {
 
 	mTimeToNextPacket -= dt;
 	if (mTimeToNextPacket < 0) {
@@ -209,7 +209,7 @@ void DebugNetworkedGame::UpdateGame(float dt) {
 	}
 }
 
-void DebugNetworkedGame::SetIsGameStarted(bool isGameStarted, unsigned int seed) {
+void MultiplayerGameScene::SetIsGameStarted(bool isGameStarted, unsigned int seed) {
 	if (mIsGameStarted == isGameStarted) {
 		return;
 	}
@@ -238,7 +238,7 @@ void DebugNetworkedGame::SetIsGameStarted(bool isGameStarted, unsigned int seed)
 	}
 }
 
-void DebugNetworkedGame::SetIsGameFinished(bool isGameFinished, int winningPlayerId) {
+void MultiplayerGameScene::SetIsGameFinished(bool isGameFinished, int winningPlayerId) {
 	mIsGameFinished = isGameFinished;
 	mWinningPlayerId = winningPlayerId;
 	if (mThisServer) {
@@ -246,7 +246,7 @@ void DebugNetworkedGame::SetIsGameFinished(bool isGameFinished, int winningPlaye
 	}
 }
 
-void DebugNetworkedGame::StartLevel(const std::mt19937& levelSeed) {
+void MultiplayerGameScene::StartLevel(const std::mt19937& levelSeed) {
 	InitWorld(levelSeed);
 	Debug::Print("Game Started", Vector2(10, 5));
 
@@ -255,11 +255,11 @@ void DebugNetworkedGame::StartLevel(const std::mt19937& levelSeed) {
 	}
 }
 
-void DebugNetworkedGame::AddEventOnGameStarts(std::function<void()> event) {
+void MultiplayerGameScene::AddEventOnGameStarts(std::function<void()> event) {
 	mOnGameStarts.push_back(event);
 }
 
-void DebugNetworkedGame::ReceivePacket(int type, GamePacket* payload, int source) {
+void MultiplayerGameScene::ReceivePacket(int type, GamePacket* payload, int source) {
 	
 	switch (type) {
 	case BasicNetworkMessages::GameStartState: {
@@ -357,66 +357,66 @@ void DebugNetworkedGame::ReceivePacket(int type, GamePacket* payload, int source
 	}
 }
 
-void DebugNetworkedGame::InitInGameMenuManager() {
+void MultiplayerGameScene::InitInGameMenuManager() {
 	MultiplayerLobby* multiplayerLobby = new MultiplayerLobby(this);
 	mPushdownMachine = new PushdownMachine(multiplayerLobby);
 }
 
-void DebugNetworkedGame::SendClientSyncItemSlotPacket(int playerNo, int invSlot, int inItem, int usageCount) const {
+void MultiplayerGameScene::SendClientSyncItemSlotPacket(int playerNo, int invSlot, int inItem, int usageCount) const {
 	PlayerInventory::item itemToEquip = (PlayerInventory::item)(inItem);
 	NCL::CSC8503::ClientSyncItemSlotPacket packet(playerNo, invSlot, itemToEquip, usageCount);
 	mThisServer->SendGlobalPacket(packet);
 }
 
-void DebugNetworkedGame::SendClientSyncBuffPacket(int playerNo, int buffType, bool toApply) const {
+void MultiplayerGameScene::SendClientSyncBuffPacket(int playerNo, int buffType, bool toApply) const {
 	PlayerBuffs::buff buffToSync = (PlayerBuffs::buff)(buffType);
 	NCL::CSC8503::ClientSyncBuffPacket packet(playerNo, buffToSync, toApply);
 	mThisServer->SendGlobalPacket(packet);
 }
 
-void DebugNetworkedGame::SendInteractablePacket(int networkObjectId, bool isOpen, int interactableItemType) const {
+void MultiplayerGameScene::SendInteractablePacket(int networkObjectId, bool isOpen, int interactableItemType) const {
 	SyncInteractablePacket packet(networkObjectId, isOpen, interactableItemType);
 	mThisServer->SendGlobalPacket(packet);
 }
 
-void DebugNetworkedGame::SendClientSyncLocalActiveSusCausePacket(int playerNo, int activeSusCause, bool toApply) const {
+void MultiplayerGameScene::SendClientSyncLocalActiveSusCausePacket(int playerNo, int activeSusCause, bool toApply) const {
 	LocalSuspicionMetre::activeLocalSusCause activeCause = (LocalSuspicionMetre::activeLocalSusCause)(activeSusCause);
 	NCL::CSC8503::ClientSyncLocalActiveSusCausePacket packet(playerNo, activeCause, toApply);
 	mThisServer->SendGlobalPacket(packet);
 }
 
-void DebugNetworkedGame::SendClientSyncLocalSusChangePacket(int playerNo, int changedValue) const {
+void MultiplayerGameScene::SendClientSyncLocalSusChangePacket(int playerNo, int changedValue) const {
 	NCL::CSC8503::ClientSyncLocalSusChangePacket packet(playerNo, changedValue);
 	mThisServer->SendGlobalPacket(packet);
 }
 
-void DebugNetworkedGame::SendClientSyncGlobalSusChangePacket(int changedValue) const {
+void MultiplayerGameScene::SendClientSyncGlobalSusChangePacket(int changedValue) const {
 	NCL::CSC8503::ClientSyncGlobalSusChangePacket packet(changedValue);
 	mThisServer->SendGlobalPacket(packet);
 }
 
-void DebugNetworkedGame::SendClientSyncLocationActiveSusCausePacket(int cantorPairedLocation, int activeSusCause, bool toApply) const {
+void MultiplayerGameScene::SendClientSyncLocationActiveSusCausePacket(int cantorPairedLocation, int activeSusCause, bool toApply) const {
 	LocationBasedSuspicion::activeLocationSusCause activeCause = (LocationBasedSuspicion::activeLocationSusCause)(activeSusCause);
 	NCL::CSC8503::ClientSyncLocationActiveSusCausePacket packet(cantorPairedLocation, activeCause, toApply);
 	mThisServer->SendGlobalPacket(packet);
 }
 
-void DebugNetworkedGame::SendClientSyncLocationSusChangePacket(int cantorPairedLocation, int changedValue) const {
+void MultiplayerGameScene::SendClientSyncLocationSusChangePacket(int cantorPairedLocation, int changedValue) const {
 	NCL::CSC8503::ClientSyncLocationSusChangePacket packet(cantorPairedLocation, changedValue);
 	mThisServer->SendGlobalPacket(packet);
 }
 
-void NCL::CSC8503::DebugNetworkedGame::SendAnnouncementSyncPacket(int annType, float time, int playerNo){
+void NCL::CSC8503::MultiplayerGameScene::SendAnnouncementSyncPacket(int annType, float time, int playerNo){
 	NCL::CSC8503::AnnouncementSyncPacket packet(annType,time, playerNo);
 	mThisServer->SendGlobalPacket(packet);
 }
 
-void DebugNetworkedGame::SendGuardSpotSoundPacket(int playerId) const {
+void MultiplayerGameScene::SendGuardSpotSoundPacket(int playerId) const {
 	GuardSpotSoundPacket packet(playerId);
 	mThisServer->SendGlobalPacket(packet);
 }
 
-void DebugNetworkedGame::SendPacketsThread() {
+void MultiplayerGameScene::SendPacketsThread() {
 	while (mThisServer) {
 		std::lock_guard<std::mutex> lock(mPacketToSendQueueMutex);
 		if (mPacketToSendQueue.size() > 1 && !mPacketToSendQueue.empty()) {
@@ -430,16 +430,16 @@ void DebugNetworkedGame::SendPacketsThread() {
 	}
 }
 
-GameClient* DebugNetworkedGame::GetClient() const {
+GameClient* MultiplayerGameScene::GetClient() const {
 	return mThisClient;
 }
 
-void DebugNetworkedGame::SendObjectStatePacket(int networkId, int state) const {
+void MultiplayerGameScene::SendObjectStatePacket(int networkId, int state) const {
 	NCL::CSC8503::SyncObjectStatePacket packet(networkId, state);
 	mThisServer->SendGlobalPacket(packet);
 }
 
-void DebugNetworkedGame::ClearNetworkGame() {
+void MultiplayerGameScene::ClearNetworkGame() {
 	if (mThisClient) {
 		mThisClient->ClearPacketHandlers();
 	}
@@ -457,15 +457,15 @@ void DebugNetworkedGame::ClearNetworkGame() {
 	mNetworkObjectCache = 10;
 }
 
-GameServer* DebugNetworkedGame::GetServer() const {
+GameServer* MultiplayerGameScene::GetServer() const {
 	return mThisServer;
 }
 
-NetworkPlayer* DebugNetworkedGame::GetLocalPlayer() const {
+NetworkPlayer* MultiplayerGameScene::GetLocalPlayer() const {
 	return static_cast<NetworkPlayer*>(mLocalPlayer);
 }
 
-void DebugNetworkedGame::UpdateAsServer(float dt) {
+void MultiplayerGameScene::UpdateAsServer(float dt) {
 	mPacketsToSnapshot--;
 	if (mPacketsToSnapshot < 0) {
 		BroadcastSnapshot(false);
@@ -476,11 +476,11 @@ void DebugNetworkedGame::UpdateAsServer(float dt) {
 	}
 }
 
-void DebugNetworkedGame::UpdateAsClient(float dt) {
+void MultiplayerGameScene::UpdateAsClient(float dt) {
 	mThisClient->UpdateClient();
 }
 
-void DebugNetworkedGame::BroadcastSnapshot(bool deltaFrame) {
+void MultiplayerGameScene::BroadcastSnapshot(bool deltaFrame) {
 	std::vector<GameObject*>::const_iterator first;
 	std::vector<GameObject*>::const_iterator last;
 
@@ -507,7 +507,7 @@ void DebugNetworkedGame::BroadcastSnapshot(bool deltaFrame) {
 	}
 }
 
-void DebugNetworkedGame::UpdateMinimumState() {
+void MultiplayerGameScene::UpdateMinimumState() {
 	//Periodically remove old data from the server
 	int minID = INT_MAX;
 	int maxID = 0; //we could use this to see if a player is lagging behind?
@@ -531,7 +531,7 @@ void DebugNetworkedGame::UpdateMinimumState() {
 	}
 }
 
-int DebugNetworkedGame::GetPlayerPeerID(int peerId) {
+int MultiplayerGameScene::GetPlayerPeerID(int peerId) {
 	if (peerId == -2) {
 		peerId = mThisClient->GetPeerID();
 	}
@@ -543,21 +543,21 @@ int DebugNetworkedGame::GetPlayerPeerID(int peerId) {
 	return -1;
 }
 
-const int DebugNetworkedGame::GetClientLastFullID() const {
+const int MultiplayerGameScene::GetClientLastFullID() const {
 	return mClientSideLastFullID;
 }
 
-void DebugNetworkedGame::SendStartGameStatusPacket(const std::string& seed) const {
+void MultiplayerGameScene::SendStartGameStatusPacket(const std::string& seed) const {
 	GameStartStatePacket state(mIsGameStarted, seed);
 	mThisServer->SendGlobalPacket(state);
 }
 
-void DebugNetworkedGame::SendFinishGameStatusPacket() {
+void MultiplayerGameScene::SendFinishGameStatusPacket() {
 	GameEndStatePacket packet(mIsGameFinished, mWinningPlayerId);
 	mThisServer->SendGlobalPacket(packet);
 }
 
-void DebugNetworkedGame::InitWorld(const std::mt19937& levelSeed) {
+void MultiplayerGameScene::InitWorld(const std::mt19937& levelSeed) {
 	mLevelManager->GetGameWorld()->ClearAndErase();
 	mLevelManager->GetPhysics()->Clear();
 
@@ -570,11 +570,11 @@ void DebugNetworkedGame::InitWorld(const std::mt19937& levelSeed) {
 	mLevelManager->InitAnimationSystemObjects();
 }
 
-void DebugNetworkedGame::HandleClientPlayerInput(ClientPlayerInputPacket* playerMovementPacket, int playerPeerID) {
+void MultiplayerGameScene::HandleClientPlayerInput(ClientPlayerInputPacket* playerMovementPacket, int playerPeerID) {
 	//TODO(erendgrmc)
 }
 
-void DebugNetworkedGame::SpawnPlayers() {
+void MultiplayerGameScene::SpawnPlayers() {
 
 	for (int i = 0; i < 4; i++) {
 		if (mPlayerList[i] != -1) {
@@ -606,7 +606,7 @@ void DebugNetworkedGame::SpawnPlayers() {
 	mLocalPlayer->ToggleIsRendered();
 }
 
-NetworkPlayer* DebugNetworkedGame::AddPlayerObject(const Vector3& position, int playerNum) {
+NetworkPlayer* MultiplayerGameScene::AddPlayerObject(const Vector3& position, int playerNum) {
 
 	//Set Player Obj Name
 	char buffer[256]; // Adjust the size according to your needs
@@ -643,7 +643,7 @@ NetworkPlayer* DebugNetworkedGame::AddPlayerObject(const Vector3& position, int 
 	return netPlayer;
 }
 
-void DebugNetworkedGame::HandleFullPacket(FullPacket* fullPacket) {
+void MultiplayerGameScene::HandleFullPacket(FullPacket* fullPacket) {
 	for (int i = 0; i < mNetworkObjects.size(); i++) {
 		if (mNetworkObjects[i]->GetnetworkID() == fullPacket->objectID) {
 			mNetworkObjects[i]->ReadPacket(*fullPacket);
@@ -652,7 +652,7 @@ void DebugNetworkedGame::HandleFullPacket(FullPacket* fullPacket) {
 	mClientSideLastFullID = fullPacket->fullState.stateID;
 }
 
-void DebugNetworkedGame::HandleDeltaPacket(DeltaPacket* deltaPacket) {
+void MultiplayerGameScene::HandleDeltaPacket(DeltaPacket* deltaPacket) {
 	for (int i = 0; i < mNetworkObjects.size(); i++) {
 		if (mNetworkObjects[i]->GetnetworkID() == deltaPacket->objectID) {
 			mNetworkObjects[i]->ReadPacket(*deltaPacket);
@@ -660,7 +660,7 @@ void DebugNetworkedGame::HandleDeltaPacket(DeltaPacket* deltaPacket) {
 	}
 }
 
-void DebugNetworkedGame::HandleClientPlayerInputPacket(ClientPlayerInputPacket* clientPlayerInputPacket, int playerPeerId) {
+void MultiplayerGameScene::HandleClientPlayerInputPacket(ClientPlayerInputPacket* clientPlayerInputPacket, int playerPeerId) {
 	int playerIndex = GetPlayerPeerID(playerPeerId);
 	auto* playerToHandle = mServerPlayers[playerIndex];
 
@@ -669,10 +669,10 @@ void DebugNetworkedGame::HandleClientPlayerInputPacket(ClientPlayerInputPacket* 
 	UpdateMinimumState();
 }
 
-void DebugNetworkedGame::HandleAddPlayerScorePacket(AddPlayerScorePacket* packet) {
+void MultiplayerGameScene::HandleAddPlayerScorePacket(AddPlayerScorePacket* packet) {
 }
 
-void DebugNetworkedGame::SyncPlayerList() {
+void MultiplayerGameScene::SyncPlayerList() {
 	int peerId;
 	mPlayerList[0] = 0;
 	for (int i = 0; i < 3; ++i) {
@@ -688,17 +688,17 @@ void DebugNetworkedGame::SyncPlayerList() {
 	mThisServer->SendGlobalPacket(packet);
 }
 
-void DebugNetworkedGame::SetItemsLeftToZero() {
+void MultiplayerGameScene::SetItemsLeftToZero() {
 }
 
-void DebugNetworkedGame::HandlePlayerEquippedItemChange(ClientSyncItemSlotPacket* packet) const {
+void MultiplayerGameScene::HandlePlayerEquippedItemChange(ClientSyncItemSlotPacket* packet) const {
 	const int localPlayerID = static_cast<NetworkPlayer*>(mLocalPlayer)->GetPlayerID();
 	auto* inventorySystem = mLevelManager->GetInventoryBuffSystem()->GetPlayerInventoryPtr();
 	const PlayerInventory::item equippedItem = static_cast<PlayerInventory::item>(packet->equippedItem);
 	inventorySystem->ChangePlayerItem(packet->playerID, localPlayerID, packet->slotId, equippedItem, packet->usageCount);
 }
 
-void DebugNetworkedGame::HandleInteractablePacket(SyncInteractablePacket* packet) const {
+void MultiplayerGameScene::HandleInteractablePacket(SyncInteractablePacket* packet) const {
 	InteractableItems interactableItemType = static_cast<InteractableItems>(packet->interactableItemType);
 
 	NetworkObject* interactedObj = nullptr;
@@ -726,73 +726,73 @@ void DebugNetworkedGame::HandleInteractablePacket(SyncInteractablePacket* packet
 	}
 	}
 }
-void DebugNetworkedGame::HandlePlayerBuffChange(ClientSyncBuffPacket* packet) const {
+void MultiplayerGameScene::HandlePlayerBuffChange(ClientSyncBuffPacket* packet) const {
 	const int localPlayerID = static_cast<NetworkPlayer*>(mLocalPlayer)->GetPlayerID();
 	auto* buffSystem = mLevelManager->GetInventoryBuffSystem()->GetPlayerBuffsPtr();
 	const PlayerBuffs::buff buffToSync = static_cast<PlayerBuffs::buff>(packet->buffID);
 	buffSystem->SyncPlayerBuffs(packet->playerID, localPlayerID, buffToSync, packet->toApply);
 }
 
-void DebugNetworkedGame::HandleLocalActiveSusCauseChange(ClientSyncLocalActiveSusCausePacket* packet) const {
+void MultiplayerGameScene::HandleLocalActiveSusCauseChange(ClientSyncLocalActiveSusCausePacket* packet) const {
 	const int localPlayerID = static_cast<NetworkPlayer*>(mLocalPlayer)->GetPlayerID();
 	auto* localSusMetre = mLevelManager->GetSuspicionSystem()->GetLocalSuspicionMetre();
 	const LocalSuspicionMetre::activeLocalSusCause activeCause = static_cast<LocalSuspicionMetre::activeLocalSusCause>(packet->activeLocalSusCauseID);
 	localSusMetre->SyncActiveSusCauses(packet->playerID, localPlayerID, activeCause, packet->toApply);
 }
 
-void DebugNetworkedGame::HandleLocalSusChange(ClientSyncLocalSusChangePacket* packet) const {
+void MultiplayerGameScene::HandleLocalSusChange(ClientSyncLocalSusChangePacket* packet) const {
 	const int localPlayerID = static_cast<NetworkPlayer*>(mLocalPlayer)->GetPlayerID();
 	auto* localSusMetre = mLevelManager->GetSuspicionSystem()->GetLocalSuspicionMetre();
 	localSusMetre->SyncSusChange(packet->playerID, localPlayerID, packet->changedValue);
 }
 
-void DebugNetworkedGame::HandleGlobalSusChange(ClientSyncGlobalSusChangePacket* packet) const {
+void MultiplayerGameScene::HandleGlobalSusChange(ClientSyncGlobalSusChangePacket* packet) const {
 	auto* globalSusMetre = mLevelManager->GetSuspicionSystem()->GetGlobalSuspicionMetre();
 	globalSusMetre->SyncSusChange(packet->changedValue);
 }
 
-void DebugNetworkedGame::HandleLocationActiveSusCauseChange(ClientSyncLocationActiveSusCausePacket* packet) const {
+void MultiplayerGameScene::HandleLocationActiveSusCauseChange(ClientSyncLocationActiveSusCausePacket* packet) const {
 	const int localPlayerID = static_cast<NetworkPlayer*>(mLocalPlayer)->GetPlayerID();
 	auto* locationSusMetre = mLevelManager->GetSuspicionSystem()->GetLocationBasedSuspicion();
 	const LocationBasedSuspicion::activeLocationSusCause activeCause = static_cast<LocationBasedSuspicion::activeLocationSusCause>(packet->activeLocationSusCauseID);
 	locationSusMetre->SyncActiveSusCauses(activeCause, packet->cantorPairedLocation, packet->toApply);
 }
 
-void DebugNetworkedGame::HandleLocationSusChange(ClientSyncLocationSusChangePacket* packet) const {
+void MultiplayerGameScene::HandleLocationSusChange(ClientSyncLocationSusChangePacket* packet) const {
 	auto* locationSusMetre = mLevelManager->GetSuspicionSystem()->GetLocationBasedSuspicion();
 	locationSusMetre->SyncSusChange(packet->cantorPairedLocation, packet->changedValue);
 }
 
-void DebugNetworkedGame::HandleAnnouncementSync(const AnnouncementSyncPacket* packet) const{
+void MultiplayerGameScene::HandleAnnouncementSync(const AnnouncementSyncPacket* packet) const{
 	if (!mLocalPlayer)
 		return;
 	const PlayerObject::AnnouncementType annType = static_cast<PlayerObject::AnnouncementType>(packet->annType);
 	GetLocalPlayer()->SyncAnnouncements(annType,packet->time,packet->playerNo);
 }
 
-void DebugNetworkedGame::HandleGuardSpotSound(GuardSpotSoundPacket* packet) const {
+void MultiplayerGameScene::HandleGuardSpotSound(GuardSpotSoundPacket* packet) const {
 	if (packet->playerId == mLocalPlayerId) {
 		mLevelManager->GetSoundManager()->PlaySpottedSound();
 	}
 }
 
-void DebugNetworkedGame::AddToPlayerPeerNameMap(int playerId, const std::string& playerName) {
+void MultiplayerGameScene::AddToPlayerPeerNameMap(int playerId, const std::string& playerName) {
 	mPlayerPeerNameMap.insert(std::pair<int, std::string>(playerId, playerName));
 	if (mThisServer) {
 		WriteAndSendSyncPlayerIdNameMapPacket();
 	}
 }
 
-void DebugNetworkedGame::HandleClientInitPacket(const ClientInitPacket* packet, int playerID) {
+void MultiplayerGameScene::HandleClientInitPacket(const ClientInitPacket* packet, int playerID) {
 	AddToPlayerPeerNameMap(playerID, packet->playerName);
 }
 
-void DebugNetworkedGame::WriteAndSendSyncPlayerIdNameMapPacket() const {
+void MultiplayerGameScene::WriteAndSendSyncPlayerIdNameMapPacket() const {
 	SyncPlayerIdNameMapPacket packet(mPlayerPeerNameMap);
 	mThisServer->SendGlobalPacket(packet);
 }
 
-void DebugNetworkedGame::HandleSyncPlayerIdNameMapPacket(const SyncPlayerIdNameMapPacket* packet) {
+void MultiplayerGameScene::HandleSyncPlayerIdNameMapPacket(const SyncPlayerIdNameMapPacket* packet) {
 	mPlayerPeerNameMap.clear();
 	for (int i = 0; i < 4; i++) {
 		if (packet->playerIds[i] != -1) {
@@ -802,7 +802,7 @@ void DebugNetworkedGame::HandleSyncPlayerIdNameMapPacket(const SyncPlayerIdNameM
 	}
 }
 
-void DebugNetworkedGame::ShowPlayerList() const {
+void MultiplayerGameScene::ShowPlayerList() const {
 	if (Window::GetKeyboard()->KeyDown(KeyCodes::TAB)) {
 		Vector2 position(15, 20);
 
@@ -817,7 +817,7 @@ void DebugNetworkedGame::ShowPlayerList() const {
 	}
 }
 
-void DebugNetworkedGame::HandleObjectStatePacket(SyncObjectStatePacket* packet) const {
+void MultiplayerGameScene::HandleObjectStatePacket(SyncObjectStatePacket* packet) const {
 	NetworkObject* objectToChangeState = nullptr;
 	for (NetworkObject* networkObject : mNetworkObjects) {
 		if (networkObject->GetnetworkID() == packet->networkObjId) {

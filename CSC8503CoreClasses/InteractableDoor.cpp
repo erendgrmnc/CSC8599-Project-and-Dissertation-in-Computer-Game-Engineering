@@ -2,7 +2,7 @@
 #include "InteractableDoor.h"
 #include "NetworkObject.h"
 #include "SoundObject.h"
-#include "../CSC8503/DebugNetworkedGame.h"
+#include "../CSC8503/MultiplayerGameScene.h"
 #include "../CSC8503/SceneManager.h"
 #include "PlayerObject.h"
 
@@ -98,7 +98,7 @@ bool InteractableDoor::CanUseItem(GameObject* userObj) {
 #ifdef USEGL
 void InteractableDoor::SyncInteractableDoorStatusInMultiplayer(bool toOpen) {
 	auto* sceneManager = SceneManager::GetSceneManager();
-	DebugNetworkedGame* networkedGame = static_cast<DebugNetworkedGame*>(sceneManager->GetCurrentScene());
+	MultiplayerGameScene* networkedGame = static_cast<MultiplayerGameScene*>(sceneManager->GetCurrentScene());
 	if (networkedGame) {
 		auto* networkObj = GetNetworkObject();
 		if (networkObj) {

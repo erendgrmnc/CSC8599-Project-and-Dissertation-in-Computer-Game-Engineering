@@ -1,6 +1,6 @@
 #include "Door.h"
 #include "../CSC8503/LevelManager.h"
-#include "../CSC8503/DebugNetworkedGame.h"
+#include "../CSC8503/MultiplayerGameScene.h"
 #include "../CSC8503/SceneManager.h"
 #include "RenderObject.h"
 
@@ -48,7 +48,7 @@ void Door::SetIsOpen(bool toOpen) {
 #ifdef USEGL
 	if (!isSingleplayer)
 	{
-		DebugNetworkedGame* networkedGame = static_cast<DebugNetworkedGame*>(sceneManager->GetCurrentScene());
+		MultiplayerGameScene* networkedGame = static_cast<MultiplayerGameScene*>(sceneManager->GetCurrentScene());
 		const bool isServer = networkedGame->GetIsServer();
 		if (!isServer)
 			return;

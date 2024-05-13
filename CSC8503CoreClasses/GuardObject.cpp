@@ -15,7 +15,7 @@
 #include "../CSC8503/SceneManager.h"
 #include "../CSC8503/NetworkPlayer.h"
 #include "PrisonDoor.h"
-#include "../CSC8503/DebugNetworkedGame.h"
+#include "../CSC8503/MultiplayerGameScene.h"
 
 using namespace NCL;
 using namespace CSC8503;
@@ -513,7 +513,7 @@ BehaviourAction* GuardObject::PointAtPlayer() {
 				if (mPointTimer <= 0) {
 #ifdef USEGL
 					if (!SceneManager::GetSceneManager()->IsInSingleplayer()) {
-						DebugNetworkedGame* game = reinterpret_cast<DebugNetworkedGame*>(SceneManager::GetSceneManager()->GetCurrentScene());
+						MultiplayerGameScene* game = reinterpret_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetCurrentScene());
 						if (mPlayer) {
 							game->SendGuardSpotSoundPacket(mPlayer->GetPlayerID());
 						}

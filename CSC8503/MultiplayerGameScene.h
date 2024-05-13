@@ -47,10 +47,10 @@ namespace NCL{
         struct AnnouncementSyncPacket;
         struct GuardSpotSoundPacket;
 
-        class DebugNetworkedGame : public NetworkedGame{
+        class MultiplayerGameScene : public NetworkedGame{
         public:
-            DebugNetworkedGame();
-            ~DebugNetworkedGame();
+            MultiplayerGameScene();
+            ~MultiplayerGameScene();
             
             bool GetIsServer() const;
             bool PlayerWonGame() override;

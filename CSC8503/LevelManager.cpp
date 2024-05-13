@@ -28,7 +28,7 @@
 #include "InventoryBuffSystem/InventoryBuffSystem.h"
 #include "InventoryBuffSystem/SoundEmitter.h"
 #include "PointGameObject.h"
-#include "DebugNetworkedGame.h"
+#include "MultiplayerGameScene.h"
 #include "SceneManager.h"
 #include "NetworkObject.h"
 #include "UISystem.h"
@@ -274,7 +274,7 @@ void LevelManager::LoadLevel(int levelID, std::mt19937 seed, int playerID, bool 
 #ifdef USEGL
 	else {
 		if (!serverPlayersPtr) {
-			DebugNetworkedGame* game = reinterpret_cast<DebugNetworkedGame*>(SceneManager::GetSceneManager()->GetCurrentScene());
+			MultiplayerGameScene* game = reinterpret_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetCurrentScene());
 			serverPlayersPtr = game->GetServerPlayersPtr();
 		}
 	}
@@ -326,7 +326,7 @@ void LevelManager::AddNetworkObject(GameObject& objToAdd) {
 	auto* sceneManager = SceneManager::GetSceneManager();
 	Scene* currentScene = sceneManager->GetCurrentScene();
 
-	DebugNetworkedGame* networkScene = static_cast<DebugNetworkedGame*>(currentScene);
+	MultiplayerGameScene* networkScene = static_cast<MultiplayerGameScene*>(currentScene);
 	networkScene->AddNetworkObjectToNetworkObjects(networkObj);
 #endif
 }
