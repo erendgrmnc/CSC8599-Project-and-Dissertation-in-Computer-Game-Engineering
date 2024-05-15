@@ -219,6 +219,8 @@ namespace NCL {
 
 			GameObject* AddDecorationToWorld(const Transform& transform, const std::string& meshName);
 
+			bool mIsServer;
+
 			std::vector<Level*> mLevelList;
 			std::vector<Room*> mRoomList;
 			std::vector<GameObject*> mLevelLayout;

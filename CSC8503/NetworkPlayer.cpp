@@ -105,11 +105,14 @@ void NetworkPlayer::UpdateObject(float dt) {
 		MatchCameraRotation(mCameraYaw);
 	}
 
-	if (mPlayerSpeedState == SpedUp)
-		EnforceSpedUpMaxSpeeds();
-	else
-		EnforceMaxSpeeds();
-	
+	if (game->GetIsServer())
+	{
+		if (mPlayerSpeedState == SpedUp)
+			EnforceSpedUpMaxSpeeds();
+		else
+			EnforceMaxSpeeds();
+	}
+
 	if (mIsLocalPlayer){
 		PlayerObject::UpdateGlobalUI(dt);
 		PlayerObject::UpdateLocalUI(dt);

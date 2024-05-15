@@ -81,6 +81,7 @@ LevelManager::LevelManager() {
 	mNetworkIdBuffer = NETWORK_ID_BUFFER_START;
 
 	mIsLevelInitialised = false;
+
 #ifdef USEGL
 	loadSoundManager.join();
 
@@ -156,6 +157,11 @@ LevelManager::~LevelManager() {
 }
 
 void LevelManager::ClearLevel() {
+
+	for (GameObject* obj : mUpdatableObjects) {
+		obj->GetSoundObject()->Clear();
+	}
+
 	mIsLevelInitialised = false;
 	mRenderer->ClearLights();
 	mWorld->ClearAndErase();
@@ -219,6 +225,8 @@ void LevelManager::ResetLevel() {
 }
 
 void LevelManager::LoadLevel(int levelID, std::mt19937 seed, int playerID, bool isMultiplayer) {
+	mIsServer = SceneManager::GetSceneManager()->IsServer();
+
 	if (levelID > mLevelList.size() - 1) return;
 	mActiveLevel = levelID;
 	mStartTimer = 5;
@@ -393,7 +401,9 @@ void LevelManager::Update(float dt, bool isPlayingLevel, bool isPaused) {
 		mWorld->UpdateWorld(dt);
 		mRenderer->Update(dt);
 		if (mIsLevelInitialised) {
-			mPhysics->Update(dt);
+			if (mIsServer){
+				mPhysics->Update(dt);
+			}
 			mAnimation->Update(dt, mUpdatableObjects);
 		}
 
@@ -1151,10 +1161,13 @@ GameObject* LevelManager::AddWallToWorld(const Transform& transform) {
 
 	wall->SetRenderObject(new RenderObject(&wall->GetTransform(), mMeshes["StraightWall"], mTextures["WallTex"], mTextures["WallNormal"], mShaders["Instance"],
 		std::sqrt(std::pow(wallSize.x, 2) + std::powf(wallSize.z, 2))));
-	wall->SetPhysicsObject(new PhysicsObject(&wall->GetTransform(), wall->GetBoundingVolume()));
 
-	wall->GetPhysicsObject()->SetInverseMass(0);
-	wall->GetPhysicsObject()->InitCubeInertia();
+	bool isServer = SceneManager::GetSceneManager()->IsServer();
+	if (isServer) {
+		wall->SetPhysicsObject(new PhysicsObject(&wall->GetTransform(), wall->GetBoundingVolume()));
+		wall->GetPhysicsObject()->SetInverseMass(0);
+		wall->GetPhysicsObject()->InitCubeInertia();
+	}
 
 	wall->GetRenderObject()->SetColour(Vector4(0.2f, 0.2f, 0.2f, 1));
 
@@ -1185,10 +1198,13 @@ GameObject* LevelManager::AddCornerWallToWorld(const Transform& transform) {
 
 	wall->SetRenderObject(new RenderObject(&wall->GetTransform(), mMeshes["CornerWall"], mTextures["WallTex"], mTextures["WallNormal"], mShaders["Instance"],
 		std::sqrt(std::pow(wallSize.x, 2) + std::powf(wallSize.z, 2))));
-	wall->SetPhysicsObject(new PhysicsObject(&wall->GetTransform(), wall->GetBoundingVolume()));
 
-	wall->GetPhysicsObject()->SetInverseMass(0);
-	wall->GetPhysicsObject()->InitCubeInertia();
+	bool isServer = SceneManager::GetSceneManager()->IsServer();
+	if (isServer) {
+		wall->SetPhysicsObject(new PhysicsObject(&wall->GetTransform(), wall->GetBoundingVolume()));
+		wall->GetPhysicsObject()->SetInverseMass(0);
+		wall->GetPhysicsObject()->InitCubeInertia();
+	}
 
 	wall->GetRenderObject()->SetColour(Vector4(0.2f, 0.2f, 0.2f, 1));
 
@@ -1234,10 +1250,15 @@ GameObject* LevelManager::AddFloorToWorld(const Transform& transform, bool isOut
 		mInstanceMatrices["Ceiling"].push_back(floor->GetTransform().GetMatrix());
 		if (mBaseObjects.find("Ceiling") == mBaseObjects.end()) mBaseObjects["Ceiling"] = floor;
 	}
-	floor->SetPhysicsObject(new PhysicsObject(&floor->GetTransform(), floor->GetBoundingVolume(), 0, 2, 2));
 
-	floor->GetPhysicsObject()->SetInverseMass(0);
-	floor->GetPhysicsObject()->InitCubeInertia();
+
+	bool isServer = SceneManager::GetSceneManager()->IsServer();
+	if (isServer) {
+		floor->SetPhysicsObject(new PhysicsObject(&floor->GetTransform(), floor->GetBoundingVolume(), 0, 2, 2));
+
+		floor->GetPhysicsObject()->SetInverseMass(0);
+		floor->GetPhysicsObject()->InitCubeInertia();
+	}
 
 	floor->GetRenderObject()->SetColour(Vector4(0.2f, 0.2f, 0.2f, 1));
 
@@ -1261,10 +1282,14 @@ CCTV* LevelManager::AddCCTVToWorld(const Transform& transform, const bool isMult
 
 	camera->SetRenderObject(new RenderObject(&camera->GetTransform(), mMeshes["CCTV"], mTextures["FloorAlbedo"], mTextures["FloorNormal"], mShaders["Basic"],
 		std::sqrt(std::pow(wallSize.x, 2) + std::powf(wallSize.z, 2))));
-	camera->SetPhysicsObject(new PhysicsObject(&camera->GetTransform(), camera->GetBoundingVolume()));
 
-	camera->GetPhysicsObject()->SetInverseMass(0);
-	camera->GetPhysicsObject()->InitCubeInertia();
+	bool isServer = SceneManager::GetSceneManager()->IsServer();
+	if (isServer) {
+		camera->SetPhysicsObject(new PhysicsObject(&camera->GetTransform(), camera->GetBoundingVolume()));
+
+		camera->GetPhysicsObject()->SetInverseMass(0);
+		camera->GetPhysicsObject()->InitCubeInertia();
+	}
 
 	camera->GetRenderObject()->SetColour(Vector4(0.2f, 0.2f, 0.2f, 1));
 
@@ -1295,10 +1320,14 @@ Helipad* LevelManager::AddHelipadToWorld(const Vector3& position) {
 
 	helipad->SetRenderObject(new RenderObject(&helipad->GetTransform(), mMeshes["Helipad"], mTextures["HelipadAlbedo"], mTextures["FloorNormal"], mShaders["Basic"],
 		std::sqrt(std::pow(wallSize.x, 2) + std::powf(wallSize.z, 2))));
-	helipad->SetPhysicsObject(new PhysicsObject(&helipad->GetTransform(), helipad->GetBoundingVolume()));
 
-	helipad->GetPhysicsObject()->SetInverseMass(0);
-	helipad->GetPhysicsObject()->InitCubeInertia();
+	bool isServer = SceneManager::GetSceneManager()->IsServer();
+	if (isServer) {
+		helipad->SetPhysicsObject(new PhysicsObject(&helipad->GetTransform(), helipad->GetBoundingVolume()));
+
+		helipad->GetPhysicsObject()->SetInverseMass(0);
+		helipad->GetPhysicsObject()->InitCubeInertia();
+	}
 
 	helipad->GetRenderObject()->SetColour(Vector4(0.0f, 0.4f, 0.2f, 1));
 
@@ -1325,13 +1354,19 @@ Vent* LevelManager::AddVentToWorld(Vent* vent, bool isMultiplayerLevel) {
 
 	newVent->SetRenderObject(new RenderObject(&newVent->GetTransform(), mMeshes["Vent"], mTextures["VentAlbedo"], mTextures["VentNormal"], mShaders["Basic"],
 		std::sqrt(std::pow(size.x, 2) + std::powf(size.y, 2))));
-	newVent->SetPhysicsObject(new PhysicsObject(&newVent->GetTransform(), newVent->GetBoundingVolume(), 1, 1, 5));
+
+	
 #ifdef USEGL
 	newVent->SetSoundObject(new SoundObject());
 #endif
 
-	newVent->GetPhysicsObject()->SetInverseMass(0);
-	newVent->GetPhysicsObject()->InitCubeInertia();
+	bool isServer = SceneManager::GetSceneManager()->IsServer();
+
+	if (isServer) {
+		newVent->SetPhysicsObject(new PhysicsObject(&newVent->GetTransform(), newVent->GetBoundingVolume(), 1, 1, 5));
+		newVent->GetPhysicsObject()->SetInverseMass(0);
+		newVent->GetPhysicsObject()->InitCubeInertia();
+	}
 
 	newVent->SetCollisionLayer(StaticObj);
 
@@ -1358,13 +1393,19 @@ InteractableDoor* LevelManager::AddDoorToWorld(const Transform& transform, const
 
 	newDoor->SetRenderObject(new RenderObject(&newDoor->GetTransform(), mMeshes["Door"], mTextures["DoorAlbedo"], mTextures["DoorNormal"], mShaders["Basic"],
 		std::sqrt(std::pow(transform.GetScale().y/2, 2) + std::powf(transform.GetScale().z / 2, 2))));
-	newDoor->SetPhysicsObject(new PhysicsObject(&newDoor->GetTransform(), newDoor->GetBoundingVolume(), 1, 1, 5));
+
+	bool isServer = SceneManager::GetSceneManager()->IsServer();
+	if (isServer) {
+		newDoor->SetPhysicsObject(new PhysicsObject(&newDoor->GetTransform(), newDoor->GetBoundingVolume(), 1, 1, 5));
+
+		newDoor->GetPhysicsObject()->SetInverseMass(0);
+		newDoor->GetPhysicsObject()->InitCubeInertia();
+	}
+
 #ifdef USEGL
 	newDoor->SetSoundObject(new SoundObject());
 #endif
-	newDoor->GetPhysicsObject()->SetInverseMass(0);
-	newDoor->GetPhysicsObject()->InitCubeInertia();
-
+	
 	newDoor->SetCollisionLayer(NoSpecialFeatures);
 
 	if (isMultiplayerLevel) {
@@ -1396,12 +1437,19 @@ PrisonDoor* LevelManager::AddPrisonDoorToWorld(PrisonDoor* door, bool isMultipla
 
 	newDoor->SetRenderObject(new RenderObject(&newDoor->GetTransform(), mMeshes["Door"], mTextures["DoorAlbedo"], mTextures["DoorNormal"], mShaders["Basic"],
 		std::sqrt(std::pow(size.y, 2) + std::powf(size.z, 2))));
-	newDoor->SetPhysicsObject(new PhysicsObject(&newDoor->GetTransform(), newDoor->GetBoundingVolume(), 1, 1, 5));
+
+	
 #ifdef USEGL
 	newDoor->SetSoundObject(new SoundObject());
 #endif
-	newDoor->GetPhysicsObject()->SetInverseMass(0);
-	newDoor->GetPhysicsObject()->InitCubeInertia();
+
+	bool isServer = SceneManager::GetSceneManager()->IsServer();
+	if (isServer) {
+		newDoor->SetPhysicsObject(new PhysicsObject(&newDoor->GetTransform(), newDoor->GetBoundingVolume(), 1, 1, 5));
+
+		newDoor->GetPhysicsObject()->SetInverseMass(0);
+		newDoor->GetPhysicsObject()->InitCubeInertia();
+	}
 
 	newDoor->GetRenderObject()->SetColour(Vector4(1.0f, 0, 0, 1));
 
@@ -1443,15 +1491,21 @@ FlagGameObject* LevelManager::AddFlagToWorld(const Vector3& position, InventoryB
 		flag->SetRenderObject(new RenderObject(&flag->GetTransform(), mMeshes["Diamond"], mTextures["DiamondAlbedo"], mTextures["FloorNormal"], mShaders["Basic"], 1));
 		break;
 	}
-	
-	flag->SetPhysicsObject(new PhysicsObject(&flag->GetTransform(), flag->GetBoundingVolume()));
+
+
+	bool isServer = SceneManager::GetSceneManager()->IsServer();
+	if (isServer) {
+		flag->SetPhysicsObject(new PhysicsObject(&flag->GetTransform(), flag->GetBoundingVolume()));
+		flag->GetPhysicsObject()->SetInverseMass(0);
+		flag->GetPhysicsObject()->InitSphereInertia(false);
+	}
+
 #ifdef USEGL
 	flag->SetSoundObject(new SoundObject());
 #endif
 	flag->SetCollisionLayer(Collectable);
 
-	flag->GetPhysicsObject()->SetInverseMass(0);
-	flag->GetPhysicsObject()->InitSphereInertia(false);
+
 
 	flag->GetRenderObject()->SetColour(Vector4(1.0f, 1.0f, 1.0f, 1));
 
@@ -1478,14 +1532,18 @@ PickupGameObject* LevelManager::AddPickupToWorld(const Vector3& position, Invent
 		.SetPosition(position);
   
 	pickup->SetRenderObject(new RenderObject(&pickup->GetTransform(), mMeshes["Toolbox"], mTextures["ToolboxAlbedo"], mTextures["ToolboxNormal"], mShaders["Basic"], 1));
-	pickup->SetPhysicsObject(new PhysicsObject(&pickup->GetTransform(), pickup->GetBoundingVolume()));
 #ifdef USEGL
 	pickup->SetSoundObject(new SoundObject());
 #endif
-	pickup->SetCollisionLayer(Collectable);
 
-	pickup->GetPhysicsObject()->SetInverseMass(0);
-	pickup->GetPhysicsObject()->InitSphereInertia(false);
+	bool isServer = SceneManager::GetSceneManager()->IsServer();
+	if (isServer) {
+		pickup->SetPhysicsObject(new PhysicsObject(&pickup->GetTransform(), pickup->GetBoundingVolume()));
+		pickup->GetPhysicsObject()->SetInverseMass(0);
+		pickup->GetPhysicsObject()->InitSphereInertia(false);
+	}
+
+	pickup->SetCollisionLayer(Collectable);
 
 	pickup->GetRenderObject()->SetColour(Vector4(0.0f, 0.4f, 0.2f, 1));
 
@@ -1508,15 +1566,19 @@ PointGameObject* LevelManager::AddPointObjectToWorld(const Vector3& position, in
 		.SetPosition(position);
 
 	pointObject->SetRenderObject(new RenderObject(&pointObject->GetTransform(), mMeshes["Coins"], mTextures["CoinsAlbedo"], mTextures["CoinsNormal"], mShaders["Basic"], 1));
-	pointObject->SetPhysicsObject(new PhysicsObject(&pointObject->GetTransform(), pointObject->GetBoundingVolume()));
+	
 #ifdef USEGL
 	pointObject->SetSoundObject(new SoundObject());
 #endif
 
-	pointObject->SetCollisionLayer(Collectable);
+	bool isServer = SceneManager::GetSceneManager()->IsServer();
+	if (isServer) {
+		pointObject->SetPhysicsObject(new PhysicsObject(&pointObject->GetTransform(), pointObject->GetBoundingVolume()));
+		pointObject->GetPhysicsObject()->SetInverseMass(0);
+		pointObject->GetPhysicsObject()->InitSphereInertia(false);
+	}
 
-	pointObject->GetPhysicsObject()->SetInverseMass(0);
-	pointObject->GetPhysicsObject()->InitSphereInertia(false);
+	pointObject->SetCollisionLayer(Collectable);
 
 	pointObject->GetRenderObject()->SetColour(Vector4(0.0f, 0.4f, 0.2f, 1));
 
@@ -1562,12 +1624,17 @@ void LevelManager::CreatePlayerObjectComponents(PlayerObject& playerObject, cons
 		PLAYER_MESH_SIZE));
 	playerObject.GetRenderObject()->SetAnimationObject(new AnimationObject(AnimationObject::AnimationType::playerAnimation, mAnimations["PlayerStand"]));
 
-	playerObject.SetPhysicsObject(new PhysicsObject(&playerObject.GetTransform(), playerObject.GetBoundingVolume(), 1, 1, 5));
+	
 #ifdef USEGL
 	playerObject.SetSoundObject(new SoundObject(mSoundManager->AddWalkSound()));
 #endif
-	playerObject.GetPhysicsObject()->SetInverseMass(PLAYER_INVERSE_MASS);
-	playerObject.GetPhysicsObject()->InitSphereInertia(false);
+
+	bool isServer = SceneManager::GetSceneManager()->IsServer();
+	if (isServer) {
+		playerObject.SetPhysicsObject(new PhysicsObject(&playerObject.GetTransform(), playerObject.GetBoundingVolume(), 1, 1, 5));
+		playerObject.GetPhysicsObject()->SetInverseMass(PLAYER_INVERSE_MASS);
+		playerObject.GetPhysicsObject()->InitSphereInertia(false);
+	}
 
 	playerObject.SetCollisionLayer(Player);
 }
@@ -1584,16 +1651,19 @@ void LevelManager::CreatePlayerObjectComponents(PlayerObject& playerObject, cons
 
 	playerObject.SetRenderObject(new RenderObject(&playerObject.GetTransform(), mMeshes["Player"], mTextures["FleshyAlbedo"], mTextures["Normal"], mShaders["Animation"],
 		PLAYER_MESH_SIZE));
-	playerObject.SetPhysicsObject(new PhysicsObject(&playerObject.GetTransform(), playerObject.GetBoundingVolume(), 1, 1, 5));
 #ifdef USEGL
 	playerObject.SetSoundObject(new SoundObject(mSoundManager->AddWalkSound()));
 #endif
+
+	bool isServer = SceneManager::GetSceneManager()->IsServer();
+	if (isServer) {
+		playerObject.SetPhysicsObject(new PhysicsObject(&playerObject.GetTransform(), playerObject.GetBoundingVolume(), 1, 1, 5));
+		playerObject.GetPhysicsObject()->SetInverseMass(PLAYER_INVERSE_MASS);
+		playerObject.GetPhysicsObject()->InitSphereInertia(false);
+	}
+
 	playerObject.GetRenderObject()->SetAnimationObject(new AnimationObject(AnimationObject::AnimationType::playerAnimation, mAnimations["PlayerStand"]));
 	playerObject.GetRenderObject()->SetMatTextures(mMeshMaterials["Player_Red"]);
-
-
-	playerObject.GetPhysicsObject()->SetInverseMass(PLAYER_INVERSE_MASS);
-	playerObject.GetPhysicsObject()->InitSphereInertia(false);
 
 	playerObject.SetCollisionLayer(Player);
 }
@@ -1682,10 +1752,14 @@ GuardObject* LevelManager::AddGuardToWorld(const vector<Vector3> nodes, const Ve
 		.SetPosition(nodes[currentNode] + Vector3(20, -1.5f, 20));
 
 
-	guard->SetPhysicsObject(new PhysicsObject(&guard->GetTransform(), guard->GetBoundingVolume(), 1, 0, 10));
+	bool isServer = SceneManager::GetSceneManager()->IsServer();
+	if (isServer) {
+		guard->SetPhysicsObject(new PhysicsObject(&guard->GetTransform(), guard->GetBoundingVolume(), 1, 0, 10));
 
-	guard->GetPhysicsObject()->SetInverseMass(PLAYER_INVERSE_MASS);
-	guard->GetPhysicsObject()->InitSphereInertia(false);
+		guard->GetPhysicsObject()->SetInverseMass(PLAYER_INVERSE_MASS);
+		guard->GetPhysicsObject()->InitSphereInertia(false);
+	}
+
 	guard->SetCollisionLayer(Npc);
 
 	guard->SetRenderObject(new RenderObject(&guard->GetTransform(), mMeshes["Guard"], mTextures["Basic"], mTextures["Normal"], mShaders["Animation"], meshSize));
@@ -1747,14 +1821,19 @@ SoundEmitter* LevelManager::AddSoundEmitterToWorld(const Vector3& position, Loca
 
 	soundEmitterObjectPtr->SetRenderObject(new RenderObject(&soundEmitterObjectPtr->GetTransform(), mMeshes["Toolbox"], mTextures["ToolboxAlbedo"], mTextures["ToolboxNormal"], mShaders["Basic"], 1));
 
-	soundEmitterObjectPtr->SetPhysicsObject(new PhysicsObject(&soundEmitterObjectPtr->GetTransform(), soundEmitterObjectPtr->GetBoundingVolume()));
 
 	soundEmitterObjectPtr->SetCollisionLayer(Collectable);
 #ifdef USEGL
 	soundEmitterObjectPtr->SetSoundObject(new SoundObject(mSoundManager->AddSoundEmitterSound(position)));
 #endif
-	soundEmitterObjectPtr->GetPhysicsObject()->SetInverseMass(0);
-	soundEmitterObjectPtr->GetPhysicsObject()->InitSphereInertia(false);
+
+
+	bool isServer = SceneManager::GetSceneManager()->IsServer();
+	if (isServer) {
+		soundEmitterObjectPtr->SetPhysicsObject(new PhysicsObject(&soundEmitterObjectPtr->GetTransform(), soundEmitterObjectPtr->GetBoundingVolume()));
+		soundEmitterObjectPtr->GetPhysicsObject()->SetInverseMass(0);
+		soundEmitterObjectPtr->GetPhysicsObject()->InitSphereInertia(false);
+	}
 
 	soundEmitterObjectPtr->GetRenderObject()->SetColour(Vector4(1.0f, 1.0f, 1.0f, 1));
 
@@ -1786,10 +1865,15 @@ GameObject* LevelManager::AddDecorationToWorld(const Transform& transform, const
 	if (mMeshMaterials.find(meshName) != mMeshMaterials.end()) {
 		decoration->GetRenderObject()->SetMatTextures(mMeshMaterials[meshName]);
 	}
-	decoration->SetPhysicsObject(new PhysicsObject(&decoration->GetTransform(), decoration->GetBoundingVolume()));
 
-	decoration->GetPhysicsObject()->SetInverseMass(0);
-	decoration->GetPhysicsObject()->InitCubeInertia();
+	bool isServer = SceneManager::GetSceneManager()->IsServer();
+	if (isServer) {
+		decoration->SetPhysicsObject(new PhysicsObject(&decoration->GetTransform(), decoration->GetBoundingVolume()));
+
+		decoration->GetPhysicsObject()->SetInverseMass(0);
+		decoration->GetPhysicsObject()->InitCubeInertia();
+	}
+
 
 	decoration->GetRenderObject()->SetColour(Vector4(0.2f, 0.2f, 0.2f, 1));
 

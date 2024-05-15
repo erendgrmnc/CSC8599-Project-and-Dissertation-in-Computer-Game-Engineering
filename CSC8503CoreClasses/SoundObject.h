@@ -32,6 +32,8 @@ namespace NCL {
 
 			void LockDoorFinished();
 
+			void Clear();
+
 		protected:
 			Channel* mChannel = nullptr;
 			bool mIsTriggered;

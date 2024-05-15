@@ -49,6 +49,13 @@ void SoundObject::LockDoorFinished() {
 	mIsLocked = false;
 }
 
+void SoundObject::Clear() {
+	mChannel->stop();
+	mIsTriggered = false;
+	mIsClosed = false;
+	mIsLocked = false;
+}
+
 bool SoundObject::GetisTiggered(){
 	return mIsTriggered;
 }

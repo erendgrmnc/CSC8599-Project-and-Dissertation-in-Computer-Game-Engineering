@@ -712,7 +712,7 @@ void PlayerObject::RayCastIcon(GameObject* objectHit, float distance)
 
 	//Use ScrewDriver
 	if ((objectHit->GetName() == "Vent") && (distance < 15) && (GetEquippedItem() == PlayerInventory::item::screwdriver)) {
-		auto* ventHit = (Vent*)objectHit;
+		auto* ventHit = (Vesnt*)objectHit;
 		if (!ventHit->IsOpen()) {
 			ChangeTransparency(true, mTransparencyBotRight);
 			mUi->ChangeBuffSlotTransparency(NOTICEBOTRIGHT, mTransparencyBotRight);
@@ -726,7 +726,6 @@ void PlayerObject::RayCastIcon(GameObject* objectHit, float distance)
 		ChangeTransparency(false, mTransparencyBotRight);
 		mUi->ChangeBuffSlotTransparency(NOTICEBOTRIGHT, mTransparencyBotRight);
 	}
-
 
 	//Use Vent
 	if ((objectHit->GetName() == "Vent") && (distance < 15)) {
@@ -744,8 +743,6 @@ void PlayerObject::RayCastIcon(GameObject* objectHit, float distance)
 		ChangeTransparency(false, mTransparencyBotLeft);
 		mUi->ChangeBuffSlotTransparency(NOTICEBOTLEFT, mTransparencyBotLeft);
 	}
-
-
 }
 
 void NCL::CSC8503::PlayerObject::ResetRayCastIcon()

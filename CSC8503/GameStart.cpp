@@ -21,7 +21,7 @@
 #include "../CSC8503CoreClasses/BehaviourSelector.h"
 #include "../CSC8503CoreClasses/BehaviourSequence.h"
 #include "../CSC8503CoreClasses/BehaviourAction.h"
-#include "DebugNetworkedGame.h"
+#include "MultiplayerGameScene.h"
 #include "../CSC8503CoreClasses/PushdownMachine.h"
 #include "SceneManager.h"
 
