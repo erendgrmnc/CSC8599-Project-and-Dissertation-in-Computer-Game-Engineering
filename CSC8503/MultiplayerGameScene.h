@@ -61,7 +61,7 @@ namespace NCL{
 
             bool StartAsServer(const std::string& playerName);
             bool StartAsClient(char a, char b, char c, char d, const std::string& playerName);
-
+	
             void UpdateGame(float dt) override;
 
             void SetIsGameStarted(bool isGameStarted, unsigned int seed = -1);

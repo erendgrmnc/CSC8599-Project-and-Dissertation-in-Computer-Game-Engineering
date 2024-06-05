@@ -192,14 +192,14 @@ void LevelManager::InitialiseGameAssets() {
 				Room* newRoom = new Room(entry.path().string());
 				mRoomList.push_back(newRoom);
 			}
-			});
+		});
 		mLevelList = std::vector<Level*>();
 		std::thread loadLevels([this] {
 			for (const filesystem::directory_entry& entry : std::filesystem::directory_iterator(Assets::LEVELDIR + "Levels")) {
 				Level* newLevel = new Level(entry.path().string());
 				mLevelList.push_back(newLevel);
 			}
-			});
+		});
 		InitialiseAssets();
 		InitialiseIcons();
 		InitialiseDebug();

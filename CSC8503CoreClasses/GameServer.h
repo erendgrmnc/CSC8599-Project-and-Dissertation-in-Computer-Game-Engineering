@@ -7,19 +7,21 @@ namespace NCL {
 		class GameWorld;
 		class GameServer : public NetworkBase {
 		public:
-			GameServer(int onPort, int maxClients);
+			GameServer(int onPort, int maxClients, bool isStartingServer = true);
 			~GameServer();
 
 			bool Initialise();
 			void Shutdown();
 
 			void SetGameWorld(GameWorld &g);
-			void AddPeer(int peerNumber) const;
+			virtual void AddPeer(int peerNumber);
 
 			bool SendGlobalPacket(int msgID);
 			bool SendGlobalPacket(GamePacket& packet);
 			bool SendVariableUpdatePacket(VariablePacket& packet);
 			bool GetPeer(int peerNumber, int& peerId) const;
+
+			std::string GetIpAddress() const;
 
 			virtual void UpdateServer();
 
@@ -32,6 +34,8 @@ namespace NCL {
 
 			int mIncomingDataRate;
 			int mOutgoingDataRate;
+
+			char ipString[16];
 		};
 	}
 }

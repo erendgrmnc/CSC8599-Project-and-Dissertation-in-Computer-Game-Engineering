@@ -712,7 +712,7 @@ void PlayerObject::RayCastIcon(GameObject* objectHit, float distance)
 
 	//Use ScrewDriver
 	if ((objectHit->GetName() == "Vent") && (distance < 15) && (GetEquippedItem() == PlayerInventory::item::screwdriver)) {
-		auto* ventHit = (Vesnt*)objectHit;
+		auto* ventHit = (Vent*)objectHit;
 		if (!ventHit->IsOpen()) {
 			ChangeTransparency(true, mTransparencyBotRight);
 			mUi->ChangeBuffSlotTransparency(NOTICEBOTRIGHT, mTransparencyBotRight);

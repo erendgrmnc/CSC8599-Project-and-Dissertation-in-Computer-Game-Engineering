@@ -2,10 +2,20 @@ set(PROJECT_NAME EntryPoint)
 
 include("CMakePS5.cmake")
 include("CMakePC.cmake")
+include("CMakeDistributedServerManager.cmake")
+include("CMakeDistributedGameServer.cmake")
 
 # PC CMake file
 if("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "x64")
-    Create_PC_EntryPoint_Files()
+    if("${CMAKE_DISTRIBUTED_SYSTEM_ACTIVE}" STREQUAL "true")
+        if("${CMAKE_BUILD_FOR_DISTRIBUTED_MANAGER}" STREQUAL "true")
+            Create_Distributed_Server_Manager_EntryPoint_Files()
+        else()
+            Create_Distributed_Game_Server_EntryPoint_Files()
+        endif()
+    else()
+        Create_PC_EntryPoint_Files()
+    endif()
 endif()
 
 # PS5 Cmake file

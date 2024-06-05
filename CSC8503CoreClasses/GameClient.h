@@ -23,7 +23,7 @@ namespace NCL {
 
 			void SendPacket(GamePacket&  payload);
 
-			bool UpdateClient();
+			virtual bool UpdateClient();
 
 			void WriteAndSendClientInputPacket(int lastId, const PlayerInputs& playerInputs);
 

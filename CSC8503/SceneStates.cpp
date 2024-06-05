@@ -1,4 +1,6 @@
 ﻿#include "SceneStates.h"
+
+#include "DistributedMultiplayerGameScene.h"
 #include "Scene.h"
 
 #include "MultiplayerGameScene.h"
@@ -127,9 +129,9 @@ PushdownState::PushdownResult ClientState::OnUpdate(float dt, PushdownState** ne
 
 void ClientState::OnAwake() {
 	SceneManager* sceneManager = SceneManager::GetSceneManager();
-	MultiplayerGameScene* client = (MultiplayerGameScene*)SceneManager::GetSceneManager()->GetScene(Scenes::Multiplayer);
+	DistributedMultiplayerGameScene* client = static_cast<DistributedMultiplayerGameScene*>(SceneManager::GetSceneManager()->GetScene(Scenes::Multiplayer));
 
-	mIsClientConnected = client->StartAsClient(ipToConnect[0], ipToConnect[1], ipToConnect[2], ipToConnect[3], mPlayerName);
+	mIsClientConnected = client->ConnectClientToDistributedManager(ipToConnect[0], ipToConnect[1], ipToConnect[2], ipToConnect[3], 1234);
 	if (mIsClientConnected) {
 		Window* w = Window::GetWindow();
 		w->ShowOSPointer(false);

@@ -5,19 +5,22 @@
 using namespace NCL;
 using namespace CSC8503;
 
-GameServer::GameServer(int onPort, int maxClients)	{
-	mPort		= onPort;
-	mClientMax	= maxClients;
+GameServer::GameServer(int onPort, int maxClients, bool isStartingServer) {
+	mPort = onPort;
+	mClientMax = maxClients;
 	mClientCount = 0;
-	netHandle	= nullptr;
+	netHandle = nullptr;
 	mPeers = new int[mClientMax];
-	for (int i = 0; i < mClientMax; ++i){
+	for (int i = 0; i < mClientMax; ++i) {
 		mPeers[i] = -1;
 	}
-	Initialise();
+
+	if (isStartingServer) {
+		Initialise();
+	}
 }
 
-GameServer::~GameServer()	{
+GameServer::~GameServer() {
 	Shutdown();
 }
 
@@ -40,6 +43,10 @@ bool GameServer::Initialise() {
 		std::cout << __FUNCTION__ << "failed to create network handle!" << std::endl;
 		return false;
 	}
+
+	char ipString[16];
+	enet_address_get_host_ip(&netHandle->address, ipString, sizeof(ipString));
+	std::cout << "Local IP Address: " << ipString << std::endl;
 
 	return true;
 }
@@ -74,6 +81,10 @@ bool GameServer::GetPeer(int peerNumber, int& peerId) const
 	return true;
 }
 
+std::string GameServer::GetIpAddress() const {
+	return ipString;
+}
+
 void GameServer::UpdateServer() {
 	if (!netHandle) { return; }
 
@@ -89,8 +100,8 @@ void GameServer::UpdateServer() {
 		}
 		else if (type == ENetEventType::ENET_EVENT_TYPE_DISCONNECT) {
 			std::cout << "Server: Client has disconnected" << std::endl;
-			for (int i = 0; i < 3; ++i){
-				if (mPeers[i] == peer+1) {
+			for (int i = 0; i < 3; ++i) {
+				if (mPeers[i] == peer + 1) {
 					mPeers[i] = -1;
 				}
 			}
@@ -105,23 +116,23 @@ void GameServer::UpdateServer() {
 	}
 }
 
-void GameServer::SetGameWorld(GameWorld &g) {
+void GameServer::SetGameWorld(GameWorld& g) {
 	mGameWorld = &g;
 }
 
-void GameServer::AddPeer(int peerNumber) const
-{
+void GameServer::AddPeer(int peerNumber) {
 	int emptyIndex = mClientMax;
 	for (int i = 0; i < mClientMax; i++) {
-		if (mPeers[i] == peerNumber){
+		if (mPeers[i] == peerNumber) {
 			return;
 		}
 		if (mPeers[i] == -1) {
 			emptyIndex = std::min(i, emptyIndex);
 		}
 	}
-	if (emptyIndex < mClientMax){
+	if (emptyIndex < mClientMax) {
 		mPeers[emptyIndex] = peerNumber;
+		mClientCount++;
 	}
 }
 #endif

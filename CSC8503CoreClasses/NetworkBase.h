@@ -34,7 +34,21 @@ enum BasicNetworkMessages {
 	ClientInit,
 	SyncPlayerIdNameMap,
 	SyncAnnouncements,
-	GuardSpotSound
+	GuardSpotSound,
+	DistributedClientConnectedToManager,
+	DistributedPhysicsClientConnectedToManager,
+	DistributedPhysicsServerAllClientsAreConnected,
+	DistributedClientConnectToPhysicsServer,
+	DistributedClientsGameServersAreReady,
+};
+
+enum DistributedSystemClientType {
+	DistributedGameClient,
+	DistributedPhysicsClient
+};
+
+enum DistributedSystemServerType {
+	
 };
 
 struct GamePacket {

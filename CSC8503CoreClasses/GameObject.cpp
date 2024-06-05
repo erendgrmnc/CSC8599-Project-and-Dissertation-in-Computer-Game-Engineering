@@ -8,7 +8,10 @@
 #include "NetworkObject.h"
 #include "../CSC8503/LevelManager.h"
 #include "../CSC8503/MultiplayerGameScene.h"
+#if !defined(DISTRIBUTEDSYSTEMACTIVE)
 #include "../CSC8503/SceneManager.h"
+#endif
+
 #include "Debug.h"
 
 
@@ -25,28 +28,28 @@ namespace {
 		{GameObject::GameObjectState::Point, "Point"},
 		{GameObject::GameObjectState::Default, "Default"},
 	};
-	
+
 }
 
-GameObject::GameObject(CollisionLayer collisionLayer, const std::string& objectName)	{
+GameObject::GameObject(CollisionLayer collisionLayer, const std::string& objectName) {
 
-	mName			= objectName;
-	mWorldID			= -1;
-	mIsRendered		= true;
-	mHasPhysics		= true;
-	mBoundingVolume	= nullptr;
-	mPhysicsObject	= nullptr;
-	mRenderObject	= nullptr;
-	mNetworkObject	= nullptr;
+	mName = objectName;
+	mWorldID = -1;
+	mIsRendered = true;
+	mHasPhysics = true;
+	mBoundingVolume = nullptr;
+	mPhysicsObject = nullptr;
+	mRenderObject = nullptr;
+	mNetworkObject = nullptr;
 	mSoundObject = nullptr;
 	mCollisionLayer = collisionLayer;
-	
+
 	mObjectState = Idle;
 
 	mIsPlayer = false;
 }
 
-GameObject::~GameObject()	{
+GameObject::~GameObject() {
 	delete mBoundingVolume;
 	delete mPhysicsObject;
 	delete mRenderObject;
@@ -58,7 +61,7 @@ GameObject::~GameObject()	{
 }
 
 #ifdef USEGL
-void GameObject::SetIsSensed(bool sensed){
+void GameObject::SetIsSensed(bool sensed) {
 	mRenderObject->SetOutlined(sensed);
 }
 
@@ -71,7 +74,7 @@ void GameObject::SetNetworkObject(NetworkObject* netObj) {
 	netObj->SetGameObject(*this);
 }
 #endif
-bool GameObject::GetBroadphaseAABB(Vector3&outSize) const {
+bool GameObject::GetBroadphaseAABB(Vector3& outSize) const {
 	if (!mBoundingVolume) {
 		return false;
 	}
@@ -106,7 +109,7 @@ void GameObject::UpdateBroadphaseAABB() {
 void GameObject::UpdateObject(float dt) {
 #ifdef USEPROSPERO
 	if (mRenderObject) {
-		if(mRenderObject->GetAnimationObject())
+		if (mRenderObject->GetAnimationObject())
 			mRenderObject->GetAnimationObject()->Update(dt);
 	}
 #endif
@@ -116,21 +119,31 @@ void GameObject::SetObjectState(GameObjectState state) {
 	if (mObjectState == state) {
 		return;
 	}
-	
+
 	mObjectState = state;
-	if (mRenderObject->GetAnimationObject() != nullptr ) {
+	if (mRenderObject->GetAnimationObject() != nullptr) {
+
+#if !defined(DISTRIBUTEDSYSTEMACTIVE)
 		AnimationSystem* animSystem = LevelManager::GetLevelManager()->GetAnimationSystem();
 		animSystem->SetAnimationState(this, mObjectState);
+#else
+
+#endif
 	}
 
 #ifdef USEGL
 	if (mNetworkObject) {
+#if !defined(DISTRIBUTEDSYSTEMACTIVE)
 		SceneManager* sceneManager = SceneManager::GetSceneManager();
 		bool isServer = sceneManager->IsServer();
 		if (isServer) {
 			MultiplayerGameScene* scene = static_cast<MultiplayerGameScene*>(sceneManager->GetCurrentScene());
 			scene->SendObjectStatePacket(mNetworkObject->GetnetworkID(), mObjectState);
 		}
+#else
+
+#endif
+
 	}
 #endif
 }
@@ -143,19 +156,19 @@ void GameObject::DrawCollisionVolume() {
 		AABBVolume* volume = (AABBVolume*)mBoundingVolume;
 		Debug::DrawCube(volume->GetHalfDimensions(), volume->GetOffset() + mTransform.GetPosition());
 	}
-		break;
+	break;
 	case VolumeType::OBB:
 	{
 		OBBVolume* volume = (OBBVolume*)mBoundingVolume;
 		Debug::DrawRotatedCube(volume->GetHalfDimensions(), volume->GetOffset() + mTransform.GetPosition(), mTransform.GetOrientation());
 	}
-		break;
+	break;
 	case VolumeType::Sphere:
 	{
 		SphereVolume* volume = (SphereVolume*)mBoundingVolume;
 		Debug::DrawSphere(volume->GetRadius(), volume->GetOffset() + mTransform.GetPosition());
 	}
-		break;
+	break;
 	}
 }
 

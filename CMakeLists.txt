@@ -7,6 +7,9 @@ project(CSC8508 CXX)
 set(CMAKE_CXX_STANDARD 20)
 add_compile_options(-std=c++20)
 
+set(CMAKE_DISTRIBUTED_SYSTEM_ACTIVE "true")
+set(CMAKE_BUILD_FOR_DISTRIBUTED_MANAGER "true")
+
 if(NOT CMAKE_VS_PLATFORM_NAME)
     set(CMAKE_VS_PLATFORM_NAME "x64")
 endif()
@@ -14,6 +17,13 @@ message("${CMAKE_VS_PLATFORM_NAME} architecture in use")
 
 if("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "x64")
     add_compile_definitions(USEGL)
+    if("${CMAKE_DISTRIBUTED_SYSTEM_ACTIVE}" STREQUAL "true")
+        add_compile_definitions(DISTRIBUTEDSYSTEMACTIVE)
+        if("${CMAKE_BUILD_FOR_DISTRIBUTED_MANAGER}" STREQUAL "true")
+            add_compile_definitions(BUILDFORDISTRIBUTEDMANAGER)
+        endif()
+    endif()
+    
 endif()
 
 if("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "Prospero")
@@ -49,7 +59,10 @@ add_compile_definitions("USEAGC")
 ################################################################################
 
 add_subdirectory(CSC8503)
+add_subdirectory(DistributedGameServer)
 add_subdirectory(CSC8503CoreClasses)
+add_subdirectory(DistributedPhysicsManager)
+add_subdirectory(ImguiSceneNode)
 add_subdirectory(NCLCoreClasses)
 add_subdirectory(EntryPoint)
 add_subdirectory(Detour)

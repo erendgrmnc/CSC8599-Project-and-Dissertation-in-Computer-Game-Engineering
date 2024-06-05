@@ -115,6 +115,12 @@ function(Create_CSC8503CoreClasses_Files_PC)
         "NetworkObject.cpp"
         "NetworkState.h"
         "NetworkState.cpp"
+        "DistributedPacketSenderServer.h"
+        "DistributedPacketSenderServer.cpp"
+        "DistributedPhysicsServerClient.h"
+        "DistributedPhysicsServerClient.cpp"
+        "DistributedPhysicsManagerServer.h"
+        "DistributedPhysicsManagerServer.cpp"
     )
     source_group("Networking" FILES ${Networking})
 

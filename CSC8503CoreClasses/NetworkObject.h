@@ -179,6 +179,39 @@ namespace NCL::CSC8503 {
 		GuardSpotSoundPacket(const int playerId);
 	};
 
+	struct DistributedClientConnectedToSystemPacket : public GamePacket {
+		int distributedClientType;
+
+		DistributedClientConnectedToSystemPacket(DistributedSystemClientType clientType);
+	};
+
+	struct DistributedPhysicsClientConnectedToManagerPacket : public GamePacket {
+		int phyiscsPacketDistributerPort;
+
+		DistributedPhysicsClientConnectedToManagerPacket(int port);
+	};
+
+	struct DistributedClientConnectToPhysicsServerPacket : public GamePacket {
+		int physicsPacketDistributerPort;
+		std::string ipAddress;
+		DistributedClientConnectToPhysicsServerPacket(int port, const std::string& ipAddress);
+	};
+
+	struct DistributedPhysicsServerAllClientsAreConnectedPacket : public GamePacket {
+		int gameServerId;
+		bool isGameServerReady;
+
+		DistributedPhysicsServerAllClientsAreConnectedPacket(int gameServerId, bool isGameServerReady);
+	};
+
+	struct DistributedClientsGameServersAreReadyPacket : public GamePacket {
+		//TODO(erendgrmnc: add ip and port information for clients to connect with additional required data)
+		std::string ipAddresses[2];
+		int ports[2];
+
+		DistributedClientsGameServersAreReadyPacket();
+	};
+
 	class NetworkObject {
 	public:
 		NetworkObject(GameObject& o, int id);

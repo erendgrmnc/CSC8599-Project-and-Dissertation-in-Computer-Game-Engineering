@@ -194,6 +194,40 @@ GuardSpotSoundPacket::GuardSpotSoundPacket(const int playerId) {
 	this->playerId = playerId;
 }
 
+DistributedClientConnectedToSystemPacket::DistributedClientConnectedToSystemPacket(DistributedSystemClientType clientType) {
+	type = BasicNetworkMessages::DistributedClientConnectedToManager;
+	size = sizeof(DistributedClientConnectedToSystemPacket);
+	this->distributedClientType = clientType;
+}
+
+DistributedPhysicsClientConnectedToManagerPacket::DistributedPhysicsClientConnectedToManagerPacket(int port) {
+	type = BasicNetworkMessages::DistributedPhysicsClientConnectedToManager;
+	size = sizeof(DistributedPhysicsClientConnectedToManagerPacket);
+
+	this->phyiscsPacketDistributerPort = port;
+}
+
+DistributedClientConnectToPhysicsServerPacket::DistributedClientConnectToPhysicsServerPacket(int port, const std::string& ipAddress) {
+	type = BasicNetworkMessages::DistributedClientConnectToPhysicsServer;
+	size = sizeof(DistributedClientConnectToPhysicsServerPacket);
+
+	this->physicsPacketDistributerPort = port;
+	this->ipAddress = ipAddress;
+}
+
+DistributedPhysicsServerAllClientsAreConnectedPacket::DistributedPhysicsServerAllClientsAreConnectedPacket(int gameServerId, bool isGameServerReady) {
+	type = BasicNetworkMessages::DistributedPhysicsServerAllClientsAreConnected;
+	size = sizeof(DistributedPhysicsServerAllClientsAreConnectedPacket);
+
+	this->isGameServerReady = isGameServerReady;
+	this->gameServerId = gameServerId;
+}
+
+DistributedClientsGameServersAreReadyPacket::DistributedClientsGameServersAreReadyPacket() {
+	type = BasicNetworkMessages::DistributedClientsGameServersAreReady;
+	size = sizeof(DistributedClientsGameServersAreReadyPacket);
+}
+
 NetworkObject::NetworkObject(GameObject& o, int id) : object(o) {
 	deltaErrors = 0;
 	fullErrors = 0;

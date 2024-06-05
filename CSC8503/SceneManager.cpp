@@ -1,10 +1,13 @@
 ﻿#include "SceneManager.h"
+
+#include "DistributedMultiplayerGameScene.h"
 #include "PushdownMachine.h"
 #include "MultiplayerGameScene.h"
 #include "MainMenuScene.h"
 #include "SceneStates.h"
 #include "GameSceneManager.h"
 #include "LevelManager.h"
+#include "DistributedMultiplayerGameScene.h"
 
 using namespace NCL::CSC8503;
 
@@ -24,7 +27,7 @@ void SceneManager::InitScenes() {
 	MainMenuScene* mainMenuScene = new MainMenuScene();
 	GameSceneManager* singlePlayerScene = new GameSceneManager();
 #ifdef USEGL
-	MultiplayerGameScene* multiplayerScene = new MultiplayerGameScene();
+	DistributedMultiplayerGameScene* multiplayerScene = new DistributedMultiplayerGameScene();
 #endif
 	mCurrentSceneType = Scenes::MainMenu;
 
@@ -69,7 +72,7 @@ bool SceneManager::IsInSingleplayer() const {
 }
 
 const bool SceneManager::IsServer() const {
-	return mIsServer;
+	return mIsServer || IsInSingleplayer();
 }
 
 void SceneManager::SetIsForceQuit(bool isForceQuit) {
