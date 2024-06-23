@@ -558,8 +558,12 @@ void GameTechRenderer::FillGBuffer() {
 		glBindBufferRange(GL_UNIFORM_BUFFER, objectsUBO, uBOBlocks[objectsUBO], i * sizeof(ObjectData), sizeof(float));
 		//Animation basic draw
 		if (mActiveObjects[i]->GetAnimationObject()) {
-			for (size_t b = 0; b < layerCount; ++b) {				
-				vector<Matrix4> frameMatrices = mActiveObjects[i]->GetFrameMatricesVec()[b];
+			for (size_t b = 0; b < layerCount; ++b) {
+				auto& frameMatriceVec = mActiveObjects[i]->GetFrameMatricesVec();
+				if (frameMatriceVec.size() == 0) {
+					continue;
+				}
+				vector<Matrix4> frameMatrices = frameMatriceVec[b];
 				Matrix4* frameData = new Matrix4[128];
 				glBindBufferBase(GL_UNIFORM_BUFFER, animFramesUBO, uBOBlocks[animFramesUBO]);
 				for (int i = 0; i < frameMatrices.size(); i++) frameData[i] = frameMatrices[i];

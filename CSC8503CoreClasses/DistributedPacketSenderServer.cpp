@@ -3,7 +3,7 @@
 #include "enet/enet.h"
 
 NCL::Networking::DistributedPacketSenderServer::DistributedPacketSenderServer(int onPort, int maxClients) : GameServer(onPort, maxClients){
-	std::cout << "Starting packet sender server on port: " << mPort << std::endl;
+	std::cout << "Starting packet sender server on port: " << mPort << '\n';
 }
 
 NCL::Networking::DistributedPacketSenderServer::~DistributedPacketSenderServer(){
@@ -15,6 +15,7 @@ void NCL::Networking::DistributedPacketSenderServer::UpdateServer() {
 
 	ENetEvent event;
 	while (enet_host_service(netHandle, &event, 0) > 0) {
+		std::cout << "Eren";
 		int type = event.type;
 		ENetPeer* p = event.peer;
 		int peer = p->incomingPeerID;
@@ -30,7 +31,6 @@ void NCL::Networking::DistributedPacketSenderServer::UpdateServer() {
 					mPeers[i] = -1;
 				}
 			}
-
 		}
 		else if (type == ENetEventType::ENET_EVENT_TYPE_RECEIVE) {
 			//std::cout << "Server: Has recieved packet" << std::endl;
@@ -43,6 +43,7 @@ void NCL::Networking::DistributedPacketSenderServer::UpdateServer() {
 
 void NCL::Networking::DistributedPacketSenderServer::AddPeer(int peerNumber) {
 	GameServer::AddPeer(peerNumber);
+	std::cout << "Game client connected\n";
 	if (mClientCount == mClientMax) {
 		TriggerOnAllClientsAreConnectedEvents();
 	}

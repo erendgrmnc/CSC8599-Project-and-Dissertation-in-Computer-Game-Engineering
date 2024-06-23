@@ -90,13 +90,13 @@ void MainMenuScene::DrawLevelSelectionPanel() {
 
 	ImGui::PushFont(mHeaderFont);
 	ImGui::SetCursorPos(ImVec2(windowSize.x * .2f, windowSize.y * .1f));
-	ImGui::TextColored(ImVec4(1, 0, 0, 1), "This Should Only Take A Minute");
+	ImGui::TextColored(ImVec4(1, 0, 0, 1), "Distributed System Client");
 	ImGui::PopFont();
 
-	ImGui::SetCursorPos(ImVec2(windowSize.x * .35f, windowSize.y * .55f));
+	/*ImGui::SetCursorPos(ImVec2(windowSize.x * .35f, windowSize.y * .55f));
 	if (ImGui::Button("Single-player", ImVec2(windowSize.x * .3f, windowSize.y * .1f))) {
 		mLevelSelectionState = LevelSelectionPanelStates::StartSingleplayer;
-	}
+	}*/
 
 	ImGui::SetCursorPos(ImVec2(windowSize.x * .35f, windowSize.y * .65f));
 	if (ImGui::Button("Multi-player", ImVec2(windowSize.x * .3f, windowSize.y * .1f))) {
@@ -109,9 +109,9 @@ void MainMenuScene::DrawLevelSelectionPanel() {
 	}
 	ImGui::PopFont();
 
-	ImGui::SetCursorPos(ImVec2(windowSize.x * .005f, windowSize.y * .96f));
-	ImTextureID texID = reinterpret_cast<ImTextureID>(static_cast<OGLTexture*>(LevelManager::GetLevelManager()->GetTexture("1pStudios"))->GetObjectID());
-	ImGui::Image(texID, ImVec2(windowSize.x * .2f, windowSize.y * 0.025f));
+	//ImGui::SetCursorPos(ImVec2(windowSize.x * .005f, windowSize.y * .96f));
+	//ImTextureID texID = reinterpret_cast<ImTextureID>(static_cast<OGLTexture*>(LevelManager::GetLevelManager()->GetTexture("1pStudios"))->GetObjectID());
+	//ImGui::Image(texID, ImVec2(windowSize.x * .2f, windowSize.y * 0.025f));
 #endif
 }
 

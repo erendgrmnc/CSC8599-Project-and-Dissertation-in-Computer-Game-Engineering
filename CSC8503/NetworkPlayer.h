@@ -17,6 +17,8 @@ namespace NCL {
 		struct PlayerInputs{
 			bool isSprinting = false;
 			bool isCrouching = false;
+			bool isUp = false;
+			bool isDown = false;
 			bool isEquippedItemUsed = false;
 			bool isInteractButtonPressed = false;
 			bool isHoldingInteractButton = false;

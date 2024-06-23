@@ -9,10 +9,10 @@
 #include "ServerWorldManager.h"
 
 namespace {
-	constexpr int TEST_MAX_CLIENT = 2;
+	constexpr int TEST_MAX_CLIENT = 1;
 }
 
-DistributedGameServer::DistributedGameServerManager::DistributedGameServerManager(int serverId) {
+DistributedGameServer::DistributedGameServerManager::DistributedGameServerManager(int serverId, const std::string& serverBordersStr) {
 	mGameServerId = serverId;
 
 	NetworkBase::Initialise();
@@ -84,6 +84,7 @@ void DistributedGameServer::DistributedGameServerManager::RegisterGameServerPack
 void DistributedGameServer::DistributedGameServerManager::RegisterPacketSenderServerPackets() {
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::ClientPlayerInputState, this);
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::ClientInit, this);
+	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedClientConnectToPhysicsServer, this);
 
 	std::function<void()> onAllClientsConnectedCallback = std::bind(&DistributedGameServerManager::SendAllClientsAreConnectedToPacketSenderServerPacket, this);
 	mDistributedPacketSenderServer->RegisterOnAllClientsAreConnectedEvent(onAllClientsConnectedCallback);
@@ -100,6 +101,10 @@ void DistributedGameServer::DistributedGameServerManager::ReceivePacket(int type
 	}
 	case BasicNetworkMessages::GameStartState: {
 		GameStartStatePacket* packet = static_cast<GameStartStatePacket*>(payload);
+		break;
+	}
+	case BasicNetworkMessages::DistributedClientConnectToPhysicsServer: {
+		//SendAllClientsAreConnectedToPacketSenderServerPacket();
 		break;
 	}
 	default:

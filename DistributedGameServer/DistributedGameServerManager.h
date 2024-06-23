@@ -26,7 +26,7 @@ namespace NCL {
 	namespace DistributedGameServer {
 		class DistributedGameServerManager : public PacketReceiver {
 		public:
-			DistributedGameServerManager(int serverId);
+			DistributedGameServerManager(int serverId, const std::string& serverBordersStr);
 			~DistributedGameServerManager();
 
 			NCL::Networking::DistributedPhysicsServerClient* GetDistributedPhysicsServer() const;

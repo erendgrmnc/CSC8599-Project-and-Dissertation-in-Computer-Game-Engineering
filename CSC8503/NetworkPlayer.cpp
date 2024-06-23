@@ -129,7 +129,7 @@ void NetworkPlayer::MovePlayer(float dt) {
 		ResetPlayerInput();
 		const Vector3 playerPos = mTransform.GetPosition();
 
-		//Debug::Print("Player Position: " + std::to_string(playerPos.x) + ", " + std::to_string(playerPos.y) + ", " + std::to_string(playerPos.z), Vector2(5, 30), Debug::MAGENTA);
+		Debug::Print("Player Position: " + std::to_string(playerPos.x) + ", " + std::to_string(playerPos.y) + ", " + std::to_string(playerPos.z), Vector2(5, 30), Debug::MAGENTA);
 
 		if (Window::GetKeyboard()->KeyDown(KeyCodes::W))
 			mPlayerInputs.movementButtons[MOVE_FORWARD_INDEX] = true;
@@ -145,6 +145,11 @@ void NetworkPlayer::MovePlayer(float dt) {
 
 		if (Window::GetKeyboard()->KeyDown(KeyCodes::SHIFT))
 			mPlayerInputs.isSprinting = true;
+
+		if (Window::GetKeyboard()->KeyDown(KeyCodes::SPACE))
+			mPlayerInputs.isUp = true;
+		if (Window::GetKeyboard()->KeyDown(KeyCodes::C))
+			mPlayerInputs.isDown = true;
 
 		if (Window::GetKeyboard()->KeyPressed(KeyCodes::CONTROL))
 			mPlayerInputs.isCrouching = true;
@@ -256,7 +261,16 @@ void NetworkPlayer::HandleMovement(float dt, const PlayerInputs& playerInputs) {
 
 	if (playerInputs.movementButtons[MOVE_RIGHT_INDEX])
 		mPhysicsObject->AddForce(rightAxis * mMovementSpeed);
-
+	if(playerInputs.isUp) {
+		Vector3 pos = this->GetTransform().GetPosition();
+		pos.y += 1;
+		this->GetTransform().SetPosition(pos);
+	}
+	if (playerInputs.isDown) {
+		Vector3 pos = this->GetTransform().GetPosition();
+		pos.y -= 1;
+		this->GetTransform().SetPosition(pos);
+	}
 	bool isIdle = true;
 	for (auto buttonState : mPlayerInputs.movementButtons)
 		if (buttonState)

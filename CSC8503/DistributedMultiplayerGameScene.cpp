@@ -47,7 +47,6 @@ bool DistributedMultiplayerGameScene::ConnectClientToDistributedGameServer(char 
 		client->RegisterPacketHandler(Player_Connected, this);
 		client->RegisterPacketHandler(Player_Disconnected, this);
 		client->RegisterPacketHandler(String_Message, this);
-
 	}
 
 	mDistributedPhysicsClients.push_back(client);
@@ -69,6 +68,10 @@ void DistributedMultiplayerGameScene::ReceivePacket(int type, GamePacket* payloa
 	case BasicNetworkMessages::DistributedClientConnectToPhysicsServer: {
 		DistributedClientConnectToPhysicsServerPacket* packet = static_cast<DistributedClientConnectToPhysicsServerPacket*>(payload);
 		HandleOnConnectToDistributedPhysicsServerPacketReceived(packet);
+		break;
+	}
+	case BasicNetworkMessages::GameStartState: {
+
 		break;
 	}
 	default:
@@ -93,7 +96,11 @@ void DistributedMultiplayerGameScene::HandleOnConnectToDistributedPhysicsServerP
 	std::vector<char> ipOctets = IpToCharArray(packet->ipAddress);
 	std::cout << "Connecting to connecting physics server on: " << packet->ipAddress << " | " << packet->physicsPacketDistributerPort << "\n";
 
-	ConnectClientToDistributedGameServer(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], packet->physicsPacketDistributerPort,"");;
+	ConnectClientToDistributedGameServer(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], packet->physicsPacketDistributerPort, "");
+}
+
+void DistributedMultiplayerGameScene::HandleGameStartPacketReceived(GameStartStatePacket* packet) {
+	mIsGameStarted = packet->isGameStarted;
 }
 
 std::vector<char> DistributedMultiplayerGameScene::IpToCharArray(const std::string& ipAddress) {

@@ -85,7 +85,7 @@ LevelManager::LevelManager() {
 #ifdef USEGL
 	loadSoundManager.join();
 
-    InitialiseMiniMap();
+	InitialiseMiniMap();
 #endif
 }
 
@@ -177,7 +177,7 @@ void LevelManager::ClearLevel() {
 	mGlobalSuspicionObserver.clear();
 	mInventoryBuffSystemClassPtr->Reset();
 	mSuspicionSystemClassPtr->Reset(mInventoryBuffSystemClassPtr);
-	if(mTempPlayer)mTempPlayer->ResetPlayerPoints();
+	if (mTempPlayer)mTempPlayer->ResetPlayerPoints();
 	mGuardObjects.clear();
 	mCCTVTransformList.clear();
 
@@ -192,14 +192,14 @@ void LevelManager::InitialiseGameAssets() {
 				Room* newRoom = new Room(entry.path().string());
 				mRoomList.push_back(newRoom);
 			}
-		});
+			});
 		mLevelList = std::vector<Level*>();
 		std::thread loadLevels([this] {
 			for (const filesystem::directory_entry& entry : std::filesystem::directory_iterator(Assets::LEVELDIR + "Levels")) {
 				Level* newLevel = new Level(entry.path().string());
 				mLevelList.push_back(newLevel);
 			}
-		});
+			});
 		InitialiseAssets();
 		InitialiseIcons();
 		InitialiseDebug();
@@ -225,6 +225,35 @@ void LevelManager::ResetLevel() {
 }
 
 void LevelManager::LoadLevel(int levelID, std::mt19937 seed, int playerID, bool isMultiplayer) {
+	if (levelID == 6) {
+		mActiveLevel = levelID;
+		mStartTimer = 5;
+		ClearLevel();
+		Transform transform = Transform();
+		Vector3 offset(0, 0, 0);
+		transform.SetPosition(offset);
+
+		AddFloorToWorld(transform, false);
+		LoadLights((*mLevelList[1]).GetLights(), Vector3(0, 0, 0));
+		//AddPlayerToWorld(transform, "Player");
+		mWorld->SortObjects();
+		SendWallFloorInstancesToGPU();
+		mRenderer->FillLightUBO();
+		mRenderer->FillTextureDataUBO();
+
+		mNavMeshThread = std::thread([this] {
+			mBuilder->BuildNavMesh(mLevelLayout);
+			LoadDoorsInNavGrid();
+			std::cout << "Nav Mesh Set\n";
+			});
+
+		mTimer = INIT_TIMER_VALUE;
+
+		mIsLevelInitialised = true;
+		mWorld->SortObjects();
+		return;
+	}
+
 	mIsServer = SceneManager::GetSceneManager()->IsServer();
 
 	if (levelID > mLevelList.size() - 1) return;
@@ -288,9 +317,9 @@ void LevelManager::LoadLevel(int levelID, std::mt19937 seed, int playerID, bool 
 	}
 #endif
 
-	LoadGuards((*mLevelList[levelID]).GetGuardCount(), isMultiplayer,seed);
-	LoadCCTVs(seed,isMultiplayer);
-  
+	LoadGuards((*mLevelList[levelID]).GetGuardCount(), isMultiplayer, seed);
+	LoadCCTVs(seed, isMultiplayer);
+
 	LoadItems(itemPositions, roomItemPositions, isMultiplayer, seed);
 	SendWallFloorInstancesToGPU();
 
@@ -401,7 +430,7 @@ void LevelManager::Update(float dt, bool isPlayingLevel, bool isPaused) {
 		mWorld->UpdateWorld(dt);
 		mRenderer->Update(dt);
 		if (mIsLevelInitialised) {
-			if (mIsServer){
+			if (mIsServer) {
 				mPhysics->Update(dt);
 			}
 			mAnimation->Update(dt, mUpdatableObjects);
@@ -520,8 +549,8 @@ void NCL::CSC8503::LevelManager::DebugUpdate(float dt, bool isPlayingLevel, bool
 }
 
 void LevelManager::FixedUpdate(float dt) {
-	mInventoryBuffSystemClassPtr->Update(dt);
-	mSuspicionSystemClassPtr->Update(dt);
+	//mInventoryBuffSystemClassPtr->Update(dt);
+	//mSuspicionSystemClassPtr->Update(dt);
 }
 
 void LevelManager::InitialiseAssets() {
@@ -822,7 +851,7 @@ void LevelManager::LoadItems(const std::vector<Vector3>& itemPositions, const st
 	int flagItem = dis(seed);
 	for (int i = 0; i < roomItemPositions.size(); i++) {
 		if (i == flagItem) {
-			mMainFlag = AddFlagToWorld(roomItemPositions[i], mInventoryBuffSystemClassPtr,mSuspicionSystemClassPtr,seed,isMultiplayer);
+			mMainFlag = AddFlagToWorld(roomItemPositions[i], mInventoryBuffSystemClassPtr, mSuspicionSystemClassPtr, seed, isMultiplayer);
 			continue;
 		}
 		if (!isMultiplayer) {
@@ -933,7 +962,7 @@ void LevelManager::LoadDecorations(const std::unordered_map<DecorationType, std:
 				offsetKey.SetScale((offsetKey.GetOrientation() * Vector3(7, 3, 3)).Abs());
 				mLevelLayout.push_back(AddDecorationToWorld(offsetKey, "Sofa"));
 				break;
-			case PoolTable: 
+			case PoolTable:
 				offsetKey.SetScale((offsetKey.GetOrientation() * Vector3(7, 4, 12)).Abs());
 				mLevelLayout.push_back(AddDecorationToWorld(offsetKey, "PoolTable"));
 				break;
@@ -1001,6 +1030,10 @@ void LevelManager::SetPlayersForGuards() const {
 
 void LevelManager::InitAnimationSystemObjects() const {
 	mAnimation->SetGameObjectLists(mUpdatableObjects);
+}
+
+void LevelManager::SetIsServer(bool isServer) {
+	mIsServer = isServer;
 }
 
 
@@ -1119,7 +1152,7 @@ void LevelManager::InitialiseIcons() {
 
 	UISystem::Icon* mNoticeBot = mUi->AddIcon(Vector2(45, 58), 8, 6, mTextures["UnLockDoor"], 0.0);
 	mUi->SetEquippedItemIcon(NOTICEBOT, *mNoticeBot);
-  
+
 	UISystem::Icon* mNoticeBotLeft = mUi->AddIcon(Vector2(39, 58), 8, 6, mTextures["UseScrewDriver"], 0.0);
 	mUi->SetEquippedItemIcon(NOTICEBOTLEFT, *mNoticeBotLeft);
 
@@ -1128,7 +1161,7 @@ void LevelManager::InitialiseIcons() {
 
 	UISystem::Icon* mNoticeTopRight = mUi->AddIcon(Vector2(52, 43), 8, 6, mTextures["HoldE"], 0.0);
 	mUi->SetEquippedItemIcon(NOTICETOPRIGHT, *mNoticeTopRight);
-  
+
 	mRenderer->SetUIObject(mUi);
 
 	mItemTextureMap = {
@@ -1144,7 +1177,7 @@ void LevelManager::InitialiseIcons() {
 
 void LevelManager::InitialiseMiniMap() {
 #ifdef USEGL
-    mMiniMap = new MiniMap(mRenderer);
+	mMiniMap = new MiniMap(mRenderer);
 #endif
 }
 
@@ -1238,7 +1271,7 @@ GameObject* LevelManager::AddFloorToWorld(const Transform& transform, bool isOut
 		mInstanceMatrices["Floor"].push_back(floor->GetTransform().GetMatrix());
 		if (mBaseObjects.find("Floor") == mBaseObjects.end()) mBaseObjects["Floor"] = floor;
 	}
-	else if(transform.GetPosition().y < 0) {
+	else if (transform.GetPosition().y < 0) {
 		floor->SetRenderObject(new RenderObject(&floor->GetTransform(), mMeshes["OutsideFloor"], mTextures["PavementAlbedo"], mTextures["PavementNormal"], mShaders["Instance"],
 			std::sqrt(std::pow(floorSize.x, 2) + std::powf(floorSize.z, 2))));
 		mInstanceMatrices["OutsideFloor"].push_back(floor->GetTransform().GetMatrix());
@@ -1299,7 +1332,7 @@ CCTV* LevelManager::AddCCTVToWorld(const Transform& transform, const bool isMult
 	camera->SetSoundObject(new SoundObject(mSoundManager->AddCCTVSpotSound()));
 #endif
 
-	if (!isMultiplayerLevel){
+	if (!isMultiplayerLevel) {
 		camera->SetPlayerObjectPtr(mTempPlayer);
 	}
 	mUpdatableObjects.push_back(camera);
@@ -1355,7 +1388,7 @@ Vent* LevelManager::AddVentToWorld(Vent* vent, bool isMultiplayerLevel) {
 	newVent->SetRenderObject(new RenderObject(&newVent->GetTransform(), mMeshes["Vent"], mTextures["VentAlbedo"], mTextures["VentNormal"], mShaders["Basic"],
 		std::sqrt(std::pow(size.x, 2) + std::powf(size.y, 2))));
 
-	
+
 #ifdef USEGL
 	newVent->SetSoundObject(new SoundObject());
 #endif
@@ -1392,7 +1425,7 @@ InteractableDoor* LevelManager::AddDoorToWorld(const Transform& transform, const
 		.SetScale(Vector3(1, 1, 1));
 
 	newDoor->SetRenderObject(new RenderObject(&newDoor->GetTransform(), mMeshes["Door"], mTextures["DoorAlbedo"], mTextures["DoorNormal"], mShaders["Basic"],
-		std::sqrt(std::pow(transform.GetScale().y/2, 2) + std::powf(transform.GetScale().z / 2, 2))));
+		std::sqrt(std::pow(transform.GetScale().y / 2, 2) + std::powf(transform.GetScale().z / 2, 2))));
 
 	bool isServer = SceneManager::GetSceneManager()->IsServer();
 	if (isServer) {
@@ -1405,7 +1438,7 @@ InteractableDoor* LevelManager::AddDoorToWorld(const Transform& transform, const
 #ifdef USEGL
 	newDoor->SetSoundObject(new SoundObject());
 #endif
-	
+
 	newDoor->SetCollisionLayer(NoSpecialFeatures);
 
 	if (isMultiplayerLevel) {
@@ -1438,7 +1471,7 @@ PrisonDoor* LevelManager::AddPrisonDoorToWorld(PrisonDoor* door, bool isMultipla
 	newDoor->SetRenderObject(new RenderObject(&newDoor->GetTransform(), mMeshes["Door"], mTextures["DoorAlbedo"], mTextures["DoorNormal"], mShaders["Basic"],
 		std::sqrt(std::pow(size.y, 2) + std::powf(size.z, 2))));
 
-	
+
 #ifdef USEGL
 	newDoor->SetSoundObject(new SoundObject());
 #endif
@@ -1465,8 +1498,8 @@ PrisonDoor* LevelManager::AddPrisonDoorToWorld(PrisonDoor* door, bool isMultipla
 	return newDoor;
 }
 
-FlagGameObject* LevelManager::AddFlagToWorld(const Vector3& position, InventoryBuffSystemClass* inventoryBuffSystemClassPtr, SuspicionSystemClass* suspicionSystemClassPtr, 
-	std::mt19937 seed,bool isMultiplayerLevel) {
+FlagGameObject* LevelManager::AddFlagToWorld(const Vector3& position, InventoryBuffSystemClass* inventoryBuffSystemClassPtr, SuspicionSystemClass* suspicionSystemClassPtr,
+	std::mt19937 seed, bool isMultiplayerLevel) {
 	FlagGameObject* flag = new FlagGameObject(inventoryBuffSystemClassPtr, suspicionSystemClassPtr);
 
 	flag->SetPoints(40);
@@ -1530,7 +1563,7 @@ PickupGameObject* LevelManager::AddPickupToWorld(const Vector3& position, Invent
 	pickup->GetTransform()
 		.SetScale(size * 2)
 		.SetPosition(position);
-  
+
 	pickup->SetRenderObject(new RenderObject(&pickup->GetTransform(), mMeshes["Toolbox"], mTextures["ToolboxAlbedo"], mTextures["ToolboxNormal"], mShaders["Basic"], 1));
 #ifdef USEGL
 	pickup->SetSoundObject(new SoundObject());
@@ -1566,7 +1599,7 @@ PointGameObject* LevelManager::AddPointObjectToWorld(const Vector3& position, in
 		.SetPosition(position);
 
 	pointObject->SetRenderObject(new RenderObject(&pointObject->GetTransform(), mMeshes["Coins"], mTextures["CoinsAlbedo"], mTextures["CoinsNormal"], mShaders["Basic"], 1));
-	
+
 #ifdef USEGL
 	pointObject->SetSoundObject(new SoundObject());
 #endif
@@ -1600,7 +1633,7 @@ PlayerObject* LevelManager::AddPlayerToWorld(const Transform& transform, const s
 	mWorld->GetMainCamera().SetYaw(transform.GetOrientation().ToEuler().y);
 
 #ifdef USEGL
-    mInventoryBuffSystemClassPtr->GetPlayerBuffsPtr()->Attach(mMiniMap);
+	mInventoryBuffSystemClassPtr->GetPlayerBuffsPtr()->Attach(mMiniMap);
 #endif
 
 	mWorld->AddGameObject(mTempPlayer);
@@ -1613,7 +1646,7 @@ PlayerObject* LevelManager::AddPlayerToWorld(const Transform& transform, const s
 }
 
 void LevelManager::CreatePlayerObjectComponents(PlayerObject& playerObject, const Vector3& position) {
-	CapsuleVolume* volume = new CapsuleVolume(1.4f, 1.0f, Vector3(0,2.f,0));
+	CapsuleVolume* volume = new CapsuleVolume(1.4f, 1.0f, Vector3(0, 2.f, 0));
 
 	playerObject.SetBoundingVolume((CollisionVolume*)volume);
 	playerObject.GetTransform()
@@ -1624,7 +1657,7 @@ void LevelManager::CreatePlayerObjectComponents(PlayerObject& playerObject, cons
 		PLAYER_MESH_SIZE));
 	playerObject.GetRenderObject()->SetAnimationObject(new AnimationObject(AnimationObject::AnimationType::playerAnimation, mAnimations["PlayerStand"]));
 
-	
+
 #ifdef USEGL
 	playerObject.SetSoundObject(new SoundObject(mSoundManager->AddWalkSound()));
 #endif

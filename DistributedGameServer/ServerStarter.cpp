@@ -71,6 +71,8 @@ int StartGameServer(int argc, char* argv[]) {
 	std::string ipAddress = argument.substr(0, separators[0]);
 	std::string portStr = argument.substr(separators[0] + 1, separators[1] - separators[0] - 1);
 	std::string serverIdStr = argument.substr(separators[1] + 1);
+	std::string serverBorders = argument.substr(separators[2] + 1);
+
 	int serverId = std::stoi(serverIdStr);
 
 	int port = ParsePortNumber(portStr);
@@ -78,12 +80,13 @@ int StartGameServer(int argc, char* argv[]) {
 	std::vector<char> ipOctets = ipv4_to_char_array(ipAddress);
 
 	// Now you have parsed IP address (e.g., store in a struct) and port number
-	std::cout << "Parsed IP address: " << ipAddress << std::endl;
-	std::cout << "Parsed port number: " << port << std::endl;
-	std::cout << "Parsed server ID: " << serverId << std::endl;
+	std::cout << "Parsed IP address: " << ipAddress << '\n';
+	std::cout << "Parsed port number: " << port << '\n';
+	std::cout << "Parsed server ID: " << serverId << '\n';
+	std::cout << "Parsed server borders string: " << serverBorders << '\n';
 
 
-	NCL::DistributedGameServer::DistributedGameServerManager* serverManager = new NCL::DistributedGameServer::DistributedGameServerManager(serverId);
+	NCL::DistributedGameServer::DistributedGameServerManager* serverManager = new NCL::DistributedGameServer::DistributedGameServerManager(serverId, serverBorders);
 	serverManager->StartDistributedGameServer(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], port);
 	NCL::GameTimer timer;
 

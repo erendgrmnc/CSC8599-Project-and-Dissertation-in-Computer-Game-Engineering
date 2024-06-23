@@ -37,7 +37,7 @@ namespace {
 
 }
 
-MultiplayerGameScene::MultiplayerGameScene() {
+MultiplayerGameScene::MultiplayerGameScene() : mPlayerPeerNameMap() {
 	mThisServer = nullptr;
 	mThisClient = nullptr;
 
@@ -74,19 +74,25 @@ bool MultiplayerGameScene::PlayerWonGame() {
 	}
 
 	//TODO(erendgrmnc): lots of func calls, optimize it(ex: cache variables).
-	std::tuple<bool, int> helipadCollisionResult = mLevelManager->GetHelipad()->GetCollidingWithPlayer();
-	bool isAnyPlayerOnHelipad = std::get<0>(helipadCollisionResult);
-	if (std::get<0>(helipadCollisionResult)) {
-		int playerIDOnHelipad = std::get<1>(helipadCollisionResult);
-		if (mLevelManager->GetInventoryBuffSystem()->GetPlayerInventoryPtr()->ItemInPlayerInventory(PlayerInventory::flag, playerIDOnHelipad)) {
-			if (mIsServer) {
-				SetIsGameFinished(true, playerIDOnHelipad);
-			}
-			if (mLocalPlayerId == playerIDOnHelipad) {
-				return true;
+
+	if (auto* helipad = mLevelManager->GetHelipad()) {
+		bool isAnyPlayerOnHelipad = false;
+		std::tuple<bool, int> helipadCollisionResult = helipad->GetCollidingWithPlayer();
+		isAnyPlayerOnHelipad  = std::get<0>(helipadCollisionResult);
+		if (std::get<0>(helipadCollisionResult)) {
+			int playerIDOnHelipad = std::get<1>(helipadCollisionResult);
+			if (mLevelManager->GetInventoryBuffSystem()->GetPlayerInventoryPtr()->ItemInPlayerInventory(PlayerInventory::flag, playerIDOnHelipad)) {
+				if (mIsServer) {
+					SetIsGameFinished(true, playerIDOnHelipad);
+				}
+				if (mLocalPlayerId == playerIDOnHelipad) {
+					return true;
+				}
 			}
 		}
 	}
+
+
 	return false;
 }
 
@@ -120,6 +126,7 @@ bool MultiplayerGameScene::StartAsServer(const std::string& playerName) {
 		AddToPlayerPeerNameMap(SERVER_PLAYER_PEER, playerName);
 
 		std::thread senderThread(&MultiplayerGameScene::SendPacketsThread, this);
+		mLevelManager->SetIsServer(true);
 		senderThread.detach();
 	}
 	return mThisServer;
@@ -153,7 +160,13 @@ bool MultiplayerGameScene::StartAsClient(char a, char b, char c, char d, const s
 		mThisClient->RegisterPacketHandler(BasicNetworkMessages::SyncPlayerIdNameMap, this);
 		mThisClient->RegisterPacketHandler(BasicNetworkMessages::SyncAnnouncements, this);
 		mThisClient->RegisterPacketHandler(BasicNetworkMessages::GuardSpotSound, this);
+		mThisClient->RegisterPacketHandler(DistributedClientConnectToPhysicsServer, this);
+
+		//FOR DISTRIBUTED SYSTEM TEST
+		//AddToPlayerPeerNameMap(SERVER_PLAYER_PEER, playerName);
 	}
+
+	mLevelManager->SetIsServer(false);
 
 	return isConnected;
 
@@ -266,7 +279,7 @@ void MultiplayerGameScene::ReceivePacket(int type, GamePacket* payload, int sour
 		GameStartStatePacket* packet = (GameStartStatePacket*)payload;
 		unsigned int seed = 0;
 
-		seed = std::stoul(packet->levelSeed);
+		seed = 0;//std::stoul(packet->levelSeed);
 		SetIsGameStarted(packet->isGameStarted, seed);
 		break;
 	}
@@ -349,6 +362,11 @@ void MultiplayerGameScene::ReceivePacket(int type, GamePacket* payload, int sour
 	case BasicNetworkMessages::GuardSpotSound: {
 		GuardSpotSoundPacket* packet = (GuardSpotSoundPacket*)(payload);
 		HandleGuardSpotSound(packet);
+		break;
+	}
+	case BasicNetworkMessages::DistributedClientConnectToPhysicsServer: {
+		DistributedClientConnectToPhysicsServerPacket* packet = static_cast<DistributedClientConnectToPhysicsServerPacket*>(payload);
+		HandleOnConnectToDistributedPhysicsServerPacketReceived(packet);
 		break;
 	}
 	default:
@@ -478,6 +496,10 @@ void MultiplayerGameScene::UpdateAsServer(float dt) {
 
 void MultiplayerGameScene::UpdateAsClient(float dt) {
 	mThisClient->UpdateClient();
+
+	for (const auto& client : mDistributedPhysicsClients) {
+		client->UpdateClient();
+	}
 }
 
 void MultiplayerGameScene::BroadcastSnapshot(bool deltaFrame) {
@@ -561,7 +583,7 @@ void MultiplayerGameScene::InitWorld(const std::mt19937& levelSeed) {
 	mLevelManager->GetGameWorld()->ClearAndErase();
 	mLevelManager->GetPhysics()->Clear();
 
-	mLevelManager->LoadLevel(LEVEL_NUM, levelSeed, 0, true);
+	mLevelManager->LoadLevel(6, levelSeed, 0, true);
 
 	SpawnPlayers();
 
@@ -579,11 +601,18 @@ void MultiplayerGameScene::SpawnPlayers() {
 	for (int i = 0; i < 4; i++) {
 		if (mPlayerList[i] != -1) {
 
-			const Vector3& pos = mLevelManager->GetPlayerStartPosition(i);
+			const Vector3 pos(0, 10, 0);///mLevelManager->GetPlayerStartPosition(i);
 			auto* netPlayer = AddPlayerObject(pos, i);
 			mServerPlayers.emplace(i, netPlayer);
-			mLevelManager->GetInventoryBuffSystem()->GetPlayerInventoryPtr()->Attach(netPlayer);
-			mLevelManager->GetInventoryBuffSystem()->GetPlayerBuffsPtr()->Attach(netPlayer);
+			if (PlayerInventoryObserver* const inventoryObserver = reinterpret_cast<PlayerInventoryObserver*>(netPlayer)) {
+				mLevelManager->GetInventoryBuffSystem()->GetPlayerInventoryPtr()->Attach(inventoryObserver);
+			}
+
+			if (PlayerBuffsObserver* const playerBuffsObserver = reinterpret_cast<PlayerBuffsObserver*>(netPlayer)){
+				mLevelManager->GetInventoryBuffSystem()->GetPlayerBuffsPtr()->Attach(playerBuffsObserver);
+			}
+
+			
 		}
 		else
 		{
@@ -777,7 +806,7 @@ void MultiplayerGameScene::HandleGuardSpotSound(GuardSpotSoundPacket* packet) co
 }
 
 void MultiplayerGameScene::AddToPlayerPeerNameMap(int playerId, const std::string& playerName) {
-	mPlayerPeerNameMap.insert(std::pair<int, std::string>(playerId, playerName));
+	mPlayerPeerNameMap.emplace(std::pair(playerId, playerName));
 	if (mThisServer) {
 		WriteAndSendSyncPlayerIdNameMapPacket();
 	}
@@ -800,6 +829,58 @@ void MultiplayerGameScene::HandleSyncPlayerIdNameMapPacket(const SyncPlayerIdNam
 			mPlayerPeerNameMap.insert(playerIdNamePair);
 		}
 	}
+}
+
+void MultiplayerGameScene::HandleOnConnectToDistributedPhysicsServerPacketReceived(
+	DistributedClientConnectToPhysicsServerPacket* packet) {
+
+	std::vector<char> ipOctets = IpToCharArray(packet->ipAddress);
+	std::cout << "Connecting to physics server on: " << packet->ipAddress << " | " << packet->physicsPacketDistributerPort << "\n";
+
+	ConnectClientToDistributedGameServer(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], packet->physicsPacketDistributerPort, "");
+}
+
+bool MultiplayerGameScene::ConnectClientToDistributedGameServer(char a, char b, char c, char d, int port,
+	const std::string& playerName) {
+		auto* client = new NCL::CSC8503::GameClient();
+		const bool isConnected = client->Connect(a, b, c, d, port, playerName);
+
+		if (isConnected) {
+			client->RegisterPacketHandler(Delta_State, this);
+			client->RegisterPacketHandler(Full_State, this);
+			client->RegisterPacketHandler(Player_Connected, this);
+			client->RegisterPacketHandler(Player_Disconnected, this);
+			client->RegisterPacketHandler(String_Message, this);
+		}
+
+		mDistributedPhysicsClients.push_back(client);
+
+		return isConnected;
+}
+
+std::vector<char> MultiplayerGameScene::IpToCharArray(const std::string& ipAddress) {
+	std::vector<std::string> ip_bytes;
+	std::stringstream ss(ipAddress);
+	std::string segment;
+
+	while (std::getline(ss, segment, '.')) {
+		ip_bytes.push_back(segment);
+	}
+
+	if (ip_bytes.size() != 4) {
+		throw std::invalid_argument("Invalid IPv4 address format");
+	}
+
+	std::vector<char> ip_packed;
+	for (const std::string& byte_str : ip_bytes) {
+		int byte_value = std::stoi(byte_str);
+		if (byte_value < 0 || byte_value > 255) {
+			throw std::invalid_argument("Invalid IPv4 address format");
+		}
+		ip_packed.push_back(static_cast<char>(byte_value));
+	}
+
+	return ip_packed;
 }
 
 void MultiplayerGameScene::ShowPlayerList() const {

@@ -15,6 +15,8 @@ public:
 	void ReceivePacket(int type, GamePacket* payload, int source) override;
 	void UpdatePhysicsClients(float dt) const;
 protected:
+	bool mIsGameStarted = false;
+
 	int mClientSideLastFullID;
 	int mServerSideLastFullID;
 
@@ -26,5 +28,6 @@ protected:
 	void SetItemsLeftToZero();
 
 	void HandleOnConnectToDistributedPhysicsServerPacketReceived(DistributedClientConnectToPhysicsServerPacket* packet);
+	void HandleGameStartPacketReceived(GameStartStatePacket* packet);
 	std::vector<char> IpToCharArray(const std::string& ipAddress);
 };

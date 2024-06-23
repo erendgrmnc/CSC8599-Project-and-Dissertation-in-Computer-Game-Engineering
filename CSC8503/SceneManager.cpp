@@ -27,7 +27,7 @@ void SceneManager::InitScenes() {
 	MainMenuScene* mainMenuScene = new MainMenuScene();
 	GameSceneManager* singlePlayerScene = new GameSceneManager();
 #ifdef USEGL
-	DistributedMultiplayerGameScene* multiplayerScene = new DistributedMultiplayerGameScene();
+	MultiplayerGameScene* multiplayerScene = new MultiplayerGameScene();
 #endif
 	mCurrentSceneType = Scenes::MainMenu;
 

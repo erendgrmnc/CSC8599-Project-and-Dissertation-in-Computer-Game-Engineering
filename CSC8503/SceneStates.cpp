@@ -94,7 +94,7 @@ PushdownState::PushdownResult ServerState::OnUpdate(float dt, PushdownState** ne
 
 void ServerState::OnAwake(){
 	SceneManager* sceneManager = SceneManager::GetSceneManager();
-	MultiplayerGameScene* server = (MultiplayerGameScene*)SceneManager::GetSceneManager()->GetScene(Scenes::Multiplayer);
+	MultiplayerGameScene* server = static_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetScene(Scenes::Multiplayer));
 
 	mHostedSuccessfully = server->StartAsServer(mPlayerName);
 	if (mHostedSuccessfully) {
@@ -129,9 +129,9 @@ PushdownState::PushdownResult ClientState::OnUpdate(float dt, PushdownState** ne
 
 void ClientState::OnAwake() {
 	SceneManager* sceneManager = SceneManager::GetSceneManager();
-	DistributedMultiplayerGameScene* client = static_cast<DistributedMultiplayerGameScene*>(SceneManager::GetSceneManager()->GetScene(Scenes::Multiplayer));
+	MultiplayerGameScene* client = static_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetScene(Scenes::Multiplayer));
 
-	mIsClientConnected = client->ConnectClientToDistributedManager(ipToConnect[0], ipToConnect[1], ipToConnect[2], ipToConnect[3], 1234);
+	mIsClientConnected = client->StartAsClient(ipToConnect[0], ipToConnect[1], ipToConnect[2], ipToConnect[3], mPlayerName);
 	if (mIsClientConnected) {
 		Window* w = Window::GetWindow();
 		w->ShowOSPointer(false);

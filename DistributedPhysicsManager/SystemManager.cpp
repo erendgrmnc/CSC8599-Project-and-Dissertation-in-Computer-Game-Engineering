@@ -95,6 +95,7 @@ void DistributedManager::SystemManager::HandleAllClientsConnectedToPhysicsServer
 		}
 
 		if (CheckIsGameStartable()) {
+			std::cout << "Starting Game!\n";
 			SendStartGameStatusPacket();
 		}
 	}

@@ -10,7 +10,8 @@
 
 namespace NCL::CSC8503
 {
-    struct SyncPlayerIdNameMapPacket;
+	struct DistributedClientConnectToPhysicsServerPacket;
+	struct SyncPlayerIdNameMapPacket;
 }
 
 namespace NCL::CSC8503
@@ -157,7 +158,12 @@ namespace NCL{
             void WriteAndSendSyncPlayerIdNameMapPacket() const;
             void HandleSyncPlayerIdNameMapPacket(const SyncPlayerIdNameMapPacket* packet);
 
-            void ShowPlayerList() const;
+            //Distributed System functions
+        	void HandleOnConnectToDistributedPhysicsServerPacketReceived(DistributedClientConnectToPhysicsServerPacket* packet);
+            bool ConnectClientToDistributedGameServer(char a, char b, char c, char d, int port, const std::string& playerName);
+        	std::vector<char> IpToCharArray(const std::string& ipAddress);
+
+        	void ShowPlayerList() const;
 
             std::vector<std::function<void()>> mOnGameStarts;
 
@@ -170,6 +176,7 @@ namespace NCL{
             std::mutex mPacketToSendQueueMutex;
 
             std::map<int, std::string> mPlayerPeerNameMap;
+            std::vector<NCL::CSC8503::GameClient*> mDistributedPhysicsClients;
         private:
         };
     }
