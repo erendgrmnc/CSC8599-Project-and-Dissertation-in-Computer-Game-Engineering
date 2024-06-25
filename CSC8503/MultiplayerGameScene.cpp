@@ -92,7 +92,6 @@ bool MultiplayerGameScene::PlayerWonGame() {
 		}
 	}
 
-
 	return false;
 }
 
@@ -585,7 +584,7 @@ void MultiplayerGameScene::InitWorld(const std::mt19937& levelSeed) {
 
 	mLevelManager->LoadLevel(6, levelSeed, 0, true);
 
-	SpawnPlayers();
+	//SpawnPlayers();
 
 	mLevelManager->SetPlayersForGuards();
 
@@ -611,7 +610,6 @@ void MultiplayerGameScene::SpawnPlayers() {
 			if (PlayerBuffsObserver* const playerBuffsObserver = reinterpret_cast<PlayerBuffsObserver*>(netPlayer)){
 				mLevelManager->GetInventoryBuffSystem()->GetPlayerBuffsPtr()->Attach(playerBuffsObserver);
 			}
-
 			
 		}
 		else

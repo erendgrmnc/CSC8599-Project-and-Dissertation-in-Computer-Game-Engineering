@@ -234,6 +234,9 @@ void LevelManager::LoadLevel(int levelID, std::mt19937 seed, int playerID, bool 
 		transform.SetPosition(offset);
 
 		AddFloorToWorld(transform, false);
+		transform.SetPosition(Vector3(0, 10, 0));
+		auto* sphere = AddObjectToWorld(transform);
+		AddNetworkObject(*sphere);
 		LoadLights((*mLevelList[1]).GetLights(), Vector3(0, 0, 0));
 		//AddPlayerToWorld(transform, "Player");
 		mWorld->SortObjects();
@@ -383,7 +386,10 @@ void LevelManager::Update(float dt, bool isPlayingLevel, bool isPaused) {
 		mGameState = LevelState;
 		if (mStartTimer > 0) {
 			if (mStartTimer == 5) {
-				mTempPlayer->UpdateObject(dt);
+				if (mTempPlayer != nullptr) {
+					mTempPlayer->UpdateObject(dt);
+				}
+
 			}
 			mStartTimer -= dt;
 			Debug::Print(to_string((int)mStartTimer + 1), Vector2(50, 50), Vector4(1, 1, 1, 1), 40.0f);
@@ -1257,11 +1263,13 @@ GameObject* LevelManager::AddCornerWallToWorld(const Transform& transform) {
 GameObject* LevelManager::AddFloorToWorld(const Transform& transform, bool isOutside) {
 	GameObject* floor = new GameObject(StaticObj, "Floor");
 
-	Vector3 floorSize = Vector3(4.5f, 0.5f, 4.5f);
+	//Vector3 floorSize = Vector3(4.5f, 0.5f, 4.5f);
+	//FOR DISTRIBUTED TEST
+	Vector3 floorSize = Vector3(1000, 2, 1000);
 	AABBVolume* volume = new AABBVolume(floorSize);
 	floor->SetBoundingVolume((CollisionVolume*)volume);
 	floor->GetTransform()
-		.SetScale(floorSize * 2)
+		.SetScale(floorSize * 1)
 		.SetPosition(transform.GetPosition())
 		.SetOrientation(transform.GetOrientation());
 
@@ -1302,6 +1310,31 @@ GameObject* LevelManager::AddFloorToWorld(const Transform& transform, bool isOut
 	if (transform.GetPosition().y < 0) mLevelLayout.push_back(floor);
 
 	return floor;
+}
+
+GameObject* LevelManager::AddObjectToWorld(const Transform& transform) {
+	GameObject* sphere = new GameObject();
+
+	float radius = 1.f;
+	Vector3 sphereSize = Vector3(radius, radius, radius);
+	SphereVolume* volume = new SphereVolume(radius);
+	sphere->SetBoundingVolume((CollisionVolume*)volume);
+
+	sphere->GetTransform()
+		.SetScale(sphereSize)
+		.SetPosition(transform.GetPosition());
+
+	sphere->SetRenderObject(new RenderObject(&sphere->GetTransform(), mMeshes["Sphere"], mTextures["FloorAlbedo"], mTextures["FloorNormal"], mShaders["Basic"],
+		std::sqrt(std::pow(sphereSize.x, 2) + std::powf(sphereSize.z, 2))));
+
+	sphere->SetPhysicsObject(new PhysicsObject(&sphere->GetTransform(), sphere->GetBoundingVolume()));
+
+	sphere->GetPhysicsObject()->SetInverseMass(0);
+	sphere->GetPhysicsObject()->InitSphereInertia(false);
+
+	mWorld->AddGameObject(sphere);
+
+	return sphere;
 }
 
 CCTV* LevelManager::AddCCTVToWorld(const Transform& transform, const bool isMultiplayerLevel) {
