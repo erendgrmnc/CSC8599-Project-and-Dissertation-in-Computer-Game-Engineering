@@ -21,11 +21,11 @@ NCL::DistributedGameServer::ServerWorldManager::ServerWorldManager() {
 	mNetworkIdBuffer = NETWORK_ID_BUFFER;
 
 	Transform offsetKey = Transform();
-	offsetKey.SetPosition(Vector3(0, -20, 0));
+	offsetKey.SetPosition(Vector3(0, 0, 0));
 	AddFloorWorld(offsetKey);
 
 	Transform networkObjOffsetKey = Transform();
-	offsetKey.SetPosition(Vector3(10, 10, 10));
+	offsetKey.SetPosition(Vector3(0, 10, 0));
 	auto* sphere = AddObjectToWorld(offsetKey);
 	AddNetworkObject(*sphere);
 }

@@ -71,6 +71,14 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 		}
 		if (mDistributedPacketSenderServer) {
 			mDistributedPacketSenderServer->UpdateServer();
+			mPacketsToSnapshot--;
+			if (mPacketsToSnapshot < 0) {
+				BroadcastSnapshot(false);
+				mPacketsToSnapshot = 5;
+			}
+			else {
+				BroadcastSnapshot(true);
+			}
 		}
 		mTimeToNextPacket += 1.0f / 60.0f; //20hz server/client update
 	}
@@ -101,10 +109,7 @@ void DistributedGameServer::DistributedGameServerManager::ReceivePacket(int type
 	}
 	case BasicNetworkMessages::GameStartState: {
 		GameStartStatePacket* packet = static_cast<GameStartStatePacket*>(payload);
-		break;
-	}
-	case BasicNetworkMessages::DistributedClientConnectToPhysicsServer: {
-		//SendAllClientsAreConnectedToPacketSenderServerPacket();
+		HandleGameStarted(packet);
 		break;
 	}
 	default:
@@ -157,7 +162,8 @@ void DistributedGameServer::DistributedGameServerManager::SendPacketsThread() {
 void DistributedGameServer::DistributedGameServerManager::HandleGameStarted(
 	CSC8503::GameStartStatePacket* gameStartPacket) {
 	mIsGameStarted = gameStartPacket->isGameStarted;
-	std::cout << "Game Started!" << "\n";
+	StartGame();
+	std::cout << "Game started packet received, starting server." << "\n";
 }
 
 void DistributedGameServer::DistributedGameServerManager::StartGame() {
