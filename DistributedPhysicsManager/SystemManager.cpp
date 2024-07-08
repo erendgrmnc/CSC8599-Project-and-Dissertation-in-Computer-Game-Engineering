@@ -7,8 +7,10 @@
 #include "NetworkBase.h"
 #include "NetworkObject.h"
 
-NCL::DistributedManager::SystemManager::SystemManager() {
+NCL::DistributedManager::SystemManager::SystemManager(int maxPhysicsServerCount) {
 	mDistributedPhysicsManagerServer = nullptr;
+	mMaxPhysicsServerCount = maxPhysicsServerCount;
+
 	NetworkBase::Initialise();
 }
 
@@ -94,6 +96,8 @@ void DistributedManager::SystemManager::HandleAllClientsConnectedToPhysicsServer
 			}
 		}
 
+		//TODO IFte hata var.
+
 		if (CheckIsGameStartable()) {
 			std::cout << "Starting Game!\n";
 			SendStartGameStatusPacket();
@@ -103,6 +107,10 @@ void DistributedManager::SystemManager::HandleAllClientsConnectedToPhysicsServer
 }
 
 bool DistributedManager::SystemManager::CheckIsGameStartable() {
+	if (mDistributedPhysicsServers.size() != mMaxPhysicsServerCount) {
+		return false;
+	}
+
 	for (const auto& server : mDistributedPhysicsServers) {
 		if (!server->isServerStarted || !server->isAllClientsConnectedToServer)
 			return false;

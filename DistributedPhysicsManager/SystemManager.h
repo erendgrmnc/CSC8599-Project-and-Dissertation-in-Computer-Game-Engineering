@@ -31,7 +31,7 @@ namespace NCL {
 
 		class SystemManager : public PacketReceiver {
 		public:
-			SystemManager();
+			SystemManager(int maxPhysicsServerCount);
 			~SystemManager();
 
 			bool GetIsServerRunning() const;
@@ -45,6 +45,7 @@ namespace NCL {
 			void AddServerData(DistributedPhysicsServerData& data);
 		protected:
 			bool mIsGameStarted = false;
+			int mMaxPhysicsServerCount = 0;
 
 			NCL::Networking::DistributedPhysicsManagerServer* mDistributedPhysicsManagerServer = nullptr;
 

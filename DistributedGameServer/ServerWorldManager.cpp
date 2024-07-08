@@ -2,32 +2,41 @@
 
 #include <fstream>
 
-#include "Assets.h"
 #include "GameWorld.h"
 #include "NetworkObject.h"
 #include "PhysicsObject.h"
 #include "PhysicsSystem.h"
+#include "TestObject.h"
+
 
 namespace {
 	constexpr int NETWORK_ID_BUFFER = 10;
 }
 
-NCL::DistributedGameServer::ServerWorldManager::ServerWorldManager() {
+NCL::DistributedGameServer::ServerWorldManager::ServerWorldManager(PhyscisServerBorderData& physcisServerBorderData) {
 	mGameWorld = new NCL::CSC8503::GameWorld();
 
+	mServerBorderData = &physcisServerBorderData;
+
 	mPhysics = new PhysicsSystem(*mGameWorld);
-	mPhysics->UseGravity(true);
+	mPhysics->UseGravity(false);
 
 	mNetworkIdBuffer = NETWORK_ID_BUFFER;
 
 	Transform offsetKey = Transform();
 	offsetKey.SetPosition(Vector3(0, 0, 0));
-	AddFloorWorld(offsetKey);
-
+	if (IsObjectInBorder(offsetKey.GetPosition())) {
+		AddFloorWorld(offsetKey);
+	}
+	
 	Transform networkObjOffsetKey = Transform();
 	offsetKey.SetPosition(Vector3(0, 10, 0));
-	auto* sphere = AddObjectToWorld(offsetKey);
-	AddNetworkObject(*sphere);
+	if (IsObjectInBorder(offsetKey.GetPosition())) {
+		std::cout << "Adding network object.\n";
+		auto* sphere = AddObjectToWorld(offsetKey);
+		mTestObjects.push_back(static_cast<TestObject*>(sphere));
+		AddNetworkObject(*sphere);
+	}
 }
 
 NCL::CSC8503::GameWorld* NCL::DistributedGameServer::ServerWorldManager::GetGameWorld() const {
@@ -35,6 +44,12 @@ NCL::CSC8503::GameWorld* NCL::DistributedGameServer::ServerWorldManager::GetGame
 }
 
 void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) const {
+	for (auto* testObject : mTestObjects) {
+		testObject->Update(dt);
+		std::cout << "ObjectPos: " << testObject->GetTransform().GetPosition() << "\n";
+	}
+
+
 	mGameWorld->UpdateWorld(dt);
 	mPhysics->Update(dt);
 }
@@ -51,8 +66,16 @@ void NCL::DistributedGameServer::ServerWorldManager::AddNetworkObjectToNetworkOb
 	mNetworkObjects.push_back(networkObj);
 }
 
+bool DistributedGameServer::ServerWorldManager::IsObjectInBorder(const Maths::Vector3& objectPosition) {
+	if (objectPosition.x >= mServerBorderData->minXVal && objectPosition.x < mServerBorderData->maxXVal &&
+		objectPosition.z >= mServerBorderData->minZVal && objectPosition.z <= mServerBorderData->maxZVal) {
+		return true;
+	}
+	return false;
+}
+
 NCL::CSC8503::GameObject* NCL::DistributedGameServer::ServerWorldManager::AddObjectToWorld(const Transform& transform) {
-	GameObject* sphere = new GameObject();
+	TestObject* sphere = new TestObject();
 
 	float radius = 1.f;
 	Vector3 sphereSize = Vector3(radius, radius, radius);
@@ -65,12 +88,12 @@ NCL::CSC8503::GameObject* NCL::DistributedGameServer::ServerWorldManager::AddObj
 
 	sphere->SetPhysicsObject(new PhysicsObject(&sphere->GetTransform(), sphere->GetBoundingVolume()));
 
-	sphere->GetPhysicsObject()->SetInverseMass(0);
+	sphere->GetPhysicsObject()->SetInverseMass(10.f);
 	sphere->GetPhysicsObject()->InitSphereInertia(false);
 
 	mGameWorld->AddGameObject(sphere);
 
-	return sphere;
+	return (GameObject*)sphere;
 }
 
 NCL::CSC8503::GameObject* NCL::DistributedGameServer::ServerWorldManager::AddFloorWorld(const CSC8503::Transform& transform) {

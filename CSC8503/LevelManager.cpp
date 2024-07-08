@@ -440,7 +440,7 @@ void LevelManager::Update(float dt, bool isPlayingLevel, bool isPaused) {
 				mPhysics->Update(dt);
 			}
 			mAnimation->Update(dt, mUpdatableObjects);
-		}
+		}	
 
 		if (mUpdatableObjects.size() > 0) {
 #ifdef USEGL
@@ -1316,6 +1316,7 @@ GameObject* LevelManager::AddObjectToWorld(const Transform& transform) {
 	GameObject* sphere = new GameObject();
 
 	float radius = 1.f;
+	radius *= 10;
 	Vector3 sphereSize = Vector3(radius, radius, radius);
 	SphereVolume* volume = new SphereVolume(radius);
 	sphere->SetBoundingVolume((CollisionVolume*)volume);
@@ -1324,8 +1325,9 @@ GameObject* LevelManager::AddObjectToWorld(const Transform& transform) {
 		.SetScale(sphereSize)
 		.SetPosition(transform.GetPosition());
 
-	sphere->SetRenderObject(new RenderObject(&sphere->GetTransform(), mMeshes["Sphere"], mTextures["FloorAlbedo"], mTextures["FloorNormal"], mShaders["Basic"],
+	sphere->SetRenderObject(new RenderObject(&sphere->GetTransform(), mMeshes["Sphere"], mTextures["Checkboard"], mTextures["FloorNormal"], mShaders["Basic"],
 		std::sqrt(std::pow(sphereSize.x, 2) + std::powf(sphereSize.z, 2))));
+	sphere->GetRenderObject()->SetColour(Vector4(0.0f, 0.4f, 0.2f, 1));
 
 	sphere->SetPhysicsObject(new PhysicsObject(&sphere->GetTransform(), sphere->GetBoundingVolume()));
 

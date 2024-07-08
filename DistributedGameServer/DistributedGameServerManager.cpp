@@ -16,7 +16,8 @@ DistributedGameServer::DistributedGameServerManager::DistributedGameServerManage
 	mGameServerId = serverId;
 
 	NetworkBase::Initialise();
-	mServerWorldManager = new ServerWorldManager();
+	PhyscisServerBorderData* serverBorderData = CreatePhysicsServerBorders(serverBordersStr);
+	mServerWorldManager = new ServerWorldManager(*serverBorderData);
 
 	bool isEmpty = mPacketToSendQueue.empty();
 	mTimeToNextPacket = 0.0f;
@@ -148,13 +149,15 @@ void DistributedGameServer::DistributedGameServerManager::BroadcastSnapshot(bool
 }
 
 void DistributedGameServer::DistributedGameServerManager::SendPacketsThread() {
-	std::lock_guard<std::mutex> lock(mPacketToSendQueueMutex);
-	if (mPacketToSendQueue.size() > 1 && !mPacketToSendQueue.empty()) {
+	while (mDistributedPacketSenderServer) {
+		std::lock_guard<std::mutex> lock(mPacketToSendQueueMutex);
+		if (mPacketToSendQueue.size() > 1 && !mPacketToSendQueue.empty()) {
 
-		GamePacket* packet = mPacketToSendQueue.front();
-		if (packet) {
-			mDistributedPacketSenderServer->SendGlobalPacket(*packet);
-			mPacketToSendQueue.pop();
+			GamePacket* packet = mPacketToSendQueue.front();
+			if (packet) {
+				mDistributedPacketSenderServer->SendGlobalPacket(*packet);
+				mPacketToSendQueue.pop();
+			}
 		}
 	}
 }
@@ -179,6 +182,48 @@ void DistributedGameServer::DistributedGameServerManager::SendPacketSenderServer
 	DistributedPhysicsClientConnectedToManagerPacket packet(port);
 	std::cout << "Sending packet distributer started packet...\n";
 	mThisDistributedPhysicsServer->SendPacket(packet);
+}
+
+DistributedGameServer::PhyscisServerBorderData* DistributedGameServer::DistributedGameServerManager::
+CreatePhysicsServerBorders(const std::string& borderString) {
+	// Create a new PhyscisServerBorderData object
+	PhyscisServerBorderData* borderData = new PhyscisServerBorderData();
+
+	// Find the position of the '|' separator
+	size_t separatorPos = borderString.find('|');
+	if (separatorPos == std::string::npos) {
+		// Handle the error if the separator is not found
+		return nullptr;
+	}
+
+	// Extract the minXVal/maxXVal part of the string
+	std::string xPart = borderString.substr(0, separatorPos);
+	// Extract the minZVal/maxZVal part of the string
+	std::string zPart = borderString.substr(separatorPos + 1);
+
+	// Find the position of the '/' separator in xPart
+	size_t xSeparatorPos = xPart.find('/');
+	if (xSeparatorPos == std::string::npos) {
+		// Handle the error if the separator is not found
+		return nullptr;
+	}
+
+	// Find the position of the '/' separator in zPart
+	size_t zSeparatorPos = zPart.find('/');
+	if (zSeparatorPos == std::string::npos) {
+		// Handle the error if the separator is not found
+		return nullptr;
+	}
+
+	// Parse the minXVal and maxXVal
+	borderData->minXVal = std::stoi(xPart.substr(0, xSeparatorPos));
+	borderData->maxXVal = std::stoi(xPart.substr(xSeparatorPos + 1));
+
+	// Parse the minZVal and maxZVal
+	borderData->minZVal = std::stoi(zPart.substr(0, zSeparatorPos));
+	borderData->maxZVal = std::stoi(zPart.substr(zSeparatorPos + 1));
+
+	return borderData;
 }
 
 NCL::Networking::DistributedPhysicsServerClient* DistributedGameServer::DistributedGameServerManager::GetDistributedPhysicsServer() const {

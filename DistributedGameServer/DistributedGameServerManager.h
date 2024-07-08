@@ -19,6 +19,7 @@ namespace NCL::CSC8503 {
 }
 
 namespace NCL::DistributedGameServer {
+	struct PhyscisServerBorderData;
 	class ServerWorldManager;
 }
 
@@ -69,6 +70,8 @@ namespace NCL {
 			NCL::Networking::DistributedPacketSenderServer* mDistributedPacketSenderServer = nullptr;
 
 			NCL::DistributedGameServer::ServerWorldManager* mServerWorldManager;
+
+			PhyscisServerBorderData* CreatePhysicsServerBorders(const std::string& borderString);
 		};
 	}
 }

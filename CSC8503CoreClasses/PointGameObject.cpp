@@ -19,17 +19,17 @@ PointGameObject::PointGameObject(int pointsWorth, float initCooldown){
 	mName = "PickupGameObject";
 
 	mStateMachine = new StateMachine();
-	State* WaitingState = new State([&](float dt) -> void
+	State* WaitingState = new State([&](float dt, GameObject* obj) -> void
 		{
 			this->Waiting(dt);
 		}
 	);
-	State* InnactiveState = new State([&](float dt) -> void
+	State* InnactiveState = new State([&](float dt, GameObject* obj) -> void
 		{
 			this->Deactivate(dt);
 		}
 	);
-	State* ActiveState = new State([&](float dt) -> void
+	State* ActiveState = new State([&](float dt, GameObject* obj) -> void
 		{
 			this->Activate(dt);
 		}

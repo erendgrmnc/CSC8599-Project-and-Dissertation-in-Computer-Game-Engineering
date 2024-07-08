@@ -14,13 +14,13 @@ StateGameObject::StateGameObject(const std::string objectName) {
 	stateMachine = new StateMachine();
 
 	// instantiate state machine states
-	State* stateA = new State([&](float dt)->void {
+	State* stateA = new State([&](float dt, GameObject* obj)->void {
 		this->MoveLeft(dt);
 		std::cout << "Moving Left" << std::endl;
 		}
 	);
 
-	State* stateB = new State([&](float dt)->void {
+	State* stateB = new State([&](float dt, GameObject* obj)->void {
 		this->MoveRight(dt);
 		std::cout << "Moving Right" << std::endl;
 		}

@@ -1,6 +1,7 @@
 #pragma once
 
 namespace NCL::CSC8503 {
+	class TestObject;
 	class GameObject;
 	class Transform;
 	class NetworkObject;
@@ -10,9 +11,18 @@ namespace NCL::CSC8503 {
 
 namespace NCL {
 	namespace DistributedGameServer {
+
+		struct PhyscisServerBorderData {
+			int maxZVal;
+			int minZVal;
+
+			int maxXVal;
+			int minXVal;
+		};
+
 		class ServerWorldManager {
 		public:
-			ServerWorldManager();
+			ServerWorldManager(PhyscisServerBorderData& physcisServerBorderData);
 
 			NCL::CSC8503::GameWorld* GetGameWorld() const;
 
@@ -25,11 +35,14 @@ namespace NCL {
 			int mNetworkIdBuffer;
 
 			std::vector<NCL::CSC8503::NetworkObject*> mNetworkObjects;
+			std::vector<NCL::CSC8503::TestObject*> mTestObjects;
 
 			NCL::CSC8503::GameWorld* mGameWorld;
 			NCL::CSC8503::PhysicsSystem* mPhysics;
+			NCL::DistributedGameServer::PhyscisServerBorderData* mServerBorderData;
 
 			void AddNetworkObjectToNetworkObjects(NCL::CSC8503::NetworkObject* networkObj);
+			bool IsObjectInBorder(const Maths::Vector3& objectPosition);
 		};
 	}
 }

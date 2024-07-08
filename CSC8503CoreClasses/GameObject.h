@@ -23,7 +23,7 @@ namespace NCL::CSC8503 {
 	class GameObject {
 	public:
 		GameObject(CollisionLayer = NoSpecialFeatures, const std::string& name = "");
-		~GameObject();
+		virtual ~GameObject();
 
 		enum GameObjectState {
 			Idle,

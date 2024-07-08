@@ -181,7 +181,7 @@ int ServerUpdater(DistributedManager::SystemManager& systemManager) {
 int StartProgram() {
 
 	std::cout << "-------------------------- Distributed Manager --------------------------\n";
-	systemManager = new DistributedManager::SystemManager();
+	systemManager = new DistributedManager::SystemManager(MAX_PHYSICS_SERVERS);
 
 	std::cout << "Starting server on port: " << SYSTEM_MANAGER_PORT << "\n";
 	systemManager->StartManagerServer(SYSTEM_MANAGER_PORT, MAX_PHYSICS_SERVERS + MAX_CLIENTS);

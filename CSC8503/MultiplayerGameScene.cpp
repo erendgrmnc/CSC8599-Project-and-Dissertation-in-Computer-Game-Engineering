@@ -440,12 +440,13 @@ void MultiplayerGameScene::SendPacketsThread() {
 			
 			GamePacket* packet = mPacketToSendQueue.front();
 			if (packet) {
+				std::cout << "Sending Global Packet\n";
 				mThisServer->SendGlobalPacket(*packet);
 				mPacketToSendQueue.pop();
 			}
 		}
 	}
-}
+} 
 
 GameClient* MultiplayerGameScene::GetClient() const {
 	return mThisClient;
@@ -503,7 +504,7 @@ void MultiplayerGameScene::UpdateAsClient(float dt) {
 
 void MultiplayerGameScene::BroadcastSnapshot(bool deltaFrame) {
 	std::vector<GameObject*>::const_iterator first;
-	std::vector<GameObject*>::const_iterator last;
+	std::vector<GameObject*>::const_iterator last;	
 
 	mLevelManager->GetGameWorld()->GetObjectIterators(first, last);
 

@@ -1,8 +1,9 @@
 #pragma once
+#include "GameObject.h"
 
 namespace NCL {
 	namespace CSC8503 {
-		typedef std::function<void(float)> StateUpdateFunction;
+		typedef std::function<void(float, GameObject*)> StateUpdateFunction;
 
 		class  State		{
 		public:
@@ -10,9 +11,9 @@ namespace NCL {
 			State(StateUpdateFunction someFunc) {
 				func		= someFunc;
 			}
-			void Update(float dt)  {
+			void Update(float dt, GameObject* object = nullptr)  {
 				if (func != nullptr) {
-					func(dt);
+					func(dt, object);
 				}
 			}
 		protected:
