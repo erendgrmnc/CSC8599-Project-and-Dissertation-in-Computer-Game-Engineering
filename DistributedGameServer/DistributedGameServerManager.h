@@ -4,6 +4,7 @@
 
 #include "DistributedPhysicsServerClient.h"
 #include "NetworkBase.h"
+#include "NetworkObject.h"
 
 namespace NCL::CSC8503 {
 	struct DistributedManagerAllGameServersAreConnectedPacket;
@@ -40,6 +41,8 @@ namespace NCL {
 			void UpdateGameServerManager(float dt);
 			void RegisterGameServerPackets();
 			void RegisterPacketSenderServerPackets();
+			void UpdateMinimumState();
+			void HandleClientPlayerInputPacket(ClientPlayerInputPacket* packet, int playerPeerID);
 			void ReceivePacket(int type, GamePacket* payload, int source) override;
 			void BroadcastSnapshot(bool deltaFrame);
 			void SendPacketsThread();
@@ -65,6 +68,8 @@ namespace NCL {
 			std::mutex mPacketToSendQueueMutex;
 
 			std::vector<CSC8503::NetworkObject*> mNetworkObjects;
+
+			std::map<int, int> mStateIDs;
 
 			NCL::Networking::DistributedPhysicsServerClient* mThisDistributedPhysicsServer = nullptr;
 			NCL::Networking::DistributedPacketSenderServer* mDistributedPacketSenderServer = nullptr;

@@ -64,8 +64,8 @@ void NCL::DistributedManager::SystemManager::SendStartGameStatusPacket() {
 }
 
 void DistributedManager::SystemManager::
-SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int port) const {
-	DistributedClientConnectToPhysicsServerPacket packet(port, ip);
+SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int serverID, const int port) const {
+	DistributedClientConnectToPhysicsServerPacket packet(port, serverID, ip);
 	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
 }
 
@@ -77,7 +77,7 @@ void DistributedManager::SystemManager::HandleDistributedPhysicsClientConnectedP
 	NCL::CSC8503::DistributedPhysicsClientConnectedToManagerPacket* packet) const {
 	std::cout << "Distributed Physics Server Info Packet Sent! Ip: 127.0.0.1 | port: " << packet->phyiscsPacketDistributerPort << std::endl;
 	int portForClientsToConnect = packet->phyiscsPacketDistributerPort;
-	SendDistributedPhysicsServerInfoToClients("127.0.0.1", portForClientsToConnect);
+	SendDistributedPhysicsServerInfoToClients("127.0.0.1", packet->physicsServerID, portForClientsToConnect);
 }
 
 void DistributedManager::SystemManager::HandleDistributedPhysicsServerAllClientsAreConnectedPacketReceived(

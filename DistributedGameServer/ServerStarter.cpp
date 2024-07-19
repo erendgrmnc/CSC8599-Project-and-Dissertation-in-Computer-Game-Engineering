@@ -97,14 +97,24 @@ int StartGameServer(int argc, char* argv[]) {
 		timer.Tick();
 		float dt = timer.GetTimeDeltaSeconds();
 		if (dt > 0.1f) {
-			//std::cout << "Skipping large time delta" << std::endl;
+			std::cout << "Skipping large time delta" << '\n';
 			continue; //must have hit a breakpoint or something to have a 1 second frame time!
 		}
 
-		serverManager->UpdateGameServerManager(dt);
 		if (serverManager->GetGameStarted()) {
 			serverManager->GetServerWorldManager()->Update(dt);
 		}
+
+		std::chrono::steady_clock::time_point start;
+		std::chrono::steady_clock::time_point end;
+		std::chrono::duration<double, std::milli> timeTaken;
+
+		start = std::chrono::high_resolution_clock::now();
+		serverManager->UpdateGameServerManager(dt);
+		end = std::chrono::high_resolution_clock::now();
+		timeTaken = end - start;
+		
+		//std::cout << "Network Update Time: " << timeTaken << "\n";
 	}
 
 	return 0;

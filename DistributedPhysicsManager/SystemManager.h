@@ -51,7 +51,7 @@ namespace NCL {
 
 			std::vector<DistributedPhysicsServerData*> mDistributedPhysicsServers;
 
-			void SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int port) const;
+			void SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int serverID, const int port) const;
 
 			void HandleDistributedClientConnectedPacketReceived(NCL::CSC8503::DistributedClientConnectedToSystemPacket* packet);
 			void HandleDistributedPhysicsClientConnectedPacketReceived(NCL::CSC8503::DistributedPhysicsClientConnectedToManagerPacket* packet) const;

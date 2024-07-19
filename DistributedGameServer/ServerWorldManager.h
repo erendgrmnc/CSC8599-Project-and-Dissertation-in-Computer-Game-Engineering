@@ -29,10 +29,13 @@ namespace NCL {
 			CSC8503::GameObject* AddObjectToWorld(const CSC8503::Transform& transform);
 			CSC8503::GameObject* AddFloorWorld(const CSC8503::Transform& transform);
 
-			void Update(float dt) const;
+			void Update(float dt);
 			void AddNetworkObject(CSC8503::GameObject& objToAdd);
 		protected:
 			int mNetworkIdBuffer;
+			double mPhysicsTime = 0;
+
+
 
 			std::vector<NCL::CSC8503::NetworkObject*> mNetworkObjects;
 			std::vector<NCL::CSC8503::TestObject*> mTestObjects;
@@ -42,7 +45,7 @@ namespace NCL {
 			NCL::DistributedGameServer::PhyscisServerBorderData* mServerBorderData;
 
 			void AddNetworkObjectToNetworkObjects(NCL::CSC8503::NetworkObject* networkObj);
-			bool IsObjectInBorder(const Maths::Vector3& objectPosition);
+			bool IsObjectInBorder(const Maths::Vector3& objectPosition, bool isNetworkObject);
 		};
 	}
 }

@@ -13,6 +13,9 @@ namespace {
 }
 
 DistributedGameServer::DistributedGameServerManager::DistributedGameServerManager(int serverId, const std::string& serverBordersStr) {
+	mDistributedPacketSenderServer = nullptr;
+	mThisDistributedPhysicsServer = nullptr;
+
 	mGameServerId = serverId;
 
 	NetworkBase::Initialise();
@@ -22,7 +25,7 @@ DistributedGameServer::DistributedGameServerManager::DistributedGameServerManage
 	bool isEmpty = mPacketToSendQueue.empty();
 	mTimeToNextPacket = 0.0f;
 	mPacketsToSnapshot = -1;
-
+	mServerSideLastFullID = 0;
 }
 
 DistributedGameServer::DistributedGameServerManager::~DistributedGameServerManager() {
@@ -64,24 +67,31 @@ bool DistributedGameServer::DistributedGameServerManager::GetGameStarted() const
 }
 
 void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManager(float dt) {
+	if (mThisDistributedPhysicsServer) {
+		mThisDistributedPhysicsServer->UpdatePhysicsServer();
+	}
 
-	mTimeToNextPacket -= dt;
-	if (mTimeToNextPacket < 0) {
-		if (mThisDistributedPhysicsServer) {
-			mThisDistributedPhysicsServer->UpdatePhysicsServer();
-		}
-		if (mDistributedPacketSenderServer) {
-			mDistributedPacketSenderServer->UpdateServer();
+	if (mDistributedPacketSenderServer) {
+		mDistributedPacketSenderServer->UpdateServer();
+	}
+
+	if (mIsGameStarted) {
+		mTimeToNextPacket -= dt;
+		//std::cout << "Time to next packet: " << mTimeToNextPacket << "\n";
+		//std::cout << "Packets To Snapshot: " << mPacketsToSnapshot << "\n";
+		if (mTimeToNextPacket < 0) {
 			mPacketsToSnapshot--;
 			if (mPacketsToSnapshot < 0) {
 				BroadcastSnapshot(false);
+				//std::cout << "Full packet sent. Last sent full ID: " << mServerSideLastFullID << "\n";
 				mPacketsToSnapshot = 5;
 			}
 			else {
 				BroadcastSnapshot(true);
+				//std::cout << "Delta packet. Last sent full ID: " << mServerSideLastFullID << "\n";
 			}
+			mTimeToNextPacket += 1.0f / 60.f; //20hz server/client update
 		}
-		mTimeToNextPacket += 1.0f / 60.0f; //20hz server/client update
 	}
 }
 
@@ -99,9 +109,41 @@ void DistributedGameServer::DistributedGameServerManager::RegisterPacketSenderSe
 	mDistributedPacketSenderServer->RegisterOnAllClientsAreConnectedEvent(onAllClientsConnectedCallback);
 }
 
-void DistributedGameServer::DistributedGameServerManager::ReceivePacket(int type, GamePacket* payload, int source) {
+void DistributedGameServer::DistributedGameServerManager::UpdateMinimumState() {
+	//Periodically remove old data from the server
+	int minID = INT_MAX;
+	int maxID = 0; //we could use this to see if a player is lagging behind?
 
-	std::cout << "Received Packet! " << "\n";
+	for (auto i : mStateIDs) {
+		minID = std::min(minID, i.second);
+		maxID = std::max(maxID, i.second);
+	}
+	//every client has acknowledged reaching at least state minID
+	//so we can get rid of any old states!
+	std::vector<GameObject*>::const_iterator first;
+	std::vector<GameObject*>::const_iterator last;
+	mServerWorldManager->GetGameWorld()->GetObjectIterators(first, last);
+	for (auto i = first; i != last; ++i) {
+		NetworkObject* o = (*i)->GetNetworkObject();
+		if (!o) {
+			continue;
+		}
+		o->UpdateStateHistory(minID); //clear out old states so they arent taking up memory...
+	}
+}
+
+void DistributedGameServer::DistributedGameServerManager::HandleClientPlayerInputPacket(ClientPlayerInputPacket* packet,
+                                                                                        int playerPeerID) {
+	//int playerIndex = GetPlayerPeerID(playerPeerId);
+	//auto* playerToHandle = mServerPlayers[playerIndex];
+
+	//playerToHandle->SetPlayerInput(clientPlayerInputPacket->playerInputs);
+	mServerSideLastFullID = packet->lastId;
+	mStateIDs[0] = mServerSideLastFullID;
+	UpdateMinimumState();
+}
+
+void DistributedGameServer::DistributedGameServerManager::ReceivePacket(int type, GamePacket* payload, int source) {
 	switch (type) {
 	case BasicNetworkMessages::String_Message: {
 		StringPacket* packet = static_cast<StringPacket*>(payload);
@@ -111,6 +153,11 @@ void DistributedGameServer::DistributedGameServerManager::ReceivePacket(int type
 	case BasicNetworkMessages::GameStartState: {
 		GameStartStatePacket* packet = static_cast<GameStartStatePacket*>(payload);
 		HandleGameStarted(packet);
+		break;
+	}
+	case BasicNetworkMessages::ClientPlayerInputState: {
+		ClientPlayerInputPacket* packet = (ClientPlayerInputPacket*)payload;
+		HandleClientPlayerInputPacket(packet, source + 1);
 		break;
 	}
 	default:
@@ -135,11 +182,9 @@ void DistributedGameServer::DistributedGameServerManager::BroadcastSnapshot(bool
 		//and store the lastID somewhere. A map between player
 		//and an int could work, or it could be part of a 
 		//NetworkPlayer struct. 
-		int playerState = o->GetLatestNetworkState().stateID;
 		GamePacket* newPacket = nullptr;
-		if (o->WritePacket(&newPacket, deltaFrame, mServerSideLastFullID)) {
+		if (o->WritePacket(&newPacket, deltaFrame, mServerSideLastFullID, mGameServerId)) {
 			if (newPacket != nullptr) {
-
 				//TODO(erendgrmnc): create a thread safe queue for servers to send state packets.
 				std::lock_guard<std::mutex> lock(mPacketToSendQueueMutex);
 				mPacketToSendQueue.push(newPacket);
@@ -151,7 +196,7 @@ void DistributedGameServer::DistributedGameServerManager::BroadcastSnapshot(bool
 void DistributedGameServer::DistributedGameServerManager::SendPacketsThread() {
 	while (mDistributedPacketSenderServer) {
 		std::lock_guard<std::mutex> lock(mPacketToSendQueueMutex);
-		if (mPacketToSendQueue.size() > 1 && !mPacketToSendQueue.empty()) {
+		if (mPacketToSendQueue.size() > 1 && !mPacketToSendQueue.empty() && mIsGameStarted) {
 
 			GamePacket* packet = mPacketToSendQueue.front();
 			if (packet) {
@@ -179,7 +224,7 @@ void DistributedGameServer::DistributedGameServerManager::SendAllClientsAreConne
 }
 
 void DistributedGameServer::DistributedGameServerManager::SendPacketSenderServerStartedPacket(int port) const {
-	DistributedPhysicsClientConnectedToManagerPacket packet(port);
+	DistributedPhysicsClientConnectedToManagerPacket packet(port, mGameServerId);
 	std::cout << "Sending packet distributer started packet...\n";
 	mThisDistributedPhysicsServer->SendPacket(packet);
 }
