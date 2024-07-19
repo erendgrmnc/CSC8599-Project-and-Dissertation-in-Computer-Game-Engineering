@@ -200,18 +200,20 @@ DistributedClientConnectedToSystemPacket::DistributedClientConnectedToSystemPack
 	this->distributedClientType = clientType;
 }
 
-DistributedPhysicsClientConnectedToManagerPacket::DistributedPhysicsClientConnectedToManagerPacket(int port) {
+DistributedPhysicsClientConnectedToManagerPacket::DistributedPhysicsClientConnectedToManagerPacket(int port, int physicsServerID) {
 	type = BasicNetworkMessages::DistributedPhysicsClientConnectedToManager;
 	size = sizeof(DistributedPhysicsClientConnectedToManagerPacket);
 
 	this->phyiscsPacketDistributerPort = port;
+	this->physicsServerID = physicsServerID;
 }
 
-DistributedClientConnectToPhysicsServerPacket::DistributedClientConnectToPhysicsServerPacket(int port, const std::string& ipAddress) {
+DistributedClientConnectToPhysicsServerPacket::DistributedClientConnectToPhysicsServerPacket(int port, int physicsServerID, const std::string& ipAddress) {
 	type = BasicNetworkMessages::DistributedClientConnectToPhysicsServer;
 	size = sizeof(DistributedClientConnectToPhysicsServerPacket);
 
 	this->physicsPacketDistributerPort = port;
+	this->physicsServerID = physicsServerID;
 	this->ipAddress = ipAddress;
 }
 
@@ -259,6 +261,17 @@ bool NetworkObject::WritePacket(GamePacket** p, bool deltaFrame, int stateID) {
 	}
 	return WriteFullPacket(p);
 }
+
+bool NetworkObject::WritePacket(GamePacket** p, bool deltaFrame, int stateID, int gameServerID) {
+	if (deltaFrame) {
+		if (!WriteDeltaPacket(p, stateID, gameServerID)) {
+			return WriteFullPacket(p, gameServerID);
+		}
+		return true;
+	}
+	return WriteFullPacket(p, gameServerID);
+}
+
 //Client objects recieve these packets
 bool NetworkObject::ReadDeltaPacket(DeltaPacket &p) {
 	// if the delta packets full state is not the same as the last examined full state we discard it
@@ -285,8 +298,10 @@ bool NetworkObject::ReadDeltaPacket(DeltaPacket &p) {
 
 bool NetworkObject::ReadFullPacket(FullPacket &p) {
 	// if packet is old discard
-	if (p.fullState.stateID < lastFullState.stateID)
+	if (p.fullState.stateID < lastFullState.stateID) {
+		std::cout << "Discarding Packet\n";
 		return false;
+	}
 
 	lastFullState = p.fullState;
 
@@ -344,18 +359,70 @@ bool NetworkObject::WriteFullPacket(GamePacket**p) {
 	return true;
 }
 
+bool NetworkObject::WriteFullPacket(GamePacket** p, int gameServerID) {
+	FullPacket* fp = new FullPacket();
+
+	fp->objectID = networkID;
+	fp->fullState.position = object.GetTransform().GetPosition();
+	fp->fullState.orientation = object.GetTransform().GetOrientation();
+	fp->fullState.stateID = lastFullState.stateID++;
+	fp->serverID = gameServerID;
+	stateHistory.emplace_back(fp->fullState);
+	*p = fp;
+
+	return true;
+}
+
+bool NetworkObject::WriteDeltaPacket(GamePacket** p, int stateID, int gameServerID) {
+	DeltaPacket* dp = new DeltaPacket();
+	NetworkState state;
+
+	// if we cant get network objects state we fail
+	if (!GetNetworkState(stateID, state))
+		return false;
+
+	// tells packet what state it is a delta of
+	dp->fullID = stateID;
+	dp->objectID = networkID;
+
+	Vector3 currentPos = object.GetTransform().GetPosition();
+	Quaternion currentOrientation = object.GetTransform().GetOrientation();
+
+	// find difference between current game states orientation + position and the selected states orientation + position
+	currentPos -= state.position;
+	currentOrientation -= state.orientation;
+
+	dp->pos[0] = (char)currentPos.x;
+	dp->pos[1] = (char)currentPos.y;
+	dp->pos[2] = (char)currentPos.z;
+
+	dp->orientation[0] = (char)(currentOrientation.x * 127.0f);
+	dp->orientation[1] = (char)(currentOrientation.y * 127.0f);
+	dp->orientation[2] = (char)(currentOrientation.z * 127.0f);
+	dp->orientation[3] = (char)(currentOrientation.w * 127.0f);
+
+	dp->serverID = gameServerID;
+	*p = dp;
+
+	return true;
+}
+
 NetworkState& NetworkObject::GetLatestNetworkState() {
 	return lastFullState;
 }
 
 bool NetworkObject::GetNetworkState(int stateID, NetworkState& state) {
+
 	// get a state ID from state history if needed
-	for (auto i = stateHistory.begin(); i < stateHistory.end(); i++) {
+	for (auto i = stateHistory.begin(); i < stateHistory.end(); ++i) {
 		if ((*i).stateID == stateID) {
 			state = (*i);
+			std::cout << "Successfully find network state.State ID: " << stateID << "\n";
 			return true;
+
 		}
 	}
+	std::cout << "Couldn't find state for ID: " << stateID << ", stateHistorySize: " << stateHistory.size() << "\n";
 	return false;
 }
 
@@ -363,10 +430,12 @@ void NetworkObject::UpdateStateHistory(int minID) {
 	// once a client has accepted a delta packet or a network state has been
 	// recieved then we can clear past state histories as they are not needed
 	for (auto i = stateHistory.begin(); i < stateHistory.end();) {
-		if ((*i).stateID < minID)
+		if ((*i).stateID < minID) {
+			std::cout << "Removing State: " << i->stateID << "\n";
 			i = stateHistory.erase(i);
+		}
 		else
-			i++;
+			++i;
 	}
 }
 #endif

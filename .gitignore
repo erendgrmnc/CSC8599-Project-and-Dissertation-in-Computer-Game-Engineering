@@ -20,6 +20,15 @@ _deps
 CSC8503/Debug
 EntryPoint/Debug
 EntryPoint/Release
+DistributedGameServer/Debug
+DistributedGameServer/Release
+DistributedPhysicsManager/Debug
+DistributedPhysicsManager/Release
+ImguiSceneNode/Release
+ImguiSceneNode/Debug
+DistributedPhysicsManager/DistributedPhysicsManager.dir/Debug
+DistributedGameServer/DistributedGameServer.dir/Debug
+ImguiSceneNode/ImguiSceneNode.dir/Debug
 CSC8503CoreClasses/Debug
 CSC8503CoreClasses/CSC8503CoreClasses.dir/Debug
 ALL_BUILD.vcxproj

@@ -1,3 +1,4 @@
+#include "Ray.h"
 #ifdef USEGL
 #pragma once
 #include "NetworkBase.h"
@@ -11,6 +12,28 @@ namespace NCL::CSC8503{
 
 namespace NCL {
 	namespace CSC8503 {
+
+		struct PlayerInputs {
+			bool isSprinting = false;
+			bool isCrouching = false;
+			bool isUp = false;
+			bool isDown = false;
+			bool isEquippedItemUsed = false;
+			bool isInteractButtonPressed = false;
+			bool isHoldingInteractButton = false;
+
+			int leftHandItemId = 0;
+			int rightHandItemId = 0;
+
+			bool movementButtons[4] = { false };
+
+			float cameraYaw;
+
+			Maths::Vector3 fwdAxis;
+			Maths::Vector3 rightAxis;
+			Maths::Ray rayFromPlayer;
+		};
+
 		class GameObject;
 		class GameClient : public NetworkBase {
 		public:
@@ -19,13 +42,16 @@ namespace NCL {
 
 			int GetPeerID() const;
 
+			const int GetClientLastFullID() const;
+			void SetClientLastFullID(const int clientLastFullID);
+
 			bool Connect(uint8_t a, uint8_t b, uint8_t c, uint8_t d, int portNum, const std::string& playerName);
 
 			void SendPacket(GamePacket&  payload);
 
 			virtual bool UpdateClient();
 
-			void WriteAndSendClientInputPacket(int lastId, const PlayerInputs& playerInputs);
+			void WriteAndSendClientInputPacket();
 
 			void WriteAndSendClientUseItemPacket(int playerID, int objectID);
 
@@ -40,15 +66,19 @@ namespace NCL {
 			void WriteAndSendInventoryPacket(int playerNo, int invSlot, int inItem, int usageCount);
 
 			void WriteAndSendSyncLocationSusChangePacket(int cantorPairedLocation, int changedValue);
+
+			void SetPlayerInputs(PlayerInputs& playerInputs);
 		protected:
 			bool mIsConnected;
 
 			int mPeerId;
+			int mClientSideLastFullID;
 
 			std::string mPlayerName;
 			
 			_ENetPeer*	mNetPeer;
 			float mTimerSinceLastPacket;
+			PlayerInputs* mPlayerInputs;
 
 			void SendClientInitPacket();
 		};

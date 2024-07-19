@@ -25,11 +25,21 @@ NCL::CSC8503::TestObject::TestObject() {
 	stateMachine->AddState(stateB);
 
 	StateTransition* stateTransitionAB = new StateTransition(stateA, stateB, [&]()-> bool {
-		return this->counter > 3.f;
+		if (this->counter > 3.f) {
+			mIsForceAdded = false;
+
+			return true;
+		}
+		return false;
 		});
 
 	StateTransition* stateTransitionBA = new StateTransition(stateB, stateA, [&]()->bool {
-		return this->counter < 0.f;
+		if (this->counter > 0.f) {
+			mIsForceAdded = false;
+
+			return true;
+		}
+		return false;
 		});
 
 	stateMachine->AddTransition(stateTransitionAB);
@@ -71,11 +81,12 @@ void NCL::CSC8503::TestObject::AddStateTransitions(std::vector<StateTransition*>
 }
 
 void TestObject::MoveLeft(float dt) {
-	GetPhysicsObject()->AddForce({ -0.01, 0,0 });
+	GetPhysicsObject()->AddForce({ -40, 0,0 });
+
 	counter += dt;
 }
 
 void TestObject::MoveRight(float dt) {
-	GetPhysicsObject()->AddForce({ 0.01,0,0 });
+	GetPhysicsObject()->AddForce({ 40, 0,0 });
 	counter -= dt;
 }

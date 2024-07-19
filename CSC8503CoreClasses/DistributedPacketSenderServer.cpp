@@ -15,7 +15,6 @@ void NCL::Networking::DistributedPacketSenderServer::UpdateServer() {
 
 	ENetEvent event;
 	while (enet_host_service(netHandle, &event, 0) > 0) {
-		std::cout << "Eren";
 		int type = event.type;
 		ENetPeer* p = event.peer;
 		int peer = p->incomingPeerID;

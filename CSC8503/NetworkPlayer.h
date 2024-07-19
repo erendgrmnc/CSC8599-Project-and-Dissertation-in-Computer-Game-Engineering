@@ -1,10 +1,11 @@
+
 #ifdef USEGL
 #pragma once
-#include "GameObject.h"
+
+#include "GameClient.h"
 #include "PlayerObject.h"
 #include "../CSC8503/InventoryBuffSystem/InventoryBuffSystem.h"
 #include "../CSC8503/SuspicionSystem/SuspicionSystem.h"
-#include "Ray.h"
 
 namespace NCL::CSC8503{
 	class MultiplayerGameScene;
@@ -14,27 +15,6 @@ namespace NCL {
 	namespace CSC8503 {
 		class NetworkedGame;
 
-		struct PlayerInputs{
-			bool isSprinting = false;
-			bool isCrouching = false;
-			bool isUp = false;
-			bool isDown = false;
-			bool isEquippedItemUsed = false;
-			bool isInteractButtonPressed = false;
-			bool isHoldingInteractButton = false;
-
-			int leftHandItemId = 0;
-			int rightHandItemId = 0;
-			
-			bool movementButtons[4] = {false};
-
-			float cameraYaw;
-
-			Vector3 fwdAxis;
-			Vector3 rightAxis;
-			Ray rayFromPlayer;
-		};
-		
 		class NetworkPlayer : public PlayerObject, public PlayerBuffsObserver, public PlayerInventoryObserver {
 		public:
 			NetworkPlayer(NetworkedGame* game, int num);

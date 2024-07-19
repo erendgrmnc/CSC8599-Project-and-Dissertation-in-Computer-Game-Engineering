@@ -13,14 +13,25 @@ GameClient::GameClient()	{
 	mTimerSinceLastPacket = 0.0f;
 	mPeerId = -1;
 	mIsConnected = false;
+	mPlayerInputs = new PlayerInputs();
+	mClientSideLastFullID = -1;
 }
 
 GameClient::~GameClient()	{
 	enet_host_destroy(netHandle);
+	delete mPlayerInputs;
 }
 
 int GameClient::GetPeerID() const {
 	return mPeerId;
+}
+
+const int GameClient::GetClientLastFullID() const {
+	return mClientSideLastFullID;
+}
+
+void GameClient::SetClientLastFullID(const int clientLastFullID) {
+	mClientSideLastFullID = clientLastFullID;
 }
 
 bool GameClient::Connect(uint8_t a, uint8_t b, uint8_t c, uint8_t d, int portNum, const std::string& playerName) {
@@ -70,8 +81,8 @@ bool GameClient::UpdateClient() {
 	return true;
 }
 
-void GameClient::WriteAndSendClientInputPacket(int lastId, const PlayerInputs& playerInputs){
-	ClientPlayerInputPacket packet(lastId, playerInputs);
+void GameClient::WriteAndSendClientInputPacket(){
+	ClientPlayerInputPacket packet(mClientSideLastFullID, *mPlayerInputs);
 	this->SendPacket(packet);
 }
 
@@ -133,4 +144,8 @@ void GameClient::WriteAndSendSyncLocationSusChangePacket(int cantorPairedLocatio
 	ClientSyncLocationSusChangePacket packet(cantorPairedLocation, changedValue);
 	this->SendPacket(packet);
 }
-#endif#
+
+void GameClient::SetPlayerInputs(PlayerInputs& playerInputs) {
+	mPlayerInputs = &playerInputs;
+}
+#endif

@@ -19,6 +19,7 @@ namespace NCL {
             void AddStateTransitions(std::vector<StateTransition*>& stateTransitions);
 
         protected:
+            bool mIsForceAdded = false;
             void MoveLeft(float dt);
             void MoveRight(float dt);
 

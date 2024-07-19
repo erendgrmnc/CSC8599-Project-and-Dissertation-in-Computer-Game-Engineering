@@ -10,6 +10,7 @@ namespace NCL::CSC8503 {
 
 	struct FullPacket : public GamePacket {
 		int		objectID = -1;
+		int serverID = -1;
 		NetworkState fullState;
 
 		FullPacket() {
@@ -21,6 +22,7 @@ namespace NCL::CSC8503 {
 	struct DeltaPacket : public GamePacket {
 		int		fullID		= -1;
 		int		objectID	= -1;
+		int serverID = -1;
 		char	pos[3];
 		char	orientation[4];
 
@@ -186,15 +188,17 @@ namespace NCL::CSC8503 {
 	};
 
 	struct DistributedPhysicsClientConnectedToManagerPacket : public GamePacket {
+		int physicsServerID;
 		int phyiscsPacketDistributerPort;
 
-		DistributedPhysicsClientConnectedToManagerPacket(int port);
+		DistributedPhysicsClientConnectedToManagerPacket(int port, int physicsServerID);
 	};
 
 	struct DistributedClientConnectToPhysicsServerPacket : public GamePacket {
 		int physicsPacketDistributerPort;
+		int physicsServerID;
 		std::string ipAddress;
-		DistributedClientConnectToPhysicsServerPacket(int port, const std::string& ipAddress);
+		DistributedClientConnectToPhysicsServerPacket(int port, int physicsServerID, const std::string& ipAddress);
 	};
 
 	struct DistributedPhysicsServerAllClientsAreConnectedPacket : public GamePacket {
@@ -221,6 +225,7 @@ namespace NCL::CSC8503 {
 		virtual bool ReadPacket(GamePacket& p);
 		//Called by servers
 		virtual bool WritePacket(GamePacket** p, bool deltaFrame, int stateID);
+		virtual bool WritePacket(GamePacket** p, bool deltaFrame, int stateID, int gameServerID);
 
 		GameObject& GetGameObject() { return object; }
 
@@ -241,6 +246,9 @@ namespace NCL::CSC8503 {
 
 		virtual bool WriteDeltaPacket(GamePacket**p, int stateID);
 		virtual bool WriteFullPacket(GamePacket**p);
+
+		virtual bool WriteFullPacket(GamePacket** p, int gameServerID);
+		virtual bool WriteDeltaPacket(GamePacket** p, int stateID, int gameServerID);
 
 		GameObject& object;
 

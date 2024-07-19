@@ -58,8 +58,6 @@ namespace NCL{
             bool PlayerLostGame() override;
             const bool GetIsGameStarted() const;
 
-            const int GetClientLastFullID() const;
-
             bool StartAsServer(const std::string& playerName);
             bool StartAsClient(char a, char b, char c, char d, const std::string& playerName);
 	
@@ -160,7 +158,7 @@ namespace NCL{
 
             //Distributed System functions
         	void HandleOnConnectToDistributedPhysicsServerPacketReceived(DistributedClientConnectToPhysicsServerPacket* packet);
-            bool ConnectClientToDistributedGameServer(char a, char b, char c, char d, int port, const std::string& playerName);
+            bool ConnectClientToDistributedGameServer(char a, char b, char c, char d, int port, int gameServerID, const std::string& playerName);
         	std::vector<char> IpToCharArray(const std::string& ipAddress);
 
         	void ShowPlayerList() const;
@@ -169,14 +167,13 @@ namespace NCL{
 
             int mNetworkObjectCache = 10;
 
-            int mClientSideLastFullID;
             int mServerSideLastFullID;
 
             std::queue<GamePacket*> mPacketToSendQueue;
             std::mutex mPacketToSendQueueMutex;
 
             std::map<int, std::string> mPlayerPeerNameMap;
-            std::vector<NCL::CSC8503::GameClient*> mDistributedPhysicsClients;
+            std::map<int, NCL::CSC8503::GameClient*> mDistributedPhysicsClients;
         private:
         };
     }

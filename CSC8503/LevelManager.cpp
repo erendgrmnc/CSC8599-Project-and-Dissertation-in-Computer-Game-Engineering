@@ -234,9 +234,15 @@ void LevelManager::LoadLevel(int levelID, std::mt19937 seed, int playerID, bool 
 		transform.SetPosition(offset);
 
 		AddFloorToWorld(transform, false);
+
 		transform.SetPosition(Vector3(0, 10, 0));
 		auto* sphere = AddObjectToWorld(transform);
 		AddNetworkObject(*sphere);
+
+		transform.SetPosition(Vector3(-20, 10, 20));
+		auto* sphereTwo = AddObjectToWorld(transform);
+		AddNetworkObject(*sphereTwo);
+
 		LoadLights((*mLevelList[1]).GetLights(), Vector3(0, 0, 0));
 		//AddPlayerToWorld(transform, "Player");
 		mWorld->SortObjects();

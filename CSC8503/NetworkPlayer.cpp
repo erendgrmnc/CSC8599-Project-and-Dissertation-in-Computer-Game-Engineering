@@ -75,6 +75,7 @@ void NetworkPlayer::SetCameraYaw(float cameraYaw) {
 
 void NetworkPlayer::ResetPlayerInput() {
 	mPlayerInputs = PlayerInputs();
+	game->GetClient()->SetPlayerInputs(mPlayerInputs);
 }
 
 void NetworkPlayer::UpdateObject(float dt) {
@@ -208,7 +209,7 @@ void NetworkPlayer::MovePlayer(float dt) {
 		const Vector3 rightAxis = mGameWorld->GetMainCamera().GetRightVector();
 		mPlayerInputs.fwdAxis = fwdAxis;
 		mPlayerInputs.rightAxis = rightAxis;
-		game->GetClient()->WriteAndSendClientInputPacket(game->GetClientLastFullID(), mPlayerInputs);
+		game->GetClient()->SetPlayerInputs(mPlayerInputs);
 	}
 	else if (isServer) {
 
