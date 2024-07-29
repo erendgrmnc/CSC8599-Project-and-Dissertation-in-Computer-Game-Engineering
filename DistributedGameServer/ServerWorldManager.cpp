@@ -12,6 +12,7 @@
 
 namespace {
 	constexpr int NETWORK_ID_BUFFER = 10;
+	constexpr float PREDICTION_STEP = 0.1f;
 }
 
 NCL::DistributedGameServer::ServerWorldManager::ServerWorldManager(PhyscisServerBorderData& physcisServerBorderData) {
@@ -71,8 +72,7 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	start = std::chrono::high_resolution_clock::now();
 	mPhysics->Update(dt);
 
-	float predictionTime = 1.f;
-	mPhysics->PredictFuturePositions(predictionTime);
+	mPhysics->PredictFuturePositions(PREDICTION_STEP);
 
 	end = std::chrono::high_resolution_clock::now();
 	timeTaken = end - start;
