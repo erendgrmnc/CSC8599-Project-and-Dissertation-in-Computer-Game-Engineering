@@ -98,6 +98,7 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 void DistributedGameServer::DistributedGameServerManager::RegisterGameServerPackets() {
 	mThisDistributedPhysicsServer->RegisterPacketHandler(String_Message, this);
 	mThisDistributedPhysicsServer->RegisterPacketHandler(BasicNetworkMessages::GameStartState, this);
+	mThisDistributedPhysicsServer->RegisterPacketHandler(BasicNetworkMessages::StartDistributedPhysicsServer, this);
 }
 
 void DistributedGameServer::DistributedGameServerManager::RegisterPacketSenderServerPackets() {
@@ -133,7 +134,7 @@ void DistributedGameServer::DistributedGameServerManager::UpdateMinimumState() {
 }
 
 void DistributedGameServer::DistributedGameServerManager::HandleClientPlayerInputPacket(ClientPlayerInputPacket* packet,
-                                                                                        int playerPeerID) {
+	int playerPeerID) {
 	//int playerIndex = GetPlayerPeerID(playerPeerId);
 	//auto* playerToHandle = mServerPlayers[playerIndex];
 
@@ -158,6 +159,11 @@ void DistributedGameServer::DistributedGameServerManager::ReceivePacket(int type
 	case BasicNetworkMessages::ClientPlayerInputState: {
 		ClientPlayerInputPacket* packet = (ClientPlayerInputPacket*)payload;
 		HandleClientPlayerInputPacket(packet, source + 1);
+		break;
+	}
+	case BasicNetworkMessages::StartDistributedPhysicsServer: {
+		StartDistributedGameServerPacket* packet = static_cast<StartDistributedGameServerPacket*>(payload);
+		HandleStartGameServerPacketReceived(packet);
 		break;
 	}
 	default:
@@ -269,6 +275,27 @@ CreatePhysicsServerBorders(const std::string& borderString) {
 	borderData->maxZVal = std::stoi(zPart.substr(zSeparatorPos + 1));
 
 	return borderData;
+}
+
+void DistributedGameServer::DistributedGameServerManager::HandleStartGameServerPacketReceived(
+	StartDistributedGameServerPacket* packet) {
+	std::cout << "Paket Geldi\n";
+	if (packet == nullptr) {
+		std::cout << "Null geldi" << "\n";
+		return;
+	}
+
+	if (packet->serverID != mGameServerId)
+		return;
+	else {
+		std::cout << "Server ID: " << packet->serverID << "\n";
+	}
+
+	for (int i = 0; i < packet->currentServerCount; i++) {
+		PhyscisServerBorderData* serverBorderData = CreatePhysicsServerBorders(packet->borders[i]);
+		std::pair<int, PhyscisServerBorderData*> pair = std::make_pair(packet->serverIDs[i], serverBorderData);
+		mPhysicsServerBorderMap.insert(pair);
+	}
 }
 
 NCL::Networking::DistributedPhysicsServerClient* DistributedGameServer::DistributedGameServerManager::GetDistributedPhysicsServer() const {

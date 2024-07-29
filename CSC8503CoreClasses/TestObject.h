@@ -24,7 +24,6 @@ namespace NCL {
             void MoveRight(float dt);
 
             StateMachine* stateMachine;
-            float counter;
         };
     }
 }

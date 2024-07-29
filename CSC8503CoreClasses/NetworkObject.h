@@ -216,6 +216,16 @@ namespace NCL::CSC8503 {
 		DistributedClientsGameServersAreReadyPacket();
 	};
 
+	struct StartDistributedGameServerPacket : public GamePacket {
+		int serverManagerPort;
+		int serverID;
+		int currentServerCount;
+
+		int serverIDs[20];
+		std::string borders[20];
+		StartDistributedGameServerPacket(int serverManagerPort, int serverID, const std::map<int, const std::string>& serverBorderMap);
+	};
+
 	class NetworkObject {
 	public:
 		NetworkObject(GameObject& o, int id);

@@ -27,60 +27,9 @@ namespace {
 
 	int CREATED_PHYSICS_SERVER_BUFFER = 0;
 
-	constexpr int GAME_AREA_MIN_X = -500;
-	constexpr int GAME_AREA_MAX_X = 500;
-
-	constexpr int GAME_AREA_MIN_Z = -500;
-	constexpr int GAME_AREA_MAX_Z = 500;
 }
 
 DistributedManager::SystemManager* systemManager = nullptr;
-
-struct GameBorder {
-	double maxX = 0.f;
-	double minX = 0.f;
-	double	 minZ = 0.f;
-	double maxZ = 0.f;
-
-	GameBorder(double minX, double maxX, double minZ, double maxZ) {
-		this->maxX = maxX;
-		this->minX = minX;
-		this->minZ = minZ;
-		this->maxZ = maxZ;
-	}
-};
-
-GameBorder& CalculateServerBorders(int serverNum) {
-	if (serverNum < 0 || serverNum >= MAX_PHYSICS_SERVERS) {
-		throw std::out_of_range("Server number out of range");
-	}
-
-	GameBorder* border = new GameBorder(0.f, 0.f, 0.f, 0.f);
-	double sqrt = 0.f;
-	sqrt = std::sqrt(2);
-	double ceilVal = std::ceil(sqrt);
-	int numCols = static_cast<int>(ceilVal);
-	int numRows = static_cast<int>(std::ceil(static_cast<double>(2) / numCols));
-
-	int rectWidth = (GAME_AREA_MAX_X - GAME_AREA_MIN_X) / numCols;
-	int rectHeight = (GAME_AREA_MAX_Z - GAME_AREA_MIN_Z) / numRows;
-
-	int row = serverNum / numCols;
-	int col = serverNum % numCols;
-
-	border->minX = GAME_AREA_MIN_X + col * rectWidth;
-	border->minZ = GAME_AREA_MIN_Z + row * rectHeight;
-	border->maxX = (col == numCols - 1) ? GAME_AREA_MAX_Z : (border->minX + rectWidth);
-	border->maxZ = (row == numRows - 1) ? GAME_AREA_MAX_Z : (border->minZ + rectHeight);
-
-	return *border;
-}
-
-std::string GetServerAreaString(const GameBorder& borders) {
-	std::stringstream ss;
-	ss << borders.minX << "/" << borders.maxX << "|" << borders.minZ << "/" << borders.maxZ;
-	return ss.str();
-}
 
 void SetUpPCInputDevices(Window* w) {
 	w->ShowOSPointer(false);
@@ -148,9 +97,7 @@ void StartInstance(int port) {
 
 	int physicsServerId = CREATED_PHYSICS_SERVER_BUFFER++;
 
-	GameBorder borders = CalculateServerBorders(physicsServerId);
-
-	std::string serverBordersStr = GetServerAreaString(borders);
+	const std::string& serverBordersStr = systemManager->GetServerAreaString(physicsServerId);
 
 	std::string arguments = "--arg1 127.0.0.1-" + std::to_string(port) + "-" + std::to_string(physicsServerId) + "-" + serverBordersStr;
 

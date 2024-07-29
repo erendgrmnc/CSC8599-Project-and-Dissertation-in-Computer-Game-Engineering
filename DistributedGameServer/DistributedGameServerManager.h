@@ -70,6 +70,7 @@ namespace NCL {
 			std::vector<CSC8503::NetworkObject*> mNetworkObjects;
 
 			std::map<int, int> mStateIDs;
+			std::map<const int, PhyscisServerBorderData*> mPhysicsServerBorderMap;
 
 			NCL::Networking::DistributedPhysicsServerClient* mThisDistributedPhysicsServer = nullptr;
 			NCL::Networking::DistributedPacketSenderServer* mDistributedPacketSenderServer = nullptr;
@@ -77,6 +78,8 @@ namespace NCL {
 			NCL::DistributedGameServer::ServerWorldManager* mServerWorldManager;
 
 			PhyscisServerBorderData* CreatePhysicsServerBorders(const std::string& borderString);
+
+			void HandleStartGameServerPacketReceived(StartDistributedGameServerPacket* packet);
 		};
 	}
 }

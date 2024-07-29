@@ -678,20 +678,20 @@ void MultiplayerGameScene::HandleFullPacket(FullPacket* fullPacket) {
 		return;
 	}
 
-	std::cout << "Received full packet \n";
+	//std::cout << "Received full packet \n";
 
 	for (int i = 0; i < mNetworkObjects.size(); i++) {
 		if (mNetworkObjects[i]->GetnetworkID() == fullPacket->objectID) {
 			mNetworkObjects[i]->ReadPacket(*fullPacket);
 		}
 	}
-	std::cout << "Reading packet from coming serverID: " << fullPacket->serverID << "\n";
+	//std::cout << "Reading packet from coming serverID: " << fullPacket->serverID << "\n";
 	mDistributedPhysicsClients[fullPacket->serverID]->SetClientLastFullID(fullPacket->fullState.stateID);
 }
 
 void MultiplayerGameScene::HandleDeltaPacket(DeltaPacket* deltaPacket) {
 
-	std::cout << "Received delta packet \n";
+	//std::cout << "Received delta packet \n";
 	for (int i = 0; i < mNetworkObjects.size(); i++) {
 		if (mNetworkObjects[i]->GetnetworkID() == deltaPacket->objectID) {
 			mNetworkObjects[i]->ReadPacket(*deltaPacket);

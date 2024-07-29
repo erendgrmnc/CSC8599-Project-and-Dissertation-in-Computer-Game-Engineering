@@ -6,11 +6,20 @@
 #include "GameServer.h"
 #include "NetworkBase.h"
 #include "NetworkObject.h"
+#include "ServerWorldManager.h"
+
+namespace {
+	constexpr int GAME_AREA_MIN_X = -500;
+	constexpr int GAME_AREA_MAX_X = 500;
+
+	constexpr int GAME_AREA_MIN_Z = -500;
+	constexpr int GAME_AREA_MAX_Z = 500;
+}
 
 NCL::DistributedManager::SystemManager::SystemManager(int maxPhysicsServerCount) {
 	mDistributedPhysicsManagerServer = nullptr;
 	mMaxPhysicsServerCount = maxPhysicsServerCount;
-
+	CalculatePhysicsServerBorders();
 	NetworkBase::Initialise();
 }
 
@@ -69,6 +78,11 @@ SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int serve
 	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
 }
 
+void DistributedManager::SystemManager::SendStartDataToPhysicsServer(int physicsServerID) const {
+	StartDistributedGameServerPacket packet(1234, physicsServerID, mPhysicsServerBorderStrMap);
+	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
+}
+
 void NCL::DistributedManager::SystemManager::HandleDistributedClientConnectedPacketReceived(NCL::CSC8503::DistributedClientConnectedToSystemPacket* packet) {
 	//TODO(erendgrmcn): Implement logic to register connected Game Client.
 }
@@ -77,6 +91,10 @@ void DistributedManager::SystemManager::HandleDistributedPhysicsClientConnectedP
 	NCL::CSC8503::DistributedPhysicsClientConnectedToManagerPacket* packet) const {
 	std::cout << "Distributed Physics Server Info Packet Sent! Ip: 127.0.0.1 | port: " << packet->phyiscsPacketDistributerPort << std::endl;
 	int portForClientsToConnect = packet->phyiscsPacketDistributerPort;
+
+	std::cout << "Sending physics server data packet to server: " << packet->physicsServerID << "\n";
+	SendStartDataToPhysicsServer(packet->physicsServerID);
+
 	SendDistributedPhysicsServerInfoToClients("127.0.0.1", packet->physicsServerID, portForClientsToConnect);
 }
 
@@ -106,6 +124,23 @@ void DistributedManager::SystemManager::HandleAllClientsConnectedToPhysicsServer
 
 }
 
+void DistributedManager::SystemManager::CalculatePhysicsServerBorders() {
+	for (int i = 0; i < mMaxPhysicsServerCount; i++) {
+		GameBorder& border = CalculateServerBorders(i);
+		std::pair<int, GameBorder*> pair = std::make_pair(i, &border);
+		AddServerBorderDataToMap(pair);
+	}
+	SetPhysicsServerBorderStrMap();
+}
+
+void DistributedManager::SystemManager::SetPhysicsServerBorderStrMap() {
+	for (const auto& pair : mPhysicsServerBorderMap) {
+		 const std::string& borderStr = GetServerAreaString(pair.first);
+		 std::pair<int,const std::string> strPair = std::make_pair(pair.first, borderStr);
+		mPhysicsServerBorderStrMap.insert(strPair);
+	}
+}
+
 bool DistributedManager::SystemManager::CheckIsGameStartable() {
 	if (mDistributedPhysicsServers.size() != mMaxPhysicsServerCount) {
 		return false;
@@ -119,8 +154,46 @@ bool DistributedManager::SystemManager::CheckIsGameStartable() {
 	return true;
 }
 
+DistributedManager::GameBorder& DistributedManager::SystemManager::CalculateServerBorders(int serverNum) {
+	if (serverNum < 0 || serverNum >= mMaxPhysicsServerCount) {
+		throw std::out_of_range("Server number out of range");
+	}
+
+	GameBorder* border = new GameBorder(0.f, 0.f, 0.f, 0.f);
+	double sqrt = 0.f;
+	sqrt = std::sqrt(2);
+	double ceilVal = std::ceil(sqrt);
+	int numCols = static_cast<int>(ceilVal);
+	int numRows = static_cast<int>(std::ceil(static_cast<double>(2) / numCols));
+
+	int rectWidth = (GAME_AREA_MAX_X - GAME_AREA_MIN_X) / numCols;
+	int rectHeight = (GAME_AREA_MAX_Z - GAME_AREA_MIN_Z) / numRows;
+
+	int row = serverNum / numCols;
+	int col = serverNum % numCols;
+
+	border->minX = GAME_AREA_MIN_X + col * rectWidth;
+	border->minZ = GAME_AREA_MIN_Z + row * rectHeight;
+	border->maxX = (col == numCols - 1) ? GAME_AREA_MAX_Z : (border->minX + rectWidth);
+	border->maxZ = (row == numRows - 1) ? GAME_AREA_MAX_Z : (border->minZ + rectHeight);
+
+	return *border;
+}
+
+ std::string DistributedManager::SystemManager::GetServerAreaString(int serverID) {
+	std::stringstream ss;
+	GameBorder* borders = mPhysicsServerBorderMap[serverID];
+	ss << borders->minX << "/" << borders->maxX << "|" << borders->minZ << "/" << borders->maxZ;
+	return ss.str();
+}
+
 void DistributedManager::SystemManager::AddServerData(DistributedPhysicsServerData& data) {
 	mDistributedPhysicsServers.push_back(&data);
+}
+
+void DistributedManager::SystemManager::AddServerBorderDataToMap(
+	std::pair<int, GameBorder*>& pair) {
+	mPhysicsServerBorderMap.insert(pair);
 }
 
 NCL::Networking::DistributedPhysicsManagerServer* NCL::DistributedManager::SystemManager::GetServer() const {

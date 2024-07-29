@@ -11,7 +11,6 @@ using namespace NCL;
 using namespace CSC8503;
 
 NCL::CSC8503::TestObject::TestObject() {
-	counter = 0.f;
 	stateMachine = new StateMachine();
 	State* stateA = new State([&](float dt, GameObject* obj)-> void {
 		this->MoveLeft(dt);
@@ -25,18 +24,14 @@ NCL::CSC8503::TestObject::TestObject() {
 	stateMachine->AddState(stateB);
 
 	StateTransition* stateTransitionAB = new StateTransition(stateA, stateB, [&]()-> bool {
-		if (this->counter > 3.f) {
-			mIsForceAdded = false;
-
+		if (this->GetTransform().GetPosition().x > 100) {
 			return true;
 		}
 		return false;
 		});
 
 	StateTransition* stateTransitionBA = new StateTransition(stateB, stateA, [&]()->bool {
-		if (this->counter > 0.f) {
-			mIsForceAdded = false;
-
+		if (this->GetTransform().GetPosition().x < -100.f) {
 			return true;
 		}
 		return false;
@@ -48,8 +43,6 @@ NCL::CSC8503::TestObject::TestObject() {
 }
 
 NCL::CSC8503::TestObject::TestObject(vector<State*>& states, std::vector<StateTransition*>& stateTransitions) {
-
-	counter = 0.f;
 	stateMachine = new StateMachine();
 
 	for (const auto& state : states) {
@@ -82,11 +75,8 @@ void NCL::CSC8503::TestObject::AddStateTransitions(std::vector<StateTransition*>
 
 void TestObject::MoveLeft(float dt) {
 	GetPhysicsObject()->AddForce({ -40, 0,0 });
-
-	counter += dt;
 }
 
 void TestObject::MoveRight(float dt) {
 	GetPhysicsObject()->AddForce({ 40, 0,0 });
-	counter -= dt;
 }

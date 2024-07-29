@@ -15,8 +15,8 @@ SyncPlayerListPacket::SyncPlayerListPacket(std::vector<int>& serverPlayers) {
 
 void SyncPlayerListPacket::SyncPlayerList(std::vector<int>& clientPlayerList) const
 {
-//TODO(erendgrmnc): Add config for max player number.
-	
+	//TODO(erendgrmnc): Add config for max player number.
+
 	for (int i = 0; i < 4; ++i) {
 		clientPlayerList[i] = playerList[i];
 	}
@@ -30,7 +30,7 @@ GameStartStatePacket::GameStartStatePacket(bool val, const std::string& seed) {
 	this->levelSeed = seed;
 }
 
-GameEndStatePacket::GameEndStatePacket(bool val, int winningPlayerId){
+GameEndStatePacket::GameEndStatePacket(bool val, int winningPlayerId) {
 	type = BasicNetworkMessages::GameEndState;
 	size = sizeof(GameEndStatePacket);
 
@@ -38,7 +38,7 @@ GameEndStatePacket::GameEndStatePacket(bool val, int winningPlayerId){
 	this->winningPlayerId = winningPlayerId;
 }
 
-ClientPlayerInputPacket::ClientPlayerInputPacket(int lastId, const PlayerInputs& playerInputs){
+ClientPlayerInputPacket::ClientPlayerInputPacket(int lastId, const PlayerInputs& playerInputs) {
 	type = BasicNetworkMessages::ClientPlayerInputState;
 	size = sizeof(ClientPlayerInputPacket);
 
@@ -50,7 +50,7 @@ ClientPlayerInputPacket::ClientPlayerInputPacket(int lastId, const PlayerInputs&
 
 	this->playerInputs.leftHandItemId = playerInputs.leftHandItemId;
 	this->playerInputs.rightHandItemId = playerInputs.rightHandItemId;
-	
+
 	this->playerInputs.movementButtons[0] = playerInputs.movementButtons[0];
 	this->playerInputs.movementButtons[1] = playerInputs.movementButtons[1];
 	this->playerInputs.movementButtons[2] = playerInputs.movementButtons[2];
@@ -66,8 +66,8 @@ ClientPlayerInputPacket::ClientPlayerInputPacket(int lastId, const PlayerInputs&
 	this->playerInputs.cameraYaw = playerInputs.cameraYaw;
 
 	this->playerInputs.rayFromPlayer = playerInputs.rayFromPlayer;
-	
-	this-> lastId = lastId;
+
+	this->lastId = lastId;
 	this->mouseXLook = mouseXLook;
 }
 
@@ -230,6 +230,23 @@ DistributedClientsGameServersAreReadyPacket::DistributedClientsGameServersAreRea
 	size = sizeof(DistributedClientsGameServersAreReadyPacket);
 }
 
+StartDistributedGameServerPacket::StartDistributedGameServerPacket(int serverManagerPort, int serverID,
+	const std::map<int, const std::string>& serverBorderMap) {
+	type = BasicNetworkMessages::StartDistributedPhysicsServer;
+	size = sizeof(StartDistributedGameServerPacket);
+
+	this->serverManagerPort = serverManagerPort;
+	this->serverID = serverID;
+
+	this->currentServerCount = serverBorderMap.size();
+
+	for (int i = 0; i < currentServerCount; i++) {
+		serverIDs[i] = i;
+		std::string str = serverBorderMap.at(i);
+		borders[i] = str;
+	}
+}
+
 NetworkObject::NetworkObject(GameObject& o, int id) : object(o) {
 	deltaErrors = 0;
 	fullErrors = 0;
@@ -273,7 +290,7 @@ bool NetworkObject::WritePacket(GamePacket** p, bool deltaFrame, int stateID, in
 }
 
 //Client objects recieve these packets
-bool NetworkObject::ReadDeltaPacket(DeltaPacket &p) {
+bool NetworkObject::ReadDeltaPacket(DeltaPacket& p) {
 	// if the delta packets full state is not the same as the last examined full state we discard it
 	if (p.fullID != lastFullState.stateID)
 		return false;
@@ -296,7 +313,7 @@ bool NetworkObject::ReadDeltaPacket(DeltaPacket &p) {
 	return true;
 }
 
-bool NetworkObject::ReadFullPacket(FullPacket &p) {
+bool NetworkObject::ReadFullPacket(FullPacket& p) {
 	// if packet is old discard
 	if (p.fullState.stateID < lastFullState.stateID) {
 		std::cout << "Discarding Packet\n";
@@ -313,7 +330,7 @@ bool NetworkObject::ReadFullPacket(FullPacket &p) {
 	return true;
 }
 
-bool NetworkObject::WriteDeltaPacket(GamePacket**p, int stateID) {
+bool NetworkObject::WriteDeltaPacket(GamePacket** p, int stateID) {
 	DeltaPacket* dp = new DeltaPacket();
 	NetworkState state;
 
@@ -345,7 +362,7 @@ bool NetworkObject::WriteDeltaPacket(GamePacket**p, int stateID) {
 	return true;
 }
 
-bool NetworkObject::WriteFullPacket(GamePacket**p) {
+bool NetworkObject::WriteFullPacket(GamePacket** p) {
 	FullPacket* fp = new FullPacket();
 
 
@@ -417,12 +434,12 @@ bool NetworkObject::GetNetworkState(int stateID, NetworkState& state) {
 	for (auto i = stateHistory.begin(); i < stateHistory.end(); ++i) {
 		if ((*i).stateID == stateID) {
 			state = (*i);
-			std::cout << "Successfully find network state.State ID: " << stateID << "\n";
+			//std::cout << "Successfully found network state.State ID: " << stateID << "\n";
 			return true;
 
 		}
 	}
-	std::cout << "Couldn't find state for ID: " << stateID << ", stateHistorySize: " << stateHistory.size() << "\n";
+	//std::cout << "Couldn't find state for ID: " << stateID << ", stateHistorySize: " << stateHistory.size() << "\n";
 	return false;
 }
 
@@ -431,7 +448,7 @@ void NetworkObject::UpdateStateHistory(int minID) {
 	// recieved then we can clear past state histories as they are not needed
 	for (auto i = stateHistory.begin(); i < stateHistory.end();) {
 		if ((*i).stateID < minID) {
-			std::cout << "Removing State: " << i->stateID << "\n";
+			//std::cout << "Removing State: " << i->stateID << "\n";
 			i = stateHistory.erase(i);
 		}
 		else
