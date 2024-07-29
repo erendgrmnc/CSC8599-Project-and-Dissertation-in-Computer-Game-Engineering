@@ -43,6 +43,14 @@ void PhysicsObject::AddTorque(const Vector3& addedTorque) {
 	mTorque += addedTorque;
 }
 
+void PhysicsObject::SetPredictedPosition(Vector3& predictedPosition) {
+	mPredictedPosition = predictedPosition;
+}
+
+void PhysicsObject::SetPredictedOrientation(Quaternion& predictedOrientation) {
+	mPredictedOrientation = predictedOrientation;
+}
+
 void PhysicsObject::ClearForces() {
 	mForce				= Vector3();
 	mTorque				= Vector3();
@@ -78,4 +86,8 @@ void PhysicsObject::UpdateInertiaTensor() {
 	Matrix3 orientation		= Matrix3(q);
 
 	mInverseInteriaTensor = orientation * Matrix3::Scale(mInverseInertia) *invOrientation;
+}
+
+Transform* PhysicsObject::GetTransform() const {
+	return mTransform;
 }

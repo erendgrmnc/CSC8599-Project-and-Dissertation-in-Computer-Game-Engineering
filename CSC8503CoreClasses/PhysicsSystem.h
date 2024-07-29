@@ -12,6 +12,7 @@ namespace NCL {
 			void Clear();
 
 			void Update(float dt);
+			void PredictFuturePositions(float dt);
 
 			void UseGravity(bool state) {
 				mApplyGravity = state;
@@ -41,6 +42,9 @@ namespace NCL {
 
 			void UpdateCollisionList();
 			void UpdateObjectAABBs();
+
+			void PredictFutureStateOfObject(PhysicsObject& physicsObject, float dt);
+
 
 			float ImpulseResolveCollision(GameObject& a , GameObject&b, CollisionDetection::ContactPoint& p) const;
 

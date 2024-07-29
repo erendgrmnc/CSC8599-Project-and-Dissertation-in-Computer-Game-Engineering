@@ -45,6 +45,8 @@ namespace NCL {
 
 			void AddTorque(const Vector3& torque);
 
+			void SetPredictedPosition(Vector3& predictedPosition);
+			void SetPredictedOrientation(Quaternion& predictedOrientation);
 
 			void ClearForces();
 
@@ -70,6 +72,10 @@ namespace NCL {
 
 			float GetElasticity() { return mElasticity; }
 
+			Vector3 GetPredictedPosition() const { return mPredictedPosition; }
+			Quaternion GetPredictedOrientation() const { return mPredictedOrientation; }
+			Transform* GetTransform() const;
+
 		protected:
 			const CollisionVolume* mVolume;
 			Transform* mTransform;
@@ -88,6 +94,9 @@ namespace NCL {
 			Vector3 mTorque;
 			Vector3 mInverseInertia;
 			Matrix3 mInverseInteriaTensor;
+
+			Vector3 mPredictedPosition;
+			Quaternion mPredictedOrientation;
 		};
 	}
 }

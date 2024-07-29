@@ -177,6 +177,43 @@ void PhysicsSystem::UpdateObjectAABBs() {
 	);
 }
 
+void PhysicsSystem::PredictFutureStateOfObject(PhysicsObject& physicsObject, float dt) {
+	Vector3 linearVel = physicsObject.GetLinearVelocity();
+	Vector3 force = physicsObject.GetForce();
+	const float inverseMass = physicsObject.GetInverseMass();
+	auto* transform = physicsObject.GetTransform();
+
+	Vector3 accel = force * inverseMass;
+	if (inverseMass > 0) {
+		accel += mGravity;
+	}
+	linearVel += accel * dt;
+	Vector3 predictedPosition = transform->GetPosition() + linearVel * dt;
+	physicsObject.SetPredictedPosition (predictedPosition);
+
+	Vector3 angVel = physicsObject.GetAngularVelocity();
+	Vector3 torque = physicsObject.GetTorque();
+	Matrix3 inertiaTensor = physicsObject.GetInertiaTensor();
+	physicsObject.UpdateInertiaTensor();
+	Vector3 angAccel = inertiaTensor * torque;
+	angVel += angAccel * dt;
+
+	Quaternion orientation = transform->GetOrientation();
+	Quaternion angVelocityQuat(angVel * dt * 0.5f, 0.0f);
+	Quaternion predictedOrientation = orientation + (angVelocityQuat * orientation);
+	predictedOrientation.Normalise();
+
+	physicsObject.SetPredictedOrientation(predictedOrientation);
+}
+
+void PhysicsSystem::PredictFuturePositions(float dt) {
+	for (auto& obj : mDynamicObjectList) {
+		if (obj->GetPhysicsObject() != nullptr) {
+			PredictFutureStateOfObject(*obj->GetPhysicsObject(), dt);
+		}
+	}
+}
+
 /*
 
 This is how we'll be doing collision detection in tutorial 4.

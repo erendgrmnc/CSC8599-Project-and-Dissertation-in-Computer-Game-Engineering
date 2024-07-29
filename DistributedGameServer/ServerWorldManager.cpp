@@ -70,6 +70,10 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 
 	start = std::chrono::high_resolution_clock::now();
 	mPhysics->Update(dt);
+
+	float predictionTime = 1.f;
+	mPhysics->PredictFuturePositions(predictionTime);
+
 	end = std::chrono::high_resolution_clock::now();
 	timeTaken = end - start;
 	mPhysicsTime = timeTaken.count();
