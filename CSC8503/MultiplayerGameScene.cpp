@@ -1,4 +1,5 @@
-﻿#ifdef USEGL
+﻿#include "PhysicsObject.h"
+#ifdef USEGL
 #include "MultiplayerGameScene.h"
 
 #include <iostream>
@@ -203,8 +204,11 @@ void MultiplayerGameScene::UpdateGame(float dt) {
 		else {
 			Debug::Print("CLIENT", Vector2(5, 10), Debug::MAGENTA);
 			auto posVec = mNetworkObjects[0]->GetGameObject().GetTransform().GetPosition();
+			auto predictedPosVec = mNetworkObjects[1]->GetGameObject().GetPhysicsObject()->GetPredictedPosition();
 			std::string str = "Object Position: "+ std::to_string(posVec.x) +", " + std::to_string(posVec.y) + ", " + std::to_string(posVec.z);
+			std::string predictedPosStr = "Predicted Object Position: " + std::to_string(predictedPosVec.x) + ", " + std::to_string(predictedPosVec.y) + ", " + std::to_string(predictedPosVec.z);
 			Debug::Print(str, Vector2(5,20), Debug::RED);
+			Debug::Print(predictedPosStr, Vector2(5, 40), Debug::BLUE);
 		}
 
 		mLevelManager->Update(dt, mGameState == InitialisingLevelState, false);

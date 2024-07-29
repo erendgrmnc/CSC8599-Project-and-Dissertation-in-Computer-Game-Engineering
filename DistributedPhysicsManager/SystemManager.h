@@ -38,7 +38,9 @@ namespace NCL {
 		struct DistributedPhysicsServerData {
 			bool isServerStarted = false;
 			bool isAllClientsConnectedToServer = false;
+
 			std::string ipAddress;
+			int dataSenderPort;
 			int serverId;
 		};
 

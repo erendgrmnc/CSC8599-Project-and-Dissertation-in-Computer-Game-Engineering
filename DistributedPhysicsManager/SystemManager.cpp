@@ -79,7 +79,15 @@ SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int serve
 }
 
 void DistributedManager::SystemManager::SendStartDataToPhysicsServer(int physicsServerID) const {
-	StartDistributedGameServerPacket packet(1234, physicsServerID, mPhysicsServerBorderStrMap);
+	std::vector<int> serverPorts;
+	std::vector<std::string> serverIps;
+
+	for (const auto& createdServer : mDistributedPhysicsServers) {
+		serverIps.push_back(createdServer->ipAddress);
+		serverPorts.push_back(createdServer->dataSenderPort);
+	}
+
+	StartDistributedGameServerPacket packet(1234, serverPorts, serverIps, mPhysicsServerBorderStrMap);
 	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
 }
 
@@ -91,6 +99,8 @@ void DistributedManager::SystemManager::HandleDistributedPhysicsClientConnectedP
 	NCL::CSC8503::DistributedPhysicsClientConnectedToManagerPacket* packet) const {
 	std::cout << "Distributed Physics Server Info Packet Sent! Ip: 127.0.0.1 | port: " << packet->phyiscsPacketDistributerPort << std::endl;
 	int portForClientsToConnect = packet->phyiscsPacketDistributerPort;
+	mDistributedPhysicsServers.at(packet->physicsServerID)->dataSenderPort = portForClientsToConnect;
+
 
 	std::cout << "Sending physics server data packet to server: " << packet->physicsServerID << "\n";
 	SendStartDataToPhysicsServer(packet->physicsServerID);
@@ -114,8 +124,6 @@ void DistributedManager::SystemManager::HandleAllClientsConnectedToPhysicsServer
 			}
 		}
 
-		//TODO IFte hata var.
-
 		if (CheckIsGameStartable()) {
 			std::cout << "Starting Game!\n";
 			SendStartGameStatusPacket();
@@ -135,8 +143,8 @@ void DistributedManager::SystemManager::CalculatePhysicsServerBorders() {
 
 void DistributedManager::SystemManager::SetPhysicsServerBorderStrMap() {
 	for (const auto& pair : mPhysicsServerBorderMap) {
-		 const std::string& borderStr = GetServerAreaString(pair.first);
-		 std::pair<int,const std::string> strPair = std::make_pair(pair.first, borderStr);
+		const std::string& borderStr = GetServerAreaString(pair.first);
+		std::pair<int, const std::string> strPair = std::make_pair(pair.first, borderStr);
 		mPhysicsServerBorderStrMap.insert(strPair);
 	}
 }
@@ -180,7 +188,7 @@ DistributedManager::GameBorder& DistributedManager::SystemManager::CalculateServ
 	return *border;
 }
 
- std::string DistributedManager::SystemManager::GetServerAreaString(int serverID) {
+std::string DistributedManager::SystemManager::GetServerAreaString(int serverID) {
 	std::stringstream ss;
 	GameBorder* borders = mPhysicsServerBorderMap[serverID];
 	ss << borders->minX << "/" << borders->maxX << "|" << borders->minZ << "/" << borders->maxZ;

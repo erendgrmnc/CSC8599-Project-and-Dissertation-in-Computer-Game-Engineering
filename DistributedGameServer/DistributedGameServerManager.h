@@ -74,12 +74,16 @@ namespace NCL {
 
 			NCL::Networking::DistributedPhysicsServerClient* mThisDistributedPhysicsServer = nullptr;
 			NCL::Networking::DistributedPacketSenderServer* mDistributedPacketSenderServer = nullptr;
+			std::map<int, NCL::CSC8503::GameClient*> mDistributedPhysicsClients;
 
 			NCL::DistributedGameServer::ServerWorldManager* mServerWorldManager;
+
+			std::vector<char> IpToCharArray(const std::string& ipAddress);
 
 			PhyscisServerBorderData* CreatePhysicsServerBorders(const std::string& borderString);
 
 			void HandleStartGameServerPacketReceived(StartDistributedGameServerPacket* packet);
+			bool ConnectServerToAnotherGameServer(char a, char b, char c, char d, int port, int gameServerID);
 		};
 	}
 }

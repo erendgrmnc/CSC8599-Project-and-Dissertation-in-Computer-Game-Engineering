@@ -235,6 +235,31 @@ void DistributedGameServer::DistributedGameServerManager::SendPacketSenderServer
 	mThisDistributedPhysicsServer->SendPacket(packet);
 }
 
+std::vector<char> DistributedGameServer::DistributedGameServerManager::IpToCharArray(const std::string& ipAddress) {
+	std::vector<std::string> ip_bytes;
+	std::stringstream ss(ipAddress);
+	std::string segment;
+
+	while (std::getline(ss, segment, '.')) {
+		ip_bytes.push_back(segment);
+	}
+
+	if (ip_bytes.size() != 4) {
+		throw std::invalid_argument("Invalid IPv4 address format");
+	}
+
+	std::vector<char> ip_packed;
+	for (const std::string& byte_str : ip_bytes) {
+		int byte_value = std::stoi(byte_str);
+		if (byte_value < 0 || byte_value > 255) {
+			throw std::invalid_argument("Invalid IPv4 address format");
+		}
+		ip_packed.push_back(static_cast<char>(byte_value));
+	}
+
+	return ip_packed;
+}
+
 DistributedGameServer::PhyscisServerBorderData* DistributedGameServer::DistributedGameServerManager::
 CreatePhysicsServerBorders(const std::string& borderString) {
 	// Create a new PhyscisServerBorderData object
@@ -285,17 +310,49 @@ void DistributedGameServer::DistributedGameServerManager::HandleStartGameServerP
 		return;
 	}
 
-	if (packet->serverID != mGameServerId)
-		return;
-	else {
-		std::cout << "Server ID: " << packet->serverID << "\n";
+	if (mPhysicsServerBorderMap.size() != packet->totalServerCount) {
+		for (int i = 0; i < packet->totalServerCount; i++) {
+			if (!mPhysicsServerBorderMap.contains(i)) {
+				PhyscisServerBorderData* serverBorderData = CreatePhysicsServerBorders(packet->borders[i]);
+				std::pair<int, PhyscisServerBorderData*> pair = std::make_pair(packet->serverIDs[i], serverBorderData);
+				mPhysicsServerBorderMap.insert(pair);
+			}
+		}
 	}
 
 	for (int i = 0; i < packet->currentServerCount; i++) {
-		PhyscisServerBorderData* serverBorderData = CreatePhysicsServerBorders(packet->borders[i]);
-		std::pair<int, PhyscisServerBorderData*> pair = std::make_pair(packet->serverIDs[i], serverBorderData);
-		mPhysicsServerBorderMap.insert(pair);
+		if (i == mGameServerId) {
+			continue;
+		}
+
+		std::vector<char> ipOctets = IpToCharArray(packet->createdServerIPs[i]);
+		if (mDistributedPhysicsClients[i] != nullptr) {
+			continue;
+		}
+
+		if (bool isConnectedToServer = ConnectServerToAnotherGameServer(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], packet->serverPorts[i], i)) {
+			std::cout << "Successfully connected to server " << i << "! \n";
+		}
+		else {
+			std::cout << "Failed to connected to server " << i << "! \n";
+		}
 	}
+}
+
+bool DistributedGameServer::DistributedGameServerManager::ConnectServerToAnotherGameServer(char a, char b, char c,
+	char d, int port, int gameServerID) {
+	auto* client = new NCL::CSC8503::GameClient();
+	std::string name = "Server " + mGameServerId;
+	const bool isConnected = client->Connect(a, b, c, d, port, name);
+
+	if (isConnected) {
+		//TODO(erendgrmnc): Register to object transition related events.
+	}
+
+	std::pair<int, GameClient*> connectedClient = std::make_pair(gameServerID, client);
+	mDistributedPhysicsClients.insert(connectedClient);
+
+	return isConnected;
 }
 
 NCL::Networking::DistributedPhysicsServerClient* DistributedGameServer::DistributedGameServerManager::GetDistributedPhysicsServer() const {

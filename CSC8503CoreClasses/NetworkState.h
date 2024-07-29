@@ -19,8 +19,16 @@ namespace NCL {
 			Vector3 GetObjectPos() { return position; }
 			void SetPosition(Vector3 newPos) { position = newPos; }
 
+			Vector3 GetPredictedPos() { return predictedPosition; }
+			void SetPredictedPos(Vector3 newPredictedPos) { predictedPosition = newPredictedPos; }
+
+			Quaternion GetPredictedOrientation() { return predictedOrientation; }
+			void SetPredictedOrientation(Quaternion newPredictedOrientation) { predictedOrientation = newPredictedOrientation; }
+
 			Vector3		position;
+			Vector3		predictedPosition;
 			Quaternion	orientation;
+			Quaternion  predictedOrientation;
 			int			stateID;
 		};
 	}

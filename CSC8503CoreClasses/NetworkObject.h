@@ -20,8 +20,8 @@ namespace NCL::CSC8503 {
 	};
 
 	struct DeltaPacket : public GamePacket {
-		int		fullID		= -1;
-		int		objectID	= -1;
+		int		fullID = -1;
+		int		objectID = -1;
 		int serverID = -1;
 		char	pos[3];
 		char	orientation[4];
@@ -40,13 +40,13 @@ namespace NCL::CSC8503 {
 		ClientPacket() {
 			type = Received_State;
 			size = sizeof(ClientPacket) - sizeof(GamePacket);
-			cameraPosition = Vector3(0,0,0);
+			cameraPosition = Vector3(0, 0, 0);
 		}
 	};
-	
+
 	struct SyncPlayerListPacket : public GamePacket {
 		int playerList[4];
-		
+
 		SyncPlayerListPacket(std::vector<int>& serverPlayers);
 		void SyncPlayerList(std::vector<int>& clientPlayerList) const;
 	};
@@ -57,19 +57,19 @@ namespace NCL::CSC8503 {
 		GameStartStatePacket(bool val, const std::string& seed);
 	};
 
-	struct GameEndStatePacket : public GamePacket{
+	struct GameEndStatePacket : public GamePacket {
 		bool isGameEnded = false;
 		int winningPlayerId;
 
 		GameEndStatePacket(bool val, int winningPlayerId);
 	};
 
-	struct ClientPlayerInputPacket : public GamePacket{
+	struct ClientPlayerInputPacket : public GamePacket {
 		int lastId;
 		PlayerInputs playerInputs;
 		float mouseXLook = 0.0f;
-		
-		ClientPlayerInputPacket(int lastId,  const PlayerInputs& playerInputs);
+
+		ClientPlayerInputPacket(int lastId, const PlayerInputs& playerInputs);
 	};
 
 	struct ClientUseItemPacket : public GamePacket {
@@ -218,12 +218,16 @@ namespace NCL::CSC8503 {
 
 	struct StartDistributedGameServerPacket : public GamePacket {
 		int serverManagerPort;
-		int serverID;
+
 		int currentServerCount;
+		int totalServerCount;
 
 		int serverIDs[20];
+		int serverPorts[20];
 		std::string borders[20];
-		StartDistributedGameServerPacket(int serverManagerPort, int serverID, const std::map<int, const std::string>& serverBorderMap);
+		std::string createdServerIPs[20];
+
+		StartDistributedGameServerPacket(int serverManagerPort, std::vector<int> serverPorts, std::vector<std::string> serverIps, const std::map<int, const std::string>& serverBorderMap);
 	};
 
 	class NetworkObject {
@@ -251,11 +255,11 @@ namespace NCL::CSC8503 {
 
 		bool GetNetworkState(int frameID, NetworkState& state);
 
-		virtual bool ReadDeltaPacket(DeltaPacket &p);
-		virtual bool ReadFullPacket(FullPacket &p);
+		virtual bool ReadDeltaPacket(DeltaPacket& p);
+		virtual bool ReadFullPacket(FullPacket& p);
 
-		virtual bool WriteDeltaPacket(GamePacket**p, int stateID);
-		virtual bool WriteFullPacket(GamePacket**p);
+		virtual bool WriteDeltaPacket(GamePacket** p, int stateID);
+		virtual bool WriteFullPacket(GamePacket** p);
 
 		virtual bool WriteFullPacket(GamePacket** p, int gameServerID);
 		virtual bool WriteDeltaPacket(GamePacket** p, int stateID, int gameServerID);

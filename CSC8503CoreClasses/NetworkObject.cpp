@@ -1,3 +1,4 @@
+#include "PhysicsObject.h"
 #ifdef USEGL
 #include "NetworkObject.h"
 #include "./enet/enet.h"
@@ -230,20 +231,22 @@ DistributedClientsGameServersAreReadyPacket::DistributedClientsGameServersAreRea
 	size = sizeof(DistributedClientsGameServersAreReadyPacket);
 }
 
-StartDistributedGameServerPacket::StartDistributedGameServerPacket(int serverManagerPort, int serverID,
-	const std::map<int, const std::string>& serverBorderMap) {
+StartDistributedGameServerPacket::StartDistributedGameServerPacket(int serverManagerPort,
+	std::vector<int> serverPorts, std::vector<std::string> serverIps, const std::map<int, const std::string>& serverBorderMap) {
 	type = BasicNetworkMessages::StartDistributedPhysicsServer;
 	size = sizeof(StartDistributedGameServerPacket);
 
 	this->serverManagerPort = serverManagerPort;
-	this->serverID = serverID;
 
-	this->currentServerCount = serverBorderMap.size();
+	this->totalServerCount = serverBorderMap.size();
+	this->currentServerCount = serverIps.size();
 
 	for (int i = 0; i < currentServerCount; i++) {
 		serverIDs[i] = i;
-		std::string str = serverBorderMap.at(i);
+		const std::string str = serverBorderMap.at(i);
 		borders[i] = str;
+		this->serverPorts[i] = serverPorts[i];
+		this->createdServerIPs[i] = serverIps[i];
 	}
 }
 
@@ -324,6 +327,8 @@ bool NetworkObject::ReadFullPacket(FullPacket& p) {
 
 	object.GetTransform().SetPosition(lastFullState.position);
 	object.GetTransform().SetOrientation(lastFullState.orientation);
+	object.GetPhysicsObject()->SetPredictedPosition(lastFullState.predictedPosition);
+	object.GetPhysicsObject()->SetPredictedOrientation(lastFullState.predictedOrientation);
 
 	stateHistory.emplace_back(lastFullState);
 
@@ -369,7 +374,10 @@ bool NetworkObject::WriteFullPacket(GamePacket** p) {
 	fp->objectID = networkID;
 	fp->fullState.position = object.GetTransform().GetPosition();
 	fp->fullState.orientation = object.GetTransform().GetOrientation();
+	fp->fullState.predictedPosition = object.GetPhysicsObject()->GetPredictedPosition();
+	fp->fullState.predictedOrientation = object.GetPhysicsObject()->GetPredictedOrientation();
 	fp->fullState.stateID = lastFullState.stateID++;
+
 	stateHistory.emplace_back(fp->fullState);
 	*p = fp;
 
@@ -382,6 +390,8 @@ bool NetworkObject::WriteFullPacket(GamePacket** p, int gameServerID) {
 	fp->objectID = networkID;
 	fp->fullState.position = object.GetTransform().GetPosition();
 	fp->fullState.orientation = object.GetTransform().GetOrientation();
+	fp->fullState.predictedPosition = object.GetPhysicsObject()->GetPredictedPosition();
+	fp->fullState.predictedOrientation = object.GetPhysicsObject()->GetPredictedOrientation();
 	fp->fullState.stateID = lastFullState.stateID++;
 	fp->serverID = gameServerID;
 	stateHistory.emplace_back(fp->fullState);
