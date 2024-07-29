@@ -230,6 +230,34 @@ namespace NCL::CSC8503 {
 		StartDistributedGameServerPacket(int serverManagerPort, std::vector<int> serverPorts, std::vector<std::string> serverIps, const std::map<int, const std::string>& serverBorderMap);
 	};
 
+	struct CreateObjectInServerPacket : public GamePacket {
+		int objectID;
+
+		CreateObjectInServerPacket(int objectID);
+	};
+
+	struct StartSimulatingObjectPacket : public GamePacket {
+		int objectID;
+
+		//TODO(erendgrmnc): need to decide which physics property should be passed.
+		/*float mInverseMass;
+		float mElasticity;
+		float mStaticFriction;
+		float mDynamicFriction;
+
+		//linear stuff
+		Vector3 mLinearVelocity;
+		Vector3 mForce;
+
+		//angular stuff
+		Vector3 mAngularVelocity;
+		Vector3 mTorque;
+		Vector3 mInverseInertia;
+		Matrix3 mInverseInteriaTensor;*/
+
+		StartSimulatingObjectPacket(int objectID);
+	};
+
 	class NetworkObject {
 	public:
 		NetworkObject(GameObject& o, int id);

@@ -250,6 +250,16 @@ StartDistributedGameServerPacket::StartDistributedGameServerPacket(int serverMan
 	}
 }
 
+CreateObjectInServerPacket::CreateObjectInServerPacket(int objectID) {
+	type = BasicNetworkMessages::CreateObjectInServer;
+	size = sizeof(CreateObjectInServerPacket);
+}
+
+StartSimulatingObjectPacket::StartSimulatingObjectPacket(int objectID) {
+	type = BasicNetworkMessages::StartDistributedPhysicsServer;
+	size = sizeof(StartSimulatingObjectPacket);
+}
+
 NetworkObject::NetworkObject(GameObject& o, int id) : object(o) {
 	deltaErrors = 0;
 	fullErrors = 0;
