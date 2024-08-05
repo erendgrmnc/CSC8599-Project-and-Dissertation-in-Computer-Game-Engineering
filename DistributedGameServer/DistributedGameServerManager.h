@@ -67,14 +67,14 @@ namespace NCL {
 
 			std::mutex mPacketToSendQueueMutex;
 
-			std::vector<CSC8503::NetworkObject*> mNetworkObjects;
+			std::vector<CSC8503::NetworkObject*>* mNetworkObjects;
 
 			std::map<int, int> mStateIDs;
 			std::map<const int, PhyscisServerBorderData*> mPhysicsServerBorderMap;
 
 			NCL::Networking::DistributedPhysicsServerClient* mThisDistributedPhysicsServer = nullptr;
 			NCL::Networking::DistributedPacketSenderServer* mDistributedPacketSenderServer = nullptr;
-			std::map<int, NCL::CSC8503::GameClient*> mDistributedPhysicsClients;
+			std::vector<NCL::CSC8503::GameClient*> mDistributedPhysicsClients;
 
 			NCL::DistributedGameServer::ServerWorldManager* mServerWorldManager;
 
@@ -83,7 +83,10 @@ namespace NCL {
 			PhyscisServerBorderData* CreatePhysicsServerBorders(const std::string& borderString);
 
 			void HandleStartGameServerPacketReceived(StartDistributedGameServerPacket* packet);
-			bool ConnectServerToAnotherGameServer(char a, char b, char c, char d, int port, int gameServerID);
+			void HandleObjectTransitions() const;
+			void SendStartTransitionPacket(NetworkObject& obj) const;
+			void SendFinishTransactionPacket(NetworkObject& obj) const;
+;			bool ConnectServerToAnotherGameServer(char a, char b, char c, char d, int port, int gameServerID);
 		};
 	}
 }

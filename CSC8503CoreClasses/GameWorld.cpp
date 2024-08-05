@@ -5,6 +5,8 @@
 #include "Camera.h"
 #include <algorithm>
 
+#include "NetworkObject.h"
+
 #ifdef USEPROSPERO
 #include "../PS5Core/PS5Controller.h"
 #endif
@@ -154,4 +156,8 @@ void GameWorld::GetConstraintIterators(
 	std::vector<Constraint*>::const_iterator& last) const {
 	first	= constraints.begin();
 	last	= constraints.end();
+}
+
+std::vector<GameObject*> GameWorld::GetGameObjects() {
+	return gameObjects;
 }

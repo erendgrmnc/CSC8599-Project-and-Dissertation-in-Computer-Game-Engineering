@@ -12,13 +12,16 @@
 
 namespace {
 	constexpr int NETWORK_ID_BUFFER = 10;
-	constexpr float PREDICTION_STEP = 0.1f;
+	constexpr float PREDICTION_STEP = 1.0f;
 }
 
-NCL::DistributedGameServer::ServerWorldManager::ServerWorldManager(PhyscisServerBorderData& physcisServerBorderData) {
+NCL::DistributedGameServer::ServerWorldManager::ServerWorldManager(int serverID, PhyscisServerBorderData& physcisServerBorderData, std::map<const int, PhyscisServerBorderData*>& borderMap) {
+	mServerID = serverID;
+
 	mGameWorld = new NCL::CSC8503::GameWorld();
 
 	mServerBorderData = &physcisServerBorderData;
+	mServerBorderMap = &borderMap;
 
 	mPhysics = new PhysicsSystem(*mGameWorld);
 	mPhysics->Clear();
@@ -26,26 +29,33 @@ NCL::DistributedGameServer::ServerWorldManager::ServerWorldManager(PhyscisServer
 
 	Transform offsetKey = Transform();
 	offsetKey.SetPosition(Vector3(0, 0, 0));
-	if (true) {
-		std::cout << "Added floor" << "\n";
-		AddFloorWorld(offsetKey);
-	}
+	std::cout << "Added floor" << "\n";
+	AddFloorWorld(offsetKey);
 
-	offsetKey.SetPosition(Vector3(0, 50, 0));
-	if (IsObjectInBorder(offsetKey.GetPosition(), true)) {
-		std::cout << "Adding network object.\n";
-		auto* sphere = AddObjectToWorld(offsetKey);
-		mTestObjects.push_back(static_cast<TestObject*>(sphere));
-		AddNetworkObject(*sphere);
-	}
+	offsetKey.SetPosition(Vector3(95, 50, 0));
+	auto* sphere = AddObjectToWorld(offsetKey);
+	AddNetworkObject(*sphere);
+	mCreatedObjectPool.insert(std::make_pair(sphere->GetNetworkObject()->GetnetworkID(), sphere));
 
-	offsetKey.SetPosition(Vector3(-20, 50, 20));
-	if (IsObjectInBorder(offsetKey.GetPosition(), true)) {
-		std::cout << "Adding network object.\n";
-		auto* sphereTwo = AddObjectToWorld(offsetKey);
-		mTestObjects.push_back(static_cast<TestObject*>(sphereTwo));
-		AddNetworkObject(*sphereTwo);
+	if (IsObjectInBorder(offsetKey.GetPosition())) {
+		std::cout << "Adding object to world.\n";
+		mTestObjects.push_back(dynamic_cast<TestObject*>(sphere));
 	}
+	else {
+		std::cout << "Deactivating object because it is not in server borders. ID: " << sphere->GetNetworkObject()->GetnetworkID() << "\n";
+		sphere->SetActive(false);
+	}
+	mGameWorld->AddGameObject(sphere);
+
+	offsetKey.SetPosition(Vector3(-95, 50, 20));
+	/*auto* sphereTwo = AddObjectToWorld(offsetKey);
+	AddNetworkObject(*sphereTwo);
+	mCreatedObjectPool.insert(std::make_pair(sphereTwo->GetNetworkObject()->GetnetworkID(), sphereTwo));
+	if (IsObjectInBorder(offsetKey.GetPosition())) {
+		std::cout << "Adding object to world.\n";
+		mGameWorld->AddGameObject(sphereTwo);
+		mTestObjects.push_back(dynamic_cast<TestObject*>(sphereTwo));
+	}*/
 
 	mPhysics->UseGravity(true);
 }
@@ -62,7 +72,9 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 
 	mPhysicsTime = 0.f;
 	for (auto* testObject : mTestObjects) {
-		testObject->Update(dt);
+		if (testObject->HasPhysics()) {
+			testObject->Update(dt);
+		}
 	}
 	start = std::chrono::high_resolution_clock::now();
 	mGameWorld->UpdateWorld(dt);
@@ -70,9 +82,11 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	worldUpdateTimeTaken = end - start;
 
 	start = std::chrono::high_resolution_clock::now();
-	mPhysics->Update(dt);
 
-	mPhysics->PredictFuturePositions(PREDICTION_STEP);
+	mPhysics->PredictFuturePositions(dt);
+	mPhysics->Update(dt);
+	CheckPredictedPositionOutOfServerBoundries();
+	CheckPositionOutOfServerBoundries();
 
 	end = std::chrono::high_resolution_clock::now();
 	timeTaken = end - start;
@@ -95,21 +109,146 @@ void NCL::DistributedGameServer::ServerWorldManager::AddNetworkObjectToNetworkOb
 	mNetworkObjects.push_back(networkObj);
 }
 
-bool DistributedGameServer::ServerWorldManager::IsObjectInBorder(const Maths::Vector3& objectPosition, bool isNetworkObject) {
+void DistributedGameServer::ServerWorldManager::CheckPredictedPositionOutOfServerBoundries() {
+	for (const auto& gameObj : mGameWorld->GetGameObjects()) {
+		if (gameObj->HasPhysics() && gameObj->IsNetworkActive()) {
+			if (auto* networkComp = gameObj->GetNetworkObject()) {
+				if (!networkComp->GetIsPredictionInfoSent()) {
+					if (auto* physicsComp = gameObj->GetPhysicsObject()) {
+						const Vector3& predictedPos = physicsComp->GetPredictedPosition();
+						int objectServer = GetObjectServer(predictedPos);
+						if (objectServer != mServerID && objectServer != -1 && !networkComp->GetIsOnTransitionCooldown()) {
+							networkComp->StartTransitionToNewServer(objectServer);
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+void DistributedGameServer::ServerWorldManager::CheckPositionOutOfServerBoundries() {
+	for (const auto& gameObj : mGameWorld->GetGameObjects()) {
+		if (gameObj->HasPhysics() && gameObj->IsNetworkActive()) {
+			if (auto* networkComp = gameObj->GetNetworkObject()) {
+				if (auto* physicsComp = gameObj->GetPhysicsObject()) {
+					const Vector3& position = physicsComp->GetTransform()->GetPosition();
+					int newServer = GetObjectServer(position);
+					if (newServer != mServerID && newServer != -1 && !networkComp->GetIsOnTransitionCooldown()) {
+						networkComp->FinishTransitionToNewServer();
+					}
+				}
+			}
+		}
+	}
+}
+
+void DistributedGameServer::ServerWorldManager::HandleIncomingObjectCreation(int networkObjectID) {
+	GameObject* objectToHandle = mCreatedObjectPool.at(networkObjectID);
+	objectToHandle->SetActive(false);
+	//mGameWorld->AddGameObject(objectToHandle);
+	//objectToHandle->GetNetworkObject()->HandleReceiveFromAnotherServer();
+
+	std::cout << "Added incoming network object with network id: " << networkObjectID << "/ Game world object count: " << mGameWorld->GetGameObjects().size() << "\n";
+
+	//For testing
+	if (TestObject* testComp = dynamic_cast<TestObject*>(objectToHandle)) {
+		mTestObjects.push_back(testComp);
+	}
+}
+
+void DistributedGameServer::ServerWorldManager::StartHandlingObject(StartSimulatingObjectPacket* packet) {
+
+	NetworkState& lastNetworkState = packet->lastFullState;
+	std::cout << "Starting to simulate received object, received position: " << lastNetworkState.position << "\n";
+	GameObject* objectToHandle = mCreatedObjectPool.at(packet->objectID);
+
+	auto& transform = objectToHandle->GetTransform();
+
+	objectToHandle->GetNetworkObject()->SetLatestNetworkState(lastNetworkState);
+
+	transform.SetPosition(lastNetworkState.position);
+	transform.SetOrientation(lastNetworkState.orientation);
+
+	auto* physicsComp = objectToHandle->GetPhysicsObject();
+	physicsComp->SetPredictedPosition(lastNetworkState.position);
+	physicsComp->SetPredictedOrientation(lastNetworkState.orientation);
+	physicsComp->SetAngularVelocity(packet->mAngularVelocity);
+	physicsComp->SetForce(packet->mForce);
+
+	//TODO(erendgrmnc): Handle physics properties.
+
+	objectToHandle->SetActive(true);
+	objectToHandle->SetServerID(mServerID);
+
+	std::cout << "Starting simulating object: " << packet->objectID << "/ Game world object count: " << mGameWorld->GetGameObjects().size() << "\n";
+}
+
+void DistributedGameServer::ServerWorldManager::HandleOutgoingObject(int networkObjectID) {
+	if (auto* gameObj = mCreatedObjectPool.at(networkObjectID)) {
+		std::cout << "Removing object from server with network ID" << gameObj->GetNetworkObject()->GetnetworkID() << "\n";
+		//mGameWorld->RemoveGameObject(gameObj);
+		gameObj->SetActive(false);
+		if (TestObject* testComp = dynamic_cast<TestObject*>(gameObj)) {
+			std::erase(mTestObjects, testComp);
+		}
+	}
+}
+
+std::vector<CSC8503::TestObject*> DistributedGameServer::ServerWorldManager::GetTestObjects() {
+	return mTestObjects;
+}
+
+std::vector<CSC8503::NetworkObject*>* DistributedGameServer::ServerWorldManager::GetNetworkObjects() {
+	return &mNetworkObjects;
+}
+
+bool DistributedGameServer::ServerWorldManager::IsObjectInBorder(const Maths::Vector3& objectPosition) const {
 
 	if (objectPosition.x >= mServerBorderData->minXVal && objectPosition.x < mServerBorderData->maxXVal &&
 		objectPosition.z >= mServerBorderData->minZVal && objectPosition.z <= mServerBorderData->maxZVal) {
 		return true;
 	}
-	if (isNetworkObject) {
-		mNetworkIdBuffer++;
-	}
 
 	return false;
 }
 
+int DistributedGameServer::ServerWorldManager::GetObjectServer(const Maths::Vector3& position) const {
+	for (const auto& entry : *mServerBorderMap) {
+		int serverNumber = entry.first;
+		PhyscisServerBorderData* borderData = entry.second;
+
+		if (position.x >= borderData->minXVal && position.x <= borderData->maxXVal &&
+			position.z >= borderData->minZVal && position.z <= borderData->maxZVal) {
+
+			return serverNumber;
+		}
+	}
+	return -1;
+}
+
+const Maths::Vector3& DistributedGameServer::ServerWorldManager::CalculateIncomingObjectOffsetedPosition(const Maths::Vector3& position) {
+	Vector3 offsetPos = position;
+
+	if (position.x > mServerBorderData->maxXVal) {
+		//offsetPos.x = std::floorf(position.x - 0.5f);
+	}
+	else {
+		//offsetPos.x = std::ceilf(position.x + 0.5f);
+	}
+
+	if (position.z > mServerBorderData->maxZVal) {
+		offsetPos.z = std::floor(position.z);
+	}
+	else if(position.z <= mServerBorderData->minZVal) {
+		offsetPos.z = std::floor(position.z);
+	}
+
+	return offsetPos;
+}
+
 NCL::CSC8503::GameObject* NCL::DistributedGameServer::ServerWorldManager::AddObjectToWorld(const Transform& transform) {
-	TestObject* sphere = new TestObject();
+	TestObject* sphere = new TestObject(*mServerBorderData, 1);
 
 	float radius = 5.f;
 	Vector3 sphereSize = Vector3(radius, radius, radius);
@@ -126,7 +265,6 @@ NCL::CSC8503::GameObject* NCL::DistributedGameServer::ServerWorldManager::AddObj
 	sphere->GetPhysicsObject()->SetInverseMass(0.5f);
 	sphere->GetPhysicsObject()->InitSphereInertia(false);
 	sphere->SetName("Eren");
-	mGameWorld->AddGameObject(sphere);
 
 	sphere->SetCollisionLayer(Player);
 

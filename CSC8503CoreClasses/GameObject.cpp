@@ -71,6 +71,7 @@ bool GameObject::GetIsSensed() {
 
 void GameObject::SetNetworkObject(NetworkObject* netObj) {
 	mNetworkObject = netObj;
+	mIsNetworkActive = true;
 	netObj->SetGameObject(*this);
 }
 #endif
@@ -174,4 +175,12 @@ void GameObject::DrawCollisionVolume() {
 
 const std::string& GameObject::GetGameObjectStateStr() const {
 	return objectStateStrMap[mObjectState];
+}
+
+int GameObject::GetServerID() const {
+	return mServerID;
+}
+
+void GameObject::SetServerID(int serverID) {
+	mServerID = serverID;
 }

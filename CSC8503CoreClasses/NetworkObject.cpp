@@ -241,23 +241,58 @@ StartDistributedGameServerPacket::StartDistributedGameServerPacket(int serverMan
 	this->totalServerCount = serverBorderMap.size();
 	this->currentServerCount = serverIps.size();
 
-	for (int i = 0; i < currentServerCount; i++) {
+	for (int i = 0; i < totalServerCount; i++) {
 		serverIDs[i] = i;
-		const std::string str = serverBorderMap.at(i);
+		const std::string& str = serverBorderMap.at(i);
 		borders[i] = str;
+	}
+
+	for (int i = 0; i < currentServerCount; i++) {
 		this->serverPorts[i] = serverPorts[i];
 		this->createdServerIPs[i] = serverIps[i];
 	}
 }
 
-CreateObjectInServerPacket::CreateObjectInServerPacket(int objectID) {
-	type = BasicNetworkMessages::CreateObjectInServer;
-	size = sizeof(CreateObjectInServerPacket);
+GiveOwnershipOfObjectPacket::GiveOwnershipOfObjectPacket(int newOwnerServerID, int objectID) {
+	type = BasicNetworkMessages::GiveOwnershipOfObject;
+	size = sizeof(GiveOwnershipOfObjectPacket);
+
+	this->newOwnerServerID = newOwnerServerID;
+	this->objectID = objectID;
 }
 
-StartSimulatingObjectPacket::StartSimulatingObjectPacket(int objectID) {
-	type = BasicNetworkMessages::StartDistributedPhysicsServer;
+StartSimulatingObjectPacket::StartSimulatingObjectPacket(int objectID, int newServerID, NetworkState lastFullState, PhysicsObject& physicsObj) {
+	type = BasicNetworkMessages::StartSimulatingObjectInServer;
 	size = sizeof(StartSimulatingObjectPacket);
+
+	std::cout << "Start simulation packet position: " << lastFullState.position << "\n";
+
+	this->lastFullState.position = lastFullState.position;
+	this->lastFullState.orientation = lastFullState.orientation;
+	this->lastFullState.stateID = lastFullState.stateID;
+
+	this->newOwnerServerID = newServerID;
+	this->objectID = objectID;
+
+	this->mAngularVelocity = physicsObj.GetAngularVelocity();
+	this->mInverseInteriaTensor = physicsObj.GetInverseInertiaTensor();
+	this->mInverseInertia = physicsObj.GetInverseInertia();
+	this->mTorque = physicsObj.GetTorque();
+
+	this->mForce = physicsObj.GetForce();
+	this->mLinearVelocity = physicsObj.GetLinearVelocity();
+}
+
+DistributedClientPacket::DistributedClientPacket(int playerID, bool movementButtons[4]) {
+	type = BasicNetworkMessages::DistributedClientSync;
+	size = sizeof(DistributedClientPacket);
+
+	this->movementButtons[0] = movementButtons[0];
+	this->movementButtons[1] = movementButtons[1];
+	this->movementButtons[2] = movementButtons[2];
+	this->movementButtons[3] = movementButtons[3];
+
+	this->playerID = playerID;
 }
 
 NetworkObject::NetworkObject(GameObject& o, int id) : object(o) {
@@ -310,11 +345,18 @@ bool NetworkObject::ReadDeltaPacket(DeltaPacket& p) {
 	UpdateStateHistory(p.fullID);
 
 	Vector3 fullPos = lastFullState.position;
+	Vector3 predictedPos = lastFullState.predictedPosition;
+
 	Quaternion fullOrientation = lastFullState.orientation;
 
 	fullPos.x += p.pos[0];
 	fullPos.y += p.pos[1];
 	fullPos.z += p.pos[2];
+
+	predictedPos.x += p.predictedPos[0];
+	predictedPos.y += p.predictedPos[1];
+	predictedPos.z += p.predictedPos[2];
+
 
 	fullOrientation.x += ((float)p.orientation[0]) / 127.0f;
 	fullOrientation.y += ((float)p.orientation[1]) / 127.0f;
@@ -323,6 +365,7 @@ bool NetworkObject::ReadDeltaPacket(DeltaPacket& p) {
 
 	object.GetTransform().SetPosition(fullPos);
 	object.GetTransform().SetOrientation(fullOrientation);
+	object.GetPhysicsObject()->SetPredictedPosition(predictedPos);
 	return true;
 }
 
@@ -339,6 +382,7 @@ bool NetworkObject::ReadFullPacket(FullPacket& p) {
 	object.GetTransform().SetOrientation(lastFullState.orientation);
 	object.GetPhysicsObject()->SetPredictedPosition(lastFullState.predictedPosition);
 	object.GetPhysicsObject()->SetPredictedOrientation(lastFullState.predictedOrientation);
+	object.SetServerID(p.serverID);
 
 	stateHistory.emplace_back(lastFullState);
 
@@ -423,6 +467,8 @@ bool NetworkObject::WriteDeltaPacket(GamePacket** p, int stateID, int gameServer
 	dp->objectID = networkID;
 
 	Vector3 currentPos = object.GetTransform().GetPosition();
+	Vector3 predictedPos = object.GetPhysicsObject()->GetPredictedPosition();
+
 	Quaternion currentOrientation = object.GetTransform().GetOrientation();
 
 	// find difference between current game states orientation + position and the selected states orientation + position
@@ -432,6 +478,10 @@ bool NetworkObject::WriteDeltaPacket(GamePacket** p, int stateID, int gameServer
 	dp->pos[0] = (char)currentPos.x;
 	dp->pos[1] = (char)currentPos.y;
 	dp->pos[2] = (char)currentPos.z;
+
+	dp->predictedPos[0] = (char)predictedPos.x;
+	dp->predictedPos[1] = (char)predictedPos.y;
+	dp->predictedPos[2] = (char)predictedPos.z;
 
 	dp->orientation[0] = (char)(currentOrientation.x * 127.0f);
 	dp->orientation[1] = (char)(currentOrientation.y * 127.0f);
@@ -448,6 +498,50 @@ NetworkState& NetworkObject::GetLatestNetworkState() {
 	return lastFullState;
 }
 
+void NetworkObject::SetLatestNetworkState(NetworkState& lastState) {
+	lastFullState = lastState;
+}
+
+void NetworkObject::StartTransitionToNewServer(int newServerID) {
+	mNewServerID = newServerID;
+	mIsPredictedPosOutServer = true;
+}
+
+void NetworkObject::HandleAfterTransitionStarted() {
+	mIsPredictedPosOutServer = false;
+	mIsPredictionInfoSent = true;
+}
+
+void NetworkObject::FinishTransitionToNewServer() {
+	mIsActualPosOutServer = true;
+}
+
+void NetworkObject::HandleTransitionComplete() {
+	mIsActualPosOutServer = false;
+	mIsPredictionInfoSent = false;
+	mNewServerID = -1;
+}
+
+void NetworkObject::HandleReceiveFromAnotherServer() {
+	mIsOnTransitionCooldown = true;
+}
+
+bool NetworkObject::GetIsPredictedPosOutOfServer() const {
+	return mIsPredictedPosOutServer;
+}
+
+bool NetworkObject::GetIsActualPosOutOfServer() const {
+	return mIsActualPosOutServer;
+}
+
+bool NetworkObject::GetIsPredictionInfoSent() const {
+	return mIsPredictionInfoSent;
+}
+
+bool NetworkObject::GetIsOnTransitionCooldown() const {
+	return mIsOnTransitionCooldown;
+}
+
 bool NetworkObject::GetNetworkState(int stateID, NetworkState& state) {
 
 	// get a state ID from state history if needed
@@ -461,6 +555,10 @@ bool NetworkObject::GetNetworkState(int stateID, NetworkState& state) {
 	}
 	//std::cout << "Couldn't find state for ID: " << stateID << ", stateHistorySize: " << stateHistory.size() << "\n";
 	return false;
+}
+
+int NetworkObject::GetNewServerID() const {
+	return mNewServerID;
 }
 
 void NetworkObject::UpdateStateHistory(int minID) {

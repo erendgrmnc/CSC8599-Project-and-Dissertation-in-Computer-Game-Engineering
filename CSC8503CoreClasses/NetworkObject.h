@@ -25,6 +25,7 @@ namespace NCL::CSC8503 {
 		int serverID = -1;
 		char	pos[3];
 		char	orientation[4];
+		char    predictedPos[3];
 
 		DeltaPacket() {
 			type = Delta_State;
@@ -230,20 +231,20 @@ namespace NCL::CSC8503 {
 		StartDistributedGameServerPacket(int serverManagerPort, std::vector<int> serverPorts, std::vector<std::string> serverIps, const std::map<int, const std::string>& serverBorderMap);
 	};
 
-	struct CreateObjectInServerPacket : public GamePacket {
+	struct GiveOwnershipOfObjectPacket : public GamePacket {
 		int objectID;
+		int newOwnerServerID;
 
-		CreateObjectInServerPacket(int objectID);
+		GiveOwnershipOfObjectPacket(int newOwnerServerID, int objectID);
 	};
 
 	struct StartSimulatingObjectPacket : public GamePacket {
 		int objectID;
+		int newOwnerServerID;
+		NetworkState lastFullState;
 
 		//TODO(erendgrmnc): need to decide which physics property should be passed.
-		/*float mInverseMass;
-		float mElasticity;
-		float mStaticFriction;
-		float mDynamicFriction;
+
 
 		//linear stuff
 		Vector3 mLinearVelocity;
@@ -253,9 +254,15 @@ namespace NCL::CSC8503 {
 		Vector3 mAngularVelocity;
 		Vector3 mTorque;
 		Vector3 mInverseInertia;
-		Matrix3 mInverseInteriaTensor;*/
+		Matrix3 mInverseInteriaTensor;
 
-		StartSimulatingObjectPacket(int objectID);
+		StartSimulatingObjectPacket(int objectID, int newServerID, NetworkState lastFullState, PhysicsObject& physicsObj);
+	};
+
+	struct DistributedClientPacket : public GamePacket {
+		int playerID;
+		bool movementButtons[4] = { false };
+		DistributedClientPacket(int playerID, bool movementButtons[4]);
 	};
 
 	class NetworkObject {
@@ -274,10 +281,23 @@ namespace NCL::CSC8503 {
 		void SetGameObject(GameObject& obj) const { object = obj; }
 
 		int GetnetworkID() { return networkID; }
+		int GetNewServerID() const;
 
 		void UpdateStateHistory(int minID);
 
 		NetworkState& GetLatestNetworkState();
+		void SetLatestNetworkState(NetworkState& lastState);
+
+		void StartTransitionToNewServer(int newServerID);
+		void HandleAfterTransitionStarted();
+		void FinishTransitionToNewServer();
+		void HandleTransitionComplete();
+		void HandleReceiveFromAnotherServer();
+
+		bool GetIsPredictedPosOutOfServer() const;
+		bool GetIsActualPosOutOfServer() const;
+		bool GetIsPredictionInfoSent() const;
+		bool GetIsOnTransitionCooldown() const;
 
 	protected:
 
@@ -302,6 +322,16 @@ namespace NCL::CSC8503 {
 		int fullErrors;
 
 		int networkID;
+
+		bool mIsPredictedPosOutServer = false;
+		bool mIsPredictionInfoSent = false;
+
+		bool mIsActualPosOutServer = false;
+
+		bool mIsOnTransitionCooldown = false;
+		float mPassedTransitionTime = 0.f;
+
+		int mNewServerID = -1;
 	};
 }
 #endif

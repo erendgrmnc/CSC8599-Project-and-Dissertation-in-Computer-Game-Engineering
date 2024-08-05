@@ -52,6 +52,10 @@ namespace NCL::CSC8503 {
 			return mHasPhysics;
 		}
 
+		bool IsNetworkActive() const {
+			return mIsNetworkActive;
+		}
+
 		void SetIsRendered(bool isRendered) {
 			mIsRendered = isRendered;
 		}
@@ -71,6 +75,7 @@ namespace NCL::CSC8503 {
 		void SetActive(bool isActive) {
 			mIsRendered = isActive;
 			mHasPhysics = isActive;
+			mIsNetworkActive = isActive;
 		}
 
 		bool IsActive() {
@@ -114,6 +119,7 @@ namespace NCL::CSC8503 {
 
 		void SetPhysicsObject(PhysicsObject* newObject) {
 			mPhysicsObject = newObject;
+			mHasPhysics = true;
 		}
 
 
@@ -172,6 +178,8 @@ namespace NCL::CSC8503 {
 
 		const std::string& GetGameObjectStateStr() const;
 
+		int GetServerID() const;
+		void SetServerID(int serverID);
 	protected:
 		Transform			mTransform;
 
@@ -183,6 +191,7 @@ namespace NCL::CSC8503 {
 
 		bool		mIsSensed;
 		bool		mHasPhysics;
+		bool		mIsNetworkActive;
 		bool		mIsRendered;
 		int			mWorldID;
 		std::string	mName;
@@ -193,6 +202,8 @@ namespace NCL::CSC8503 {
 		bool mIsPlayer;
 
 		GameObjectState mObjectState;
+
+		int mServerID = -1;
 	};
 }
 
