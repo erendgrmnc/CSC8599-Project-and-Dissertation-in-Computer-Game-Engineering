@@ -235,12 +235,18 @@ void LevelManager::LoadLevel(int levelID, std::mt19937 seed, int playerID, bool 
 
 		AddFloorToWorld(transform, false);
 
-		transform.SetPosition(Vector3(0, 10, 0));
-		auto* sphere = AddObjectToWorld(transform);
+		int createdSphereCounter = 0;
+
+		transform.SetPosition(Vector3(10, 10, 0));
+		auto* sphere = AddObjectToWorld(transform, createdSphereCounter);
+		sphere->GetRenderObject()->SetColour(Vector4(0.0f, 0.4f, 0.2f, 1));
 		AddNetworkObject(*sphere);
+		createdSphereCounter++;
 
 		transform.SetPosition(Vector3(-20, 10, 20));
-		auto* sphereTwo = AddObjectToWorld(transform);
+		auto* sphereTwo = AddObjectToWorld(transform, createdSphereCounter);
+
+		sphereTwo->GetRenderObject()->SetColour(Vector4(.4f, .5f, .5f, 1));
 		AddNetworkObject(*sphereTwo);
 
 		LoadLights((*mLevelList[1]).GetLights(), Vector3(0, 0, 0));
@@ -1318,7 +1324,7 @@ GameObject* LevelManager::AddFloorToWorld(const Transform& transform, bool isOut
 	return floor;
 }
 
-GameObject* LevelManager::AddObjectToWorld(const Transform& transform) {
+GameObject* LevelManager::AddObjectToWorld(const Transform& transform, int createdCount) {
 	GameObject* sphere = new GameObject();
 
 	float radius = 1.f;
@@ -1330,8 +1336,8 @@ GameObject* LevelManager::AddObjectToWorld(const Transform& transform) {
 	sphere->GetTransform()
 		.SetScale(sphereSize)
 		.SetPosition(transform.GetPosition());
-
-	sphere->SetRenderObject(new RenderObject(&sphere->GetTransform(), mMeshes["Sphere"], mTextures["Checkboard"], mTextures["FloorNormal"], mShaders["Basic"],
+	std::string texName = createdCount % 2 == 0 ? "Checkboard" : "CheckboardRed";
+	sphere->SetRenderObject(new RenderObject(&sphere->GetTransform(), mMeshes["Sphere"], mTextures[texName], mTextures["FloorNormal"], mShaders["Basic"],
 		std::sqrt(std::pow(sphereSize.x, 2) + std::powf(sphereSize.z, 2))));
 	sphere->GetRenderObject()->SetColour(Vector4(0.0f, 0.4f, 0.2f, 1));
 

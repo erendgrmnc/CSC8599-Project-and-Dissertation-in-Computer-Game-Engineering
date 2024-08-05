@@ -200,7 +200,7 @@ namespace NCL {
 			GameObject* AddWallToWorld(const Transform& transform);
 			GameObject* AddCornerWallToWorld(const Transform& transform);
 			GameObject* AddFloorToWorld(const Transform& transform, bool isOutside);
-			GameObject* AddObjectToWorld(const Transform& transform);
+			GameObject* AddObjectToWorld(const Transform& transform, int createdCount);
 			CCTV* AddCCTVToWorld(const Transform& transform, const bool isMultiplayerLevel = false);
 			Helipad* AddHelipadToWorld(const Vector3& position);
 			Vent* AddVentToWorld(Vent* vent, bool isMultiplayerLevel = false);

@@ -50,6 +50,10 @@ namespace NCL {
 
 			float GetCollisionElasticity(PhysicsObject objectA, PhysicsObject objectB) const;
 
+			float CalculateMaxDt();
+
+			float CalculateObjectWaveSpeed(const GameObject& object);
+
 			void FrictionImpulse(GameObject& a, GameObject& b, CollisionDetection::ContactPoint& p, float j) const;
 
 			bool GetIsCapsule(GameObject& obj) const;

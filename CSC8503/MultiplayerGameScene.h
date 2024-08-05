@@ -102,6 +102,8 @@ namespace NCL{
             int mWinningPlayerId;
             int mLocalPlayerId;
 
+            int prevServerOfObj = -1; // TEST VAR
+
             void UpdateAsServer(float dt);
             void UpdateAsClient(float dt);
 
@@ -155,6 +157,8 @@ namespace NCL{
 
             void WriteAndSendSyncPlayerIdNameMapPacket() const;
             void HandleSyncPlayerIdNameMapPacket(const SyncPlayerIdNameMapPacket* packet);
+
+            void WriteAndSendDistributedClientPacket(float dt);
 
             //Distributed System functions
         	void HandleOnConnectToDistributedPhysicsServerPacketReceived(DistributedClientConnectToPhysicsServerPacket* packet);

@@ -2,6 +2,11 @@
 #include <vector>
 
 #include "GameObject.h"
+#include "../DistributedGameServer/ServerWorldManager.h"
+
+namespace NCL::CSC8503 {
+	struct DistributedClientPacket;
+}
 
 namespace NCL {
     namespace CSC8503 {
@@ -10,20 +15,23 @@ namespace NCL {
         class StateTransition;
         class TestObject : public GameObject {
         public:
-            TestObject();
-            TestObject(std::vector<State*>& states, std::vector<StateTransition*>& stateTransitions);
+            TestObject(DistributedGameServer::PhyscisServerBorderData& data, int playerID);
             ~TestObject();
 
             virtual void Update(float dt);
-            void AddStates(vector<State*>& states);
-            void AddStateTransitions(std::vector<StateTransition*>& stateTransitions);
+            void ReceiveClientInputs(DistributedClientPacket* clientPacket);
+            void ClearInputs();
 
+        	int GetPlayerID();
+            
         protected:
-            bool mIsForceAdded = false;
-            void MoveLeft(float dt);
+            int mPlayerID = -1;
+            bool mPlayerInputs[4] = { false };
+
+        	void MoveLeft(float dt);
             void MoveRight(float dt);
 
-            StateMachine* stateMachine;
+            DistributedGameServer::PhyscisServerBorderData mBorderData;
         };
     }
 }

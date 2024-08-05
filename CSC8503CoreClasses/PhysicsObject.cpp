@@ -8,6 +8,9 @@ PhysicsObject::PhysicsObject(Transform* parentTransform, const CollisionVolume* 
 	mTransform	= parentTransform;
 	mVolume		= parentVolume;
 
+	mPredictedPosition = mTransform->GetPosition();
+	mPredictedOrientation = mTransform->GetOrientation();
+
 	mInverseMass = inverseMass;
 	mElasticity = elasticity;
 	// friction when stopping
@@ -43,7 +46,7 @@ void PhysicsObject::AddTorque(const Vector3& addedTorque) {
 	mTorque += addedTorque;
 }
 
-void PhysicsObject::SetPredictedPosition(Vector3& predictedPosition) {
+void PhysicsObject::SetPredictedPosition(const Vector3& predictedPosition) {
 	mPredictedPosition = predictedPosition;
 }
 
@@ -90,4 +93,8 @@ void PhysicsObject::UpdateInertiaTensor() {
 
 Transform* PhysicsObject::GetTransform() const {
 	return mTransform;
+}
+
+Vector3 PhysicsObject::GetInverseInertia() {
+	return mInverseInertia;
 }

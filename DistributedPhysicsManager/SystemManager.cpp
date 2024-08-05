@@ -9,11 +9,11 @@
 #include "ServerWorldManager.h"
 
 namespace {
-	constexpr int GAME_AREA_MIN_X = -500;
-	constexpr int GAME_AREA_MAX_X = 500;
+	constexpr int GAME_AREA_MIN_X = -150;
+	constexpr int GAME_AREA_MAX_X = 150;
 
-	constexpr int GAME_AREA_MIN_Z = -500;
-	constexpr int GAME_AREA_MAX_Z = 500;
+	constexpr int GAME_AREA_MIN_Z = -150;
+	constexpr int GAME_AREA_MAX_Z = 150;
 }
 
 NCL::DistributedManager::SystemManager::SystemManager(int maxPhysicsServerCount) {
@@ -56,7 +56,7 @@ void NCL::DistributedManager::SystemManager::ReceivePacket(int type, GamePacket*
 		break;
 	}
 	case DistributedPhysicsServerAllClientsAreConnected: {
-		auto* distributedPhysicsServerAllClientsAreConnectedPacket = (NCL::CSC8503::DistributedPhysicsServerAllClientsAreConnectedPacket*)payload;
+		auto* distributedPhysicsServerAllClientsAreConnectedPacket = static_cast<NCL::CSC8503::DistributedPhysicsServerAllClientsAreConnectedPacket*>(payload);
 		HandleAllClientsConnectedToPhysicsServer(distributedPhysicsServerAllClientsAreConnectedPacket);
 		break;
 	}

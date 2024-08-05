@@ -192,6 +192,7 @@ void MultiplayerGameScene::UpdateGame(float dt) {
 
 	if (mIsGameStarted && !mIsGameFinished) {
 
+		WriteAndSendDistributedClientPacket(dt);
 		ShowPlayerList();
 
 		//TODO(erendgrmnc): rewrite this logic after end-game conditions are decided.
@@ -204,11 +205,22 @@ void MultiplayerGameScene::UpdateGame(float dt) {
 		else {
 			Debug::Print("CLIENT", Vector2(5, 10), Debug::MAGENTA);
 			auto posVec = mNetworkObjects[0]->GetGameObject().GetTransform().GetPosition();
-			auto predictedPosVec = mNetworkObjects[1]->GetGameObject().GetPhysicsObject()->GetPredictedPosition();
+			auto predictedPosVec = mNetworkObjects[0]->GetGameObject().GetPhysicsObject()->GetPredictedPosition();
+
+			int serverID = mNetworkObjects[0]->GetGameObject().GetServerID();
+			if (prevServerOfObj == -1) {
+				prevServerOfObj = serverID;
+			}
+			else if (prevServerOfObj != serverID) {
+				std::cout << "Server changed!" << prevServerOfObj << ", Now" << serverID << "\n";
+			}
+			std::string serverStr = "Object Server: " + std::to_string(serverID);
 			std::string str = "Object Position: "+ std::to_string(posVec.x) +", " + std::to_string(posVec.y) + ", " + std::to_string(posVec.z);
 			std::string predictedPosStr = "Predicted Object Position: " + std::to_string(predictedPosVec.x) + ", " + std::to_string(predictedPosVec.y) + ", " + std::to_string(predictedPosVec.z);
-			Debug::Print(str, Vector2(5,20), Debug::RED);
-			Debug::Print(predictedPosStr, Vector2(5, 40), Debug::BLUE);
+
+			Debug::Print(serverStr, Vector2(5, 15), Debug::GREEN);
+			Debug::Print(str, Vector2(5,25), Debug::RED);
+			Debug::Print(predictedPosStr, Vector2(5, 35), Debug::BLUE);
 		}
 
 		mLevelManager->Update(dt, mGameState == InitialisingLevelState, false);
@@ -842,6 +854,28 @@ void MultiplayerGameScene::HandleSyncPlayerIdNameMapPacket(const SyncPlayerIdNam
 			std::pair<int, std::string> playerIdNamePair(packet->playerIds[i], packet->playerNames[i]);
 			mPlayerPeerNameMap.insert(playerIdNamePair);
 		}
+	}
+}
+
+void MultiplayerGameScene::WriteAndSendDistributedClientPacket(float dt) {
+	bool inputs[4] = { false,false,false,false };
+
+	if (Window::GetKeyboard()->KeyDown(KeyCodes::LEFT)) {
+		inputs[0] = true;
+	}
+
+	if (Window::GetKeyboard()->KeyDown(KeyCodes::RIGHT)) {
+		inputs[1] = true;
+	}
+
+	DistributedClientPacket packet(1, inputs);
+
+	if (packet.movementButtons[0] == true) {
+		std::cout << "Sol Basildi\n";
+	}
+
+	for (const auto& distributedClient : mDistributedPhysicsClients) {
+		distributedClient.second->SendPacket(packet);
 	}
 }
 

@@ -11,6 +11,10 @@
 using namespace NCL;
 using namespace CSC8503;
 
+namespace {
+	constexpr float SAFETY_FACTOR = 0.90f;
+}
+
 PhysicsSystem::PhysicsSystem(GameWorld& g) : mGameWorld(g) {
 	mApplyGravity = false;
 	mDTOffset = 0.0f;
@@ -193,7 +197,7 @@ void PhysicsSystem::PredictFutureStateOfObject(PhysicsObject& physicsObject, flo
 
 	Vector3 angVel = physicsObject.GetAngularVelocity();
 	Vector3 torque = physicsObject.GetTorque();
-	Matrix3 inertiaTensor = physicsObject.GetInertiaTensor();
+	Matrix3 inertiaTensor = physicsObject.GetInverseInertiaTensor();
 	physicsObject.UpdateInertiaTensor();
 	Vector3 angAccel = inertiaTensor * torque;
 	angVel += angAccel * dt;
@@ -207,9 +211,19 @@ void PhysicsSystem::PredictFutureStateOfObject(PhysicsObject& physicsObject, flo
 }
 
 void PhysicsSystem::PredictFuturePositions(float dt) {
+	// Calculate maximum allowed time step based on stability criteria
+	float maxDt = CalculateMaxDt();
+
+	// Apply safety factor
+	maxDt *= SAFETY_FACTOR;
+
+	// Adjust time step
+	dt = std::min(dt, maxDt);
+
+
 	for (auto& obj : mDynamicObjectList) {
-		if (obj->GetPhysicsObject() != nullptr) {
-			PredictFutureStateOfObject(*obj->GetPhysicsObject(), dt);
+		if (obj->GetPhysicsObject() != nullptr && obj->IsNetworkActive()) {
+			PredictFutureStateOfObject(*obj->GetPhysicsObject(), 1.f);
 		}
 	}
 }
@@ -292,6 +306,26 @@ float PhysicsSystem::GetCollisionElasticity(PhysicsObject objectA, PhysicsObject
 	return objectA.GetElasticity() * objectB.GetElasticity();
 }
 
+float PhysicsSystem::CalculateMaxDt() {
+	float maxVelocity = 0.0f;
+	for (auto& obj : mDynamicObjectList) {
+		if (obj->GetPhysicsObject() != nullptr) {
+			maxVelocity = std::max(maxVelocity, obj->GetPhysicsObject()->GetLinearVelocity().Length());
+		}
+	}
+
+	// Replace this with a suitable value based on your simulation
+
+	// Avoid division by zero
+	if (maxVelocity > 0.0f) {
+		constexpr float maxAllowedVelocity = INT_MAX; // TODO(erendgrmnc): can be causing errors!!!
+		return maxAllowedVelocity / maxVelocity;
+	}
+	else {
+		return 1.0f; // Default value if no objects are moving
+	}
+}
+
 void PhysicsSystem::FrictionImpulse(GameObject& a, GameObject& b, CollisionDetection::ContactPoint& p, float j) const {
 	PhysicsObject* physA = a.GetPhysicsObject();
 	PhysicsObject* physB = b.GetPhysicsObject();
@@ -364,8 +398,8 @@ Vector3 PhysicsSystem::CalculateFrictionDirection(Vector3 contactVelocity, Vecto
 }
 
 float PhysicsSystem::CalculateInertia(PhysicsObject* physA, PhysicsObject* physB, Vector3 contactPointA, Vector3 contactPointB, Vector3 angle) const {
-	Vector3 inertiaA = Vector3::Cross(physA->GetInertiaTensor() * Vector3::Cross(contactPointA, angle), contactPointA);
-	Vector3 inertiaB = Vector3::Cross(physB->GetInertiaTensor() * Vector3::Cross(contactPointB, angle), contactPointB);
+	Vector3 inertiaA = Vector3::Cross(physA->GetInverseInertiaTensor() * Vector3::Cross(contactPointA, angle), contactPointA);
+	Vector3 inertiaB = Vector3::Cross(physB->GetInverseInertiaTensor() * Vector3::Cross(contactPointB, angle), contactPointB);
 	return Vector3::Dot(inertiaA + inertiaB, angle);
 }
 
@@ -525,7 +559,7 @@ void PhysicsSystem::IntegrateAccel(float dt) {
 		object->UpdateInertiaTensor();
 
 		// get angular accel using new orientation * torque
-		Vector3 angAccel = object->GetInertiaTensor() * torque;
+		Vector3 angAccel = object->GetInverseInertiaTensor() * torque;
 		// scale by dt and set as new angular velocity
 		angVel += angAccel * dt;
 		object->SetAngularVelocity(angVel);
