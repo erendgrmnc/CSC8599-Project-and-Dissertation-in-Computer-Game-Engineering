@@ -24,8 +24,16 @@ namespace NCL::DistributedGameServer {
 	class ServerWorldManager;
 }
 
+
 namespace NCL {
 	namespace DistributedGameServer {
+		struct GameServerConnection {
+			int serverID;
+			GameClient* client = nullptr;
+
+			GameServerConnection(int serverID, GameClient* client);
+		};
+
 		class DistributedGameServerManager : public PacketReceiver {
 		public:
 			DistributedGameServerManager(int serverId, const std::string& serverBordersStr);
@@ -50,9 +58,13 @@ namespace NCL {
 			void StartGame();
 			void SendAllClientsAreConnectedToPacketSenderServerPacket() const;
 			void SendPacketSenderServerStartedPacket(int port) const;
+		
+			void HandleTransitionHandshakePacketReceived(StartSimulatingObjectReceivedPacket* packet);
+
 		protected:
 			bool mIsServerConnectedToManager = false;
 			bool mIsGameStarted = false;
+			bool mIsPlayerObjectsCreated = false;
 
 			int mGameServerId;
 			int mServerSideLastFullID;
@@ -62,6 +74,7 @@ namespace NCL {
 			int mMaxGameClientsToConnectPacketSender;
 
 			float mTimeToNextPacket;
+			float mDebugTimer = 5.f;
 
 			std::queue<GamePacket*> mPacketToSendQueue;
 
@@ -74,7 +87,7 @@ namespace NCL {
 
 			NCL::Networking::DistributedPhysicsServerClient* mThisDistributedPhysicsServer = nullptr;
 			NCL::Networking::DistributedPacketSenderServer* mDistributedPacketSenderServer = nullptr;
-			std::vector<NCL::CSC8503::GameClient*> mDistributedPhysicsClients;
+			std::vector<GameServerConnection*> mDistributedPhysicsClients;
 
 			NCL::DistributedGameServer::ServerWorldManager* mServerWorldManager;
 
@@ -84,9 +97,9 @@ namespace NCL {
 
 			void HandleStartGameServerPacketReceived(StartDistributedGameServerPacket* packet);
 			void HandleObjectTransitions() const;
-			void SendStartTransitionPacket(NetworkObject& obj) const;
 			void SendFinishTransactionPacket(NetworkObject& obj) const;
-;			bool ConnectServerToAnotherGameServer(char a, char b, char c, char d, int port, int gameServerID);
+			void SendTransactionHandshakePacket(int senderServerID, int networkID) const;
+;			GameServerConnection* ConnectServerToAnotherGameServer(char a, char b, char c, char d, int port, int gameServerID);
 		};
 	}
 }

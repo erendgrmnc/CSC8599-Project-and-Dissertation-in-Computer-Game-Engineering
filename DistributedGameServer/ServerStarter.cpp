@@ -3,6 +3,8 @@
 
 #include "DistributedGameServerManager.h"
 #include "GameTimer.h"
+#include "Profiler.h"
+#include "ProfilerRenderer.h"
 #include "ServerWorldManager.h"
 
 int ParsePortNumber(std::string& portStr) {
@@ -92,8 +94,18 @@ int StartGameServer(int argc, char* argv[]) {
 
 	bool isServerRunning = true;
 
+	float winWidth = 400;
+	float winHeight = 700;
+
+	//PROFILER
+	Window* w = nullptr;
+	w = Window::CreateGameWindow("Profiler", winWidth, winHeight, false);
+	w->ShowOSPointer(true);
+	w->LockMouseToWindow(false);
+	auto* profilerRenderer = new ProfilerRenderer(*w, NCL::ProfilerType::DistributedPhysicsServer);
+
 	timer.GetTimeDeltaSeconds(); //Clear the timer so we don't get a larget first dt!
-	while (isServerRunning) {
+	while (isServerRunning &&(w->UpdateWindow())) {
 		timer.Tick();
 		float dt = timer.GetTimeDeltaSeconds();
 		if (dt > 0.1f) {
@@ -113,6 +125,10 @@ int StartGameServer(int argc, char* argv[]) {
 		serverManager->UpdateGameServerManager(dt);
 		end = std::chrono::high_resolution_clock::now();
 		timeTaken = end - start;
+
+		Profiler::Update();
+		profilerRenderer->Render();
+	
 		
 		//std::cout << "Network Update Time: " << timeTaken << "\n";
 	}

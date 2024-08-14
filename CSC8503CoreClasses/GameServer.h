@@ -17,6 +17,7 @@ namespace NCL {
 			virtual void AddPeer(int peerNumber);
 
 			bool SendGlobalPacket(int msgID);
+			bool SendGlobalReliablePacket(GamePacket& packet);
 			bool SendGlobalPacket(GamePacket& packet);
 			bool SendVariableUpdatePacket(VariablePacket& packet);
 			bool GetPeer(int peerNumber, int& peerId) const;
@@ -24,6 +25,7 @@ namespace NCL {
 			std::string GetIpAddress() const;
 
 			virtual void UpdateServer();
+			void SetMaxClients(int maxClients);
 
 		protected:
 			int			mPort;

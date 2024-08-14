@@ -16,9 +16,10 @@ namespace {
 	constexpr int GAME_AREA_MAX_Z = 150;
 }
 
-NCL::DistributedManager::SystemManager::SystemManager(int maxPhysicsServerCount) {
+NCL::DistributedManager::SystemManager::SystemManager(int maxPhysicsServerCount, int maxClientCount) {
 	mDistributedPhysicsManagerServer = nullptr;
 	mMaxPhysicsServerCount = maxPhysicsServerCount;
+	mMaxClientCount = maxClientCount;
 	CalculatePhysicsServerBorders();
 	NetworkBase::Initialise();
 }
@@ -87,7 +88,7 @@ void DistributedManager::SystemManager::SendStartDataToPhysicsServer(int physics
 		serverPorts.push_back(createdServer->dataSenderPort);
 	}
 
-	StartDistributedGameServerPacket packet(1234, serverPorts, serverIps, mPhysicsServerBorderStrMap);
+	StartDistributedGameServerPacket packet(1234, mMaxClientCount,serverPorts, serverIps, mPhysicsServerBorderStrMap);
 	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
 }
 
@@ -126,7 +127,7 @@ void DistributedManager::SystemManager::HandleAllClientsConnectedToPhysicsServer
 
 		if (CheckIsGameStartable()) {
 			std::cout << "Starting Game!\n";
-			SendStartGameStatusPacket();
+				SendStartGameStatusPacket();
 		}
 	}
 
@@ -142,9 +143,11 @@ void DistributedManager::SystemManager::CalculatePhysicsServerBorders() {
 }
 
 void DistributedManager::SystemManager::SetPhysicsServerBorderStrMap() {
+	std::cout << "-------------- SERVER BORDERS ---------------\n";
 	for (const auto& pair : mPhysicsServerBorderMap) {
 		const std::string& borderStr = GetServerAreaString(pair.first);
 		std::pair<int, const std::string> strPair = std::make_pair(pair.first, borderStr);
+		std::cout << "Server(" << pair.first << "): " << pair.second->minX << "," << pair.second->maxX << "|" << pair.second->minZ << ", " << pair.second->maxZ << "\n";
 		mPhysicsServerBorderStrMap.insert(strPair);
 	}
 }
@@ -163,27 +166,47 @@ bool DistributedManager::SystemManager::CheckIsGameStartable() {
 }
 
 DistributedManager::GameBorder& DistributedManager::SystemManager::CalculateServerBorders(int serverNum) {
-	if (serverNum < 0 || serverNum >= mMaxPhysicsServerCount) {
+	if (serverNum < 0 || serverNum > mMaxPhysicsServerCount) {
 		throw std::out_of_range("Server number out of range");
 	}
 
 	GameBorder* border = new GameBorder(0.f, 0.f, 0.f, 0.f);
-	double sqrt = 0.f;
-	sqrt = std::sqrt(2);
-	double ceilVal = std::ceil(sqrt);
-	int numCols = static_cast<int>(ceilVal);
-	int numRows = static_cast<int>(std::ceil(static_cast<double>(2) / numCols));
 
+	// Calculate the number of columns and rows based on the number of servers
+	int numCols, numRows;
+	if (mMaxPhysicsServerCount == 3) {
+		// Special case for 3 servers
+		numCols = 2;  // 2 columns
+		numRows = 2;  // 2 rows, but we only use 1 row in the bottom row
+	}
+	else {
+		double sqrt = std::sqrt(mMaxPhysicsServerCount);
+		numCols = static_cast<int>(std::ceil(sqrt));
+		numRows = static_cast<int>(std::ceil(static_cast<double>(mMaxPhysicsServerCount) / numCols));
+	}
+
+	// Calculate the width and height of each region
 	int rectWidth = (GAME_AREA_MAX_X - GAME_AREA_MIN_X) / numCols;
 	int rectHeight = (GAME_AREA_MAX_Z - GAME_AREA_MIN_Z) / numRows;
 
+	// Determine which row and column this server is responsible for
 	int row = serverNum / numCols;
 	int col = serverNum % numCols;
 
+	// Set the borders
 	border->minX = GAME_AREA_MIN_X + col * rectWidth;
 	border->minZ = GAME_AREA_MIN_Z + row * rectHeight;
-	border->maxX = (col == numCols - 1) ? GAME_AREA_MAX_Z : (border->minX + rectWidth);
+	border->maxX = (col == numCols - 1) ? GAME_AREA_MAX_X : (border->minX + rectWidth);
 	border->maxZ = (row == numRows - 1) ? GAME_AREA_MAX_Z : (border->minZ + rectHeight);
+
+	// Adjustments for the special 3-server layout
+	if (mMaxPhysicsServerCount == 3) {
+		if (serverNum == 2) {
+			// The bottom row server spans the full width
+			border->minX = GAME_AREA_MIN_X;
+			border->maxX = GAME_AREA_MAX_X;
+		}
+	}
 
 	return *border;
 }

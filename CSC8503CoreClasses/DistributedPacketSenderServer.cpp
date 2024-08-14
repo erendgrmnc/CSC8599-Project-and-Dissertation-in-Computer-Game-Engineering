@@ -42,7 +42,7 @@ void NCL::Networking::DistributedPacketSenderServer::UpdateServer() {
 
 void NCL::Networking::DistributedPacketSenderServer::AddPeer(int peerNumber) {
 	GameServer::AddPeer(peerNumber);
-	std::cout << "Client connected to packet server!\n";
+	std::cout << "Client connected to packet server! Client Count: "<< mClientCount <<"/" << mClientMax << "\n";
 	if (mClientCount == mClientMax) {
 		TriggerOnAllClientsAreConnectedEvents();
 	}

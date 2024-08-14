@@ -10,7 +10,7 @@ GameServer::GameServer(int onPort, int maxClients, bool isStartingServer) {
 	mClientMax = maxClients;
 	mClientCount = 0;
 	netHandle = nullptr;
-	mPeers = new int[mClientMax];
+	mPeers = new int[20];
 	for (int i = 0; i < mClientMax; ++i) {
 		mPeers[i] = -1;
 	}
@@ -55,6 +55,12 @@ bool GameServer::SendGlobalPacket(int msgID) {
 	GamePacket packet;
 	packet.type = msgID;
 	return SendGlobalPacket(packet);
+}
+
+bool GameServer::SendGlobalReliablePacket(GamePacket& packet) {
+	ENetPacket* dataPacket = enet_packet_create(&packet, packet.GetTotalSize(), ENET_PACKET_FLAG_RELIABLE);
+	enet_host_broadcast(netHandle, 0, dataPacket);
+	return true;
 }
 
 bool GameServer::SendGlobalPacket(GamePacket& packet) {
@@ -114,6 +120,10 @@ void GameServer::UpdateServer() {
 		}
 		enet_packet_destroy(event.packet);
 	}
+}
+
+void GameServer::SetMaxClients(int maxClients) {
+	mClientMax = maxClients;
 }
 
 void GameServer::SetGameWorld(GameWorld& g) {

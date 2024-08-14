@@ -22,6 +22,8 @@
 #include "../CSC8503CoreClasses/BehaviourSequence.h"
 #include "../CSC8503CoreClasses/BehaviourAction.h"
 #include "MultiplayerGameScene.h"
+#include "Profiler.h"
+#include "ProfilerRenderer.h"
 #include "../CSC8503CoreClasses/PushdownMachine.h"
 #include "SceneManager.h"
 
@@ -81,12 +83,15 @@ int RunGame(){
     float winHeight = isNetworkTestActive ? NETWORK_TEST_HEIGHT : GAME_WINDOW_HEIGHT;
     bool isFullScreen = !isNetworkTestActive;
     SceneManager* sceneManager = nullptr;
-   
+
+
 #ifdef USEGL
+
     Window* w = nullptr;
     w = SetUpPCWindow(winWidth, winHeight, isFullScreen);
     SetUpPCInputDevices(w, isNetworkTestActive);
     sceneManager = SceneManager::GetSceneManager();
+
 #endif
 
 #ifdef USEPROSPERO
@@ -96,7 +101,9 @@ int RunGame(){
     sceneManager->GetControllerInterface()->SetPS5Controller(w->GetController());
 #endif
 
-    //erendgrmnc: make the bool below true for network test.   
+    //erendgrmnc: make the bool below true for network test.
+
+    //auto* profilerRenderer = new ProfilerRenderer(*w, ProfilerType::DistributedClient, true);
 
     w->GetTimer().GetTimeDeltaSeconds(); //Clear the timer so we don't get a larget first dt!
     while (w->UpdateWindow() && !sceneManager->GetIsForceQuit()) {
@@ -121,9 +128,18 @@ int RunGame(){
         if (sceneManager->GetScenePushdownMachine() != nullptr) {
             sceneManager->GetScenePushdownMachine()->Update(dt);
         }
+        std::chrono::steady_clock::time_point start;
+        std::chrono::steady_clock::time_point end;
+        std::chrono::duration<double, std::milli> timeTaken;
+
+        start = std::chrono::high_resolution_clock::now();
         if (sceneManager->GetCurrentScene() != nullptr) {
             sceneManager->GetCurrentScene()->UpdateGame(dt);
         }
+        end = std::chrono::high_resolution_clock::now();
+        timeTaken = end - start;
+
+        Profiler::SetTimePassedPerUpdate(timeTaken.count());
     }
 
     //Note: B Schwarz - is this necessary/desirable for PS5?

@@ -185,7 +185,7 @@ void PhysicsSystem::PredictFutureStateOfObject(PhysicsObject& physicsObject, flo
 	Vector3 linearVel = physicsObject.GetLinearVelocity();
 	Vector3 force = physicsObject.GetForce();
 	const float inverseMass = physicsObject.GetInverseMass();
-	auto* transform = physicsObject.GetTransform();
+	auto transform = physicsObject.GetTransform();
 
 	Vector3 accel = force * inverseMass;
 	if (inverseMass > 0) {
@@ -193,7 +193,7 @@ void PhysicsSystem::PredictFutureStateOfObject(PhysicsObject& physicsObject, flo
 	}
 	linearVel += accel * dt;
 	Vector3 predictedPosition = transform->GetPosition() + linearVel * dt;
-	physicsObject.SetPredictedPosition (predictedPosition);
+	transform->SetPredictedPosition(predictedPosition);
 
 	Vector3 angVel = physicsObject.GetAngularVelocity();
 	Vector3 torque = physicsObject.GetTorque();
@@ -207,7 +207,7 @@ void PhysicsSystem::PredictFutureStateOfObject(PhysicsObject& physicsObject, flo
 	Quaternion predictedOrientation = orientation + (angVelocityQuat * orientation);
 	predictedOrientation.Normalise();
 
-	physicsObject.SetPredictedOrientation(predictedOrientation);
+	transform->SetPredictedOrientation(predictedOrientation);
 }
 
 void PhysicsSystem::PredictFuturePositions(float dt) {
@@ -223,7 +223,7 @@ void PhysicsSystem::PredictFuturePositions(float dt) {
 
 	for (auto& obj : mDynamicObjectList) {
 		if (obj->GetPhysicsObject() != nullptr && obj->IsNetworkActive()) {
-			PredictFutureStateOfObject(*obj->GetPhysicsObject(), 1.f);
+			PredictFutureStateOfObject(*obj->GetPhysicsObject(), 0.1f);
 		}
 	}
 }
@@ -511,7 +511,7 @@ void PhysicsSystem::NarrowPhase() {
 	// iteratr through all collisions added and if collision then call impulse resolve collision
 	for (std::set<CollisionDetection::CollisionInfo>::iterator i = mBroadphaseCollisions.begin(); i != mBroadphaseCollisions.end(); i++) {
 		CollisionDetection::CollisionInfo info = *i;
-		
+
 		if (CollisionDetection::ObjectIntersection(info.a, info.b, info)) {
 			info.framesLeft = mNumCollisionFrames;
 			if (!(info.a->GetCollisionLayer() & NO_COLLISION_RESOLUTION || info.b->GetCollisionLayer() & NO_COLLISION_RESOLUTION)) {

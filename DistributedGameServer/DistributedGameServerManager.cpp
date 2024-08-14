@@ -7,12 +7,18 @@
 #include "GameWorld.h"
 #include "NetworkObject.h"
 #include "PhysicsObject.h"
+#include "Profiler.h"
 #include "ServerWorldManager.h"
 #include "TestObject.h"
 
 namespace {
-	constexpr int TEST_MAX_CLIENT = 1;
-	constexpr int TEST_MAX_GAME_SERVER = 2;
+	constexpr int TEST_MAX_CLIENT = 10;
+	constexpr int TEST_MAX_GAME_SERVER = 10;
+}
+
+DistributedGameServer::GameServerConnection::GameServerConnection(int serverID, GameClient* client) {
+	this->serverID = serverID;
+	this->client = client;
 }
 
 DistributedGameServer::DistributedGameServerManager::DistributedGameServerManager(int serverId, const std::string& serverBordersStr) {
@@ -59,8 +65,8 @@ bool DistributedGameServer::DistributedGameServerManager::StartDistributedPacket
 	if (mDistributedPacketSenderServer) {
 		RegisterPacketSenderServerPackets();
 
-		std::thread senderThread(&DistributedGameServerManager::SendPacketsThread, this);
-		senderThread.detach();
+		//std::thread senderThread(&DistributedGameServerManager::SendPacketsThread, this);
+		//senderThread.detach();
 
 		std::cout << "Packet sender server started!\n";
 		SendPacketSenderServerStartedPacket(mPacketSenderServerPort);
@@ -74,6 +80,10 @@ bool DistributedGameServer::DistributedGameServerManager::GetGameStarted() const
 }
 
 void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManager(float dt) {
+	std::chrono::steady_clock::time_point start;
+	std::chrono::steady_clock::time_point end;
+	std::chrono::duration<double, std::milli> timeTaken;
+
 	if (mThisDistributedPhysicsServer) {
 		mThisDistributedPhysicsServer->UpdatePhysicsServer();
 	}
@@ -82,31 +92,42 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 		mDistributedPacketSenderServer->UpdateServer();
 	}
 
-	for (auto* gameServerConnection : mDistributedPhysicsClients) {
-		gameServerConnection->UpdateClient();
+	for (auto& gameServerConnection : mDistributedPhysicsClients) {
+		gameServerConnection->client->UpdateClient();
 	}
 
 	if (mIsGameStarted) {
 		HandleObjectTransitions();
 
 		mTimeToNextPacket -= dt;
-		//std::cout << "Time to next packet: " << mTimeToNextPacket << "\n";
-		//std::cout << "Packets To Snapshot: " << mPacketsToSnapshot << "\n";
+
 		if (mTimeToNextPacket < 0) {
 			mPacketsToSnapshot--;
 			if (mPacketsToSnapshot < 0) {
+				start = std::chrono::high_resolution_clock::now();
 				BroadcastSnapshot(false);
-				//std::cout << "Full packet sent. Last sent full ID: " << mServerSideLastFullID << "\n";
+				end = std::chrono::high_resolution_clock::now();
+				timeTaken = end - start;
+				Profiler::SetLastFullSnapshotTime(timeTaken.count());
 				mPacketsToSnapshot = 5;
 			}
 			else {
+				start = std::chrono::high_resolution_clock::now();
 				BroadcastSnapshot(true);
-				//std::cout << "Delta packet. Last sent full ID: " << mServerSideLastFullID << "\n";
+				end = std::chrono::high_resolution_clock::now();
+				timeTaken = end - start;
+				Profiler::SetLastDeltaSnapshotTime(timeTaken.count());
 			}
 			mTimeToNextPacket += 1.0f / 60.f; //20hz server/client update
 		}
+	}
 
+	mDebugTimer -= dt;
 
+	if (mDebugTimer <= 0.f) {
+
+		std::cout << "Last Received Client ID " << mStateIDs[0] << "\n";
+		mDebugTimer = 5.f;
 	}
 }
 
@@ -120,7 +141,7 @@ void DistributedGameServer::DistributedGameServerManager::RegisterPacketSenderSe
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::ClientPlayerInputState, this);
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::ClientInit, this);
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedClientConnectToPhysicsServer, this);
-	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedClientSync, this);
+	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::StartSimulatingObjectInServerReceived, this);
 
 	std::function<void()> onAllClientsConnectedCallback = std::bind(&DistributedGameServerManager::SendAllClientsAreConnectedToPacketSenderServerPacket, this);
 	mDistributedPacketSenderServer->RegisterOnAllClientsAreConnectedEvent(onAllClientsConnectedCallback);
@@ -158,6 +179,12 @@ void DistributedGameServer::DistributedGameServerManager::HandleClientPlayerInpu
 	mServerSideLastFullID = packet->lastId;
 	mStateIDs[0] = mServerSideLastFullID;
 	UpdateMinimumState();
+
+	for (const auto& testObj : mServerWorldManager->GetTestObjects()) {
+		if (testObj->GetPlayerID() == packet->playerID) {
+			testObj->ReceiveClientInputs(packet);
+		}
+	}
 }
 
 void DistributedGameServer::DistributedGameServerManager::ReceivePacket(int type, GamePacket* payload, int source) {
@@ -182,34 +209,28 @@ void DistributedGameServer::DistributedGameServerManager::ReceivePacket(int type
 		HandleStartGameServerPacketReceived(packet);
 		break;
 	}
-	case BasicNetworkMessages::GiveOwnershipOfObject: {
-		auto* giveOwnershipPacket = static_cast<GiveOwnershipOfObjectPacket*>(payload);
-		if (giveOwnershipPacket->newOwnerServerID == mGameServerId) {
-			std::cout << "Transition Start Packet Received! \n";
-			mServerWorldManager->HandleIncomingObjectCreation(giveOwnershipPacket->objectID);
-		}
-
-		break;
-	}
 	case BasicNetworkMessages::StartSimulatingObjectInServer: {
 		if (auto* packet = static_cast<StartSimulatingObjectPacket*>(payload)) {
 			std::cout << "Transition Finish Packet Received! \n";
 			std::cout << "Received Full Packet ID: " << packet->lastFullState.stateID << "\n";
 			if (packet->newOwnerServerID == mGameServerId) {
-
-				mServerWorldManager->StartHandlingObject(packet);
+				if (mServerWorldManager->StartHandlingObject(packet)) {
+					//mStateIDs[0] = packet->lastFullState.stateID;
+					SendTransactionHandshakePacket(packet->senderServerID, packet->objectID);
+				}
+				else {
+					std::cout << "Failed to receive object " << packet->objectID << "from server " << packet->senderServerID << std::endl;
+				}
 			}
 		}
 		break;
 	}
-	case BasicNetworkMessages::DistributedClientSync: {
-		if (auto* packet = static_cast<DistributedClientPacket*>(payload)) {
-			for (const auto& testObj : mServerWorldManager->GetTestObjects()) {
-				if (testObj->GetPlayerID() == packet->playerID) {
-					testObj->ReceiveClientInputs(packet);
-				}
-			}
+	case BasicNetworkMessages::StartSimulatingObjectInServerReceived: {
+		if (auto* packet = static_cast<StartSimulatingObjectReceivedPacket*>(payload)) {
+			std::cout << "Transition handshake received from " << packet->newOwnerServerID << " for network object ID " << packet->objectID;
+			HandleTransitionHandshakePacketReceived(packet);
 		}
+
 		break;
 	}
 	default:
@@ -239,7 +260,7 @@ void DistributedGameServer::DistributedGameServerManager::BroadcastSnapshot(bool
 			if (newPacket != nullptr) {
 				//TODO(erendgrmnc): create a thread safe queue for servers to send state packets.
 				std::lock_guard<std::mutex> lock(mPacketToSendQueueMutex);
-				mPacketToSendQueue.push(newPacket);
+				mDistributedPacketSenderServer->SendGlobalPacket(*newPacket);
 			}
 		}
 	}
@@ -257,6 +278,8 @@ void DistributedGameServer::DistributedGameServerManager::SendPacketsThread() {
 			}
 		}
 	}
+
+	std::cout << "Packet sender server is not available anymore" << std::endl;
 }
 
 void DistributedGameServer::DistributedGameServerManager::HandleGameStarted(
@@ -279,6 +302,17 @@ void DistributedGameServer::DistributedGameServerManager::SendPacketSenderServer
 	DistributedPhysicsClientConnectedToManagerPacket packet(port, mGameServerId);
 	std::cout << "Sending packet distributer started packet...\n";
 	mThisDistributedPhysicsServer->SendPacket(packet);
+}
+
+void DistributedGameServer::DistributedGameServerManager::HandleTransitionHandshakePacketReceived(
+	StartSimulatingObjectReceivedPacket* packet) {
+	for (auto& networkObj : *mNetworkObjects) {
+		if (networkObj->GetnetworkID() == packet->objectID) {
+			//mServerWorldManager->HandleOutgoingObject(networkObj->GetnetworkID());
+		}
+
+	}
+
 }
 
 std::vector<char> DistributedGameServer::DistributedGameServerManager::IpToCharArray(const std::string& ipAddress) {
@@ -356,14 +390,24 @@ void DistributedGameServer::DistributedGameServerManager::HandleStartGameServerP
 		return;
 	}
 
+	int maxClient = (packet->totalServerCount - 1) + packet->clientsToConnect;
+
+	std::cout << "Max client for packet sender server: " << maxClient << "\n";
+	mDistributedPacketSenderServer->SetMaxClients(maxClient);
+
 	if (mPhysicsServerBorderMap.size() != packet->totalServerCount) {
 		for (int i = 0; i < packet->totalServerCount; i++) {
 			if (!mPhysicsServerBorderMap.contains(i)) {
+				std::cout << "Received Border for server " << i << " " << packet->borders[i] << "\n";
 				PhyscisServerBorderData* serverBorderData = CreatePhysicsServerBorders(packet->borders[i]);
 				std::pair<int, PhyscisServerBorderData*> pair = std::make_pair(packet->serverIDs[i], serverBorderData);
 				mPhysicsServerBorderMap.insert(pair);
 			}
 		}
+	}
+	if (!mIsPlayerObjectsCreated) {
+		mServerWorldManager->CreatePlayerObjects(packet->clientsToConnect);
+		mIsPlayerObjectsCreated = true;
 	}
 
 	for (int i = 0; i < packet->currentServerCount; i++) {
@@ -375,34 +419,34 @@ void DistributedGameServer::DistributedGameServerManager::HandleStartGameServerP
 		std::vector<char> ipOctets = IpToCharArray(packet->createdServerIPs[i]);
 		//TODO(erendgrmnc): Add check if client already added.
 
-		if (bool isConnectedToServer = ConnectServerToAnotherGameServer(127, 0, 0, 1, packet->serverPorts[i], i)) {
-			std::cout << "Successfully connected to server " << i << "! \n";
+		bool isServerAdded = false;
+		for (auto* gameServerConnection : mDistributedPhysicsClients) {
+			if (gameServerConnection->serverID == i) {
+				isServerAdded = true;
+			}
 		}
-		else {
-			std::cout << "Failed to connected to server " << i << "! \n";
+
+		if (!isServerAdded) {
+			if (auto* serverConnection = ConnectServerToAnotherGameServer(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], packet->serverPorts[i], i)) {
+				std::cout << "Successfully connected to server " << i << "! \n";
+				mDistributedPhysicsClients.push_back(serverConnection);
+			}
+			else {
+				std::cout << "Failed to connected to server " << i << "! \n";
+			}
 		}
 	}
 }
 
 void DistributedGameServer::DistributedGameServerManager::HandleObjectTransitions() const {
 	for (auto& networkObj : *mNetworkObjects) {
-		if (networkObj->GetIsPredictedPosOutOfServer()) {
-			std::cout << "Sending Start Transition Packet for object ID: " << networkObj->GetnetworkID() << "\n";
-			SendStartTransitionPacket(*networkObj);
-			networkObj->HandleAfterTransitionStarted();
-		}
-		else if (networkObj->GetIsActualPosOutOfServer()) {
+		if (networkObj->GetIsActualPosOutOfServer()) {
 			std::cout << "Sending Finish Transition Packet to server: " << networkObj->GetNewServerID() << "\n";
 			SendFinishTransactionPacket(*networkObj);
 			networkObj->HandleTransitionComplete();
 			mServerWorldManager->HandleOutgoingObject(networkObj->GetnetworkID());
 		}
 	}
-}
-
-void DistributedGameServer::DistributedGameServerManager::SendStartTransitionPacket(NetworkObject& obj) const {
-	GiveOwnershipOfObjectPacket packet(obj.GetNewServerID(), obj.GetnetworkID());
-	mDistributedPacketSenderServer->SendGlobalPacket(packet);
 }
 
 void DistributedGameServer::DistributedGameServerManager::SendFinishTransactionPacket(NetworkObject& obj) const {
@@ -413,13 +457,25 @@ void DistributedGameServer::DistributedGameServerManager::SendFinishTransactionP
 	lastFullState.orientation = gameObjectComp.GetTransform().GetOrientation();
 	auto* testComp = dynamic_cast<TestObject*>(&gameObjectComp);
 
-	StartSimulatingObjectPacket packet(obj.GetnetworkID(), obj.GetNewServerID(), lastFullState, *gameObjectComp.GetPhysicsObject());
-	mDistributedPacketSenderServer->SendGlobalPacket(packet);
+	StartSimulatingObjectPacket packet(obj.GetnetworkID(), obj.GetNewServerID(), mGameServerId, lastFullState, *gameObjectComp.GetPhysicsObject());
+	mDistributedPacketSenderServer->SendGlobalReliablePacket(packet);
 }
 
-bool DistributedGameServer::DistributedGameServerManager::ConnectServerToAnotherGameServer(char a, char b, char c,
-	char d, int port, int gameServerID) {
+void DistributedGameServer::DistributedGameServerManager::SendTransactionHandshakePacket(int senderServerID, int networkID) const {
+	StartSimulatingObjectReceivedPacket packet(networkID, mGameServerId);
 
+	std::cout << "Sending transition handshake packet to server with ID: " << senderServerID << "\n";
+
+	for (const auto* connection : mDistributedPhysicsClients) {
+		if (connection->serverID == senderServerID) {
+			connection->client->SendReliablePacket(packet);
+			return;
+		}
+	}
+}
+
+DistributedGameServer::GameServerConnection* DistributedGameServer::DistributedGameServerManager::ConnectServerToAnotherGameServer(char a, char b, char c,
+	char d, int port, int gameServerID) {
 	std::cout << "Trying to connect Server on IP: " << a << "," << b << "," << c << "," << d << "/ port: " << port << "\n";
 	auto* client = new NCL::CSC8503::GameClient();
 	std::string name = "Server " + mGameServerId;
@@ -428,12 +484,10 @@ bool DistributedGameServer::DistributedGameServerManager::ConnectServerToAnother
 
 	if (isConnected) {
 		client->RegisterPacketHandler(BasicNetworkMessages::StartSimulatingObjectInServer, this);
-		client->RegisterPacketHandler(BasicNetworkMessages::GiveOwnershipOfObject, this);
 	}
 
-	mDistributedPhysicsClients.push_back(client);
-
-	return isConnected;
+	GameServerConnection* connection = new GameServerConnection(gameServerID, client);
+	return connection;
 }
 
 NCL::Networking::DistributedPhysicsServerClient* DistributedGameServer::DistributedGameServerManager::GetDistributedPhysicsServer() const {

@@ -81,8 +81,9 @@ bool GameClient::UpdateClient() {
 	return true;
 }
 
-void GameClient::WriteAndSendClientInputPacket(){
-	ClientPlayerInputPacket packet(mClientSideLastFullID, *mPlayerInputs);
+void GameClient::WriteAndSendClientInputPacket(int playerID){
+
+	ClientPlayerInputPacket packet(mClientSideLastFullID, playerID, *mPlayerInputs);
 	this->SendPacket(packet);
 }
 
@@ -91,6 +92,12 @@ void GameClient::SendPacket(GamePacket&  payload) {
 	ENetPacket* dataPacket = enet_packet_create(&payload, payload.GetTotalSize(), 0);
 	enet_peer_send(mNetPeer, 0, dataPacket);
 }
+
+void GameClient::SendReliablePacket(GamePacket& payload) const {
+	ENetPacket* dataPacket = enet_packet_create(&payload, payload.GetTotalSize(), ENET_PACKET_FLAG_RELIABLE);
+	enet_peer_send(mNetPeer, 0, dataPacket);
+}
+
 void GameClient::Disconnect() {
 	if (mNetPeer != nullptr) {
 		// Disconnect from the server with a disconnect notification
@@ -147,5 +154,12 @@ void GameClient::WriteAndSendSyncLocationSusChangePacket(int cantorPairedLocatio
 
 void GameClient::SetPlayerInputs(PlayerInputs& playerInputs) {
 	mPlayerInputs = &playerInputs;
+}
+
+void GameClient::SetPlayerInputs(bool movementButtons[4]) {
+	mPlayerInputs->movementButtons[0] = movementButtons[0];
+	mPlayerInputs->movementButtons[1] = movementButtons[1];
+	mPlayerInputs->movementButtons[2] = movementButtons[2];
+	mPlayerInputs->movementButtons[3] = movementButtons[3];
 }
 #endif

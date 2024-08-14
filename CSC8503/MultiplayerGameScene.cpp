@@ -1,4 +1,5 @@
 ﻿#include "PhysicsObject.h"
+#include "Profiler.h"
 #ifdef USEGL
 #include "MultiplayerGameScene.h"
 
@@ -72,7 +73,7 @@ bool MultiplayerGameScene::PlayerWonGame() {
 	}
 
 	//TODO(erendgrmnc): lots of func calls, optimize it(ex: cache variables).
-	
+
 	if (auto* helipad = mLevelManager->GetHelipad()) {
 		bool isAnyPlayerOnHelipad = false;
 		std::tuple<bool, int> helipadCollisionResult = helipad->GetCollidingWithPlayer();
@@ -171,13 +172,21 @@ bool MultiplayerGameScene::StartAsClient(char a, char b, char c, char d, const s
 
 void MultiplayerGameScene::UpdateGame(float dt) {
 
+	std::chrono::steady_clock::time_point start;
+	std::chrono::steady_clock::time_point end;
+	std::chrono::duration<double, std::milli> timeTaken;
+
 	mTimeToNextPacket -= dt;
 	if (mTimeToNextPacket < 0) {
 		if (mThisServer) {
 			UpdateAsServer(dt);
 		}
 		else if (mThisClient) {
+			start = std::chrono::high_resolution_clock::now();
 			UpdateAsClient(dt);
+			end = std::chrono::high_resolution_clock::now();
+			timeTaken = end - start;
+			Profiler::SetNetworkTime(timeTaken.count());
 		}
 		mTimeToNextPacket += 1.0f / 60.0f; //20hz server/client update
 
@@ -191,8 +200,6 @@ void MultiplayerGameScene::UpdateGame(float dt) {
 	}
 
 	if (mIsGameStarted && !mIsGameFinished) {
-
-		WriteAndSendDistributedClientPacket(dt);
 		ShowPlayerList();
 
 		//TODO(erendgrmnc): rewrite this logic after end-game conditions are decided.
@@ -204,28 +211,55 @@ void MultiplayerGameScene::UpdateGame(float dt) {
 		}
 		else {
 			Debug::Print("CLIENT", Vector2(5, 10), Debug::MAGENTA);
-			auto posVec = mNetworkObjects[0]->GetGameObject().GetTransform().GetPosition();
-			auto predictedPosVec = mNetworkObjects[0]->GetGameObject().GetPhysicsObject()->GetPredictedPosition();
+			auto posVec = mNetworkObjects[mThisClient->GetPeerID() -1]->GetGameObject().GetTransform().GetPosition();
+			auto predictedPosVec = mNetworkObjects[mThisClient->GetPeerID() - 1]->GetGameObject().GetTransform().GetPredictedPosition();
 
-			int serverID = mNetworkObjects[0]->GetGameObject().GetServerID();
+			int serverID = mNetworkObjects[mThisClient->GetPeerID() - 1]->GetGameObject().GetServerID();
 			if (prevServerOfObj == -1) {
 				prevServerOfObj = serverID;
 			}
-			else if (prevServerOfObj != serverID) {
-				std::cout << "Server changed!" << prevServerOfObj << ", Now" << serverID << "\n";
-			}
+
 			std::string serverStr = "Object Server: " + std::to_string(serverID);
-			std::string str = "Object Position: "+ std::to_string(posVec.x) +", " + std::to_string(posVec.y) + ", " + std::to_string(posVec.z);
+			std::string str = "Object Position: " + std::to_string(posVec.x) + ", " + std::to_string(posVec.y) + ", " + std::to_string(posVec.z);
 			std::string predictedPosStr = "Predicted Object Position: " + std::to_string(predictedPosVec.x) + ", " + std::to_string(predictedPosVec.y) + ", " + std::to_string(predictedPosVec.z);
 
 			Debug::Print(serverStr, Vector2(5, 15), Debug::GREEN);
-			Debug::Print(str, Vector2(5,25), Debug::RED);
+			Debug::Print(str, Vector2(5, 25), Debug::RED);
 			Debug::Print(predictedPosStr, Vector2(5, 35), Debug::BLUE);
 		}
 
 		mLevelManager->Update(dt, mGameState == InitialisingLevelState, false);
+
+
+		//TODO(erendgrmnc): create another func
+		bool inputs[4] = { false,false,false,false };
+
+		if (Window::GetKeyboard()->KeyDown(KeyCodes::LEFT)) {
+			inputs[0] = true;
+		}
+
+		if (Window::GetKeyboard()->KeyDown(KeyCodes::RIGHT)) {
+			inputs[1] = true;
+		}
+
+		if (Window::GetKeyboard()->KeyDown(KeyCodes::UP)) {
+			inputs[2] = true;
+		}
+
+		if (Window::GetKeyboard()->KeyDown(KeyCodes::DOWN)) {
+			inputs[3] = true;
+		}
+
+
+		int counter = 0;
 		for (auto& client : mDistributedPhysicsClients) {
-			client.second->WriteAndSendClientInputPacket();
+			client.second->SetPlayerInputs(inputs);
+			client.second->WriteAndSendClientInputPacket(mThisClient->GetPeerID());
+			counter++;
+		}
+
+		if (counter != 2) {
+			std::cout << "2 servera client paket atmadı\n";
 		}
 	}
 	else {
@@ -303,6 +337,9 @@ void MultiplayerGameScene::ReceivePacket(int type, GamePacket* payload, int sour
 	}
 	case BasicNetworkMessages::Full_State: {
 		FullPacket* packet = (FullPacket*)payload;
+		if (packet->objectID == 10) {
+			int a = 0;
+		}
 		HandleFullPacket(packet);
 		break;
 	}
@@ -689,6 +726,10 @@ NetworkPlayer* MultiplayerGameScene::AddPlayerObject(const Vector3& position, in
 }
 
 void MultiplayerGameScene::HandleFullPacket(FullPacket* fullPacket) {
+	if (fullPacket->objectID == 10) {
+		std::cout << "Reading packet for Eren\n";
+	}
+
 	if (fullPacket->serverID <= -1 || mDistributedPhysicsClients[fullPacket->serverID]->GetClientLastFullID() > fullPacket->fullState.stateID) {
 		std::cout << "Discarding full packet. ServerID: " << fullPacket->serverID << "| Client Side Last ID: " << mDistributedPhysicsClients[fullPacket->serverID]->GetClientLastFullID() << "| Full Packet ID: " << fullPacket->fullState.stateID << "\n";
 		return;
@@ -698,6 +739,7 @@ void MultiplayerGameScene::HandleFullPacket(FullPacket* fullPacket) {
 
 	for (int i = 0; i < mNetworkObjects.size(); i++) {
 		if (mNetworkObjects[i]->GetnetworkID() == fullPacket->objectID) {
+
 			mNetworkObjects[i]->ReadPacket(*fullPacket);
 		}
 	}
@@ -854,28 +896,6 @@ void MultiplayerGameScene::HandleSyncPlayerIdNameMapPacket(const SyncPlayerIdNam
 			std::pair<int, std::string> playerIdNamePair(packet->playerIds[i], packet->playerNames[i]);
 			mPlayerPeerNameMap.insert(playerIdNamePair);
 		}
-	}
-}
-
-void MultiplayerGameScene::WriteAndSendDistributedClientPacket(float dt) {
-	bool inputs[4] = { false,false,false,false };
-
-	if (Window::GetKeyboard()->KeyDown(KeyCodes::LEFT)) {
-		inputs[0] = true;
-	}
-
-	if (Window::GetKeyboard()->KeyDown(KeyCodes::RIGHT)) {
-		inputs[1] = true;
-	}
-
-	DistributedClientPacket packet(1, inputs);
-
-	if (packet.movementButtons[0] == true) {
-		std::cout << "Sol Basildi\n";
-	}
-
-	for (const auto& distributedClient : mDistributedPhysicsClients) {
-		distributedClient.second->SendPacket(packet);
 	}
 }
 

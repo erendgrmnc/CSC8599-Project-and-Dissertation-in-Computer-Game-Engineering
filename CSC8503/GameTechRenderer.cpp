@@ -389,7 +389,7 @@ void GameTechRenderer::RenderFrame() {
 		const std::vector<UISystem::Icon*>& icons = mUi->GetIcons();
 		if (mUi) {
 			for (auto& i : icons) {
-				RenderIcons(*i);
+				//RenderIcons(*i);
 			}
 		}
 	}
@@ -400,8 +400,10 @@ void GameTechRenderer::RenderFrame() {
 	mUIHandler->RenderUI(mImguiCanvasFuncToRender);
 
 #ifdef USEGL
-    if (mMiniMap)
-        mMiniMap->Render();
+    if (mMiniMap) {
+		//mMiniMap->Render();
+    }
+
 #endif
 }
 

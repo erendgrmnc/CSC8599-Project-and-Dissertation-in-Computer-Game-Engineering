@@ -158,8 +158,6 @@ namespace NCL{
             void WriteAndSendSyncPlayerIdNameMapPacket() const;
             void HandleSyncPlayerIdNameMapPacket(const SyncPlayerIdNameMapPacket* packet);
 
-            void WriteAndSendDistributedClientPacket(float dt);
-
             //Distributed System functions
         	void HandleOnConnectToDistributedPhysicsServerPacketReceived(DistributedClientConnectToPhysicsServerPacket* packet);
             bool ConnectClientToDistributedGameServer(char a, char b, char c, char d, int port, int gameServerID, const std::string& playerName);

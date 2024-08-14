@@ -47,10 +47,19 @@ namespace NCL {
 			inline bool	operator==(const Transform& rhs)const { return (this->GetPosition() == rhs.GetPosition() && 
 				this->GetOrientation() == rhs.GetOrientation() &&
 				this->GetScale() == rhs.GetScale()) ? true : false; };
+
+			void SetPredictedPosition(const Vector3& predictedPosition);
+			void SetPredictedOrientation(Quaternion predictedOrientation);
+
+			const Vector3& GetPredictedPosition() const { return mPredictedPosition; }
+			Quaternion GetPredictedOrientation() const { return mPredictedOrientation; }
 		protected:
 			Matrix4		mMatrix;
 			Quaternion	orientation;
 			Vector3		position;
+
+			Vector3		mPredictedPosition;
+			Quaternion  mPredictedOrientation;
 
 			Vector3		scale;
 		};

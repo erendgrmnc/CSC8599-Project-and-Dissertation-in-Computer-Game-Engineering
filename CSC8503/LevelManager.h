@@ -197,10 +197,16 @@ namespace NCL {
 
 			void AddNetworkObject(GameObject& objToAdd);
 
+			void CreateObjectGrid(int rowCount, int colCount, float rowSpacing, float colSpacing, const Maths::Vector3& startPos);
+
 			GameObject* AddWallToWorld(const Transform& transform);
 			GameObject* AddCornerWallToWorld(const Transform& transform);
 			GameObject* AddFloorToWorld(const Transform& transform, bool isOutside);
-			GameObject* AddObjectToWorld(const Transform& transform, int createdCount);
+
+			GameObject* AddDistributedClientObject(const Transform& transform, int createdCount);
+			GameObject* AddSphereToWorld(const Transform& transform, int index);
+			GameObject* AddCubeToWorld(const Transform& transform, int index);
+
 			CCTV* AddCCTVToWorld(const Transform& transform, const bool isMultiplayerLevel = false);
 			Helipad* AddHelipadToWorld(const Vector3& position);
 			Vent* AddVentToWorld(Vent* vent, bool isMultiplayerLevel = false);

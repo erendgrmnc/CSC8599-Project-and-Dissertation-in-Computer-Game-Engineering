@@ -133,7 +133,7 @@ namespace NCL::CSC8503 {
 		}
 
 		virtual void OnCollisionBegin(GameObject* otherObject) {
-			//std::cout << "OnCollisionBegin event occured!\n";
+			//std::cout << "OnCollisionBegin event occured! between " << mName << "and" << otherObject->GetName() << "\n";
 		}
 
 		virtual void OnCollisionEnd(GameObject* otherObject) {

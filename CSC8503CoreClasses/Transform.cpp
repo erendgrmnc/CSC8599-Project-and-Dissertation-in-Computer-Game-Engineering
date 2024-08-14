@@ -23,6 +23,14 @@ void Transform::UpdateVariables() {
 	orientation = Quaternion(mMatrix);
 }
 
+void Transform::SetPredictedPosition(const Vector3& predictedPosition) {
+	mPredictedPosition = predictedPosition;
+}
+
+void Transform::SetPredictedOrientation(Quaternion predictedOrientation) {
+	mPredictedOrientation = orientation;
+}
+
 Transform& Transform::SetPosition(const Vector3& worldPos) {
 	position = worldPos;
 	UpdateMatrix();

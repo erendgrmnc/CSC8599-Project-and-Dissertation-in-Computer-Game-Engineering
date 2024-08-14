@@ -22,8 +22,6 @@ using namespace CSC8503;
 
 namespace {
 	constexpr int SYSTEM_MANAGER_PORT = 1234;
-	constexpr int MAX_CLIENTS = 4;
-	constexpr int MAX_PHYSICS_SERVERS = 2;
 
 	int CREATED_PHYSICS_SERVER_BUFFER = 0;
 
@@ -107,7 +105,6 @@ void StartInstance(int port) {
 	programThread.detach();
 }
 
-
 void StartManagerServer() {
 	//TODO(erendgrmnc): Open UDP server
 }
@@ -128,18 +125,28 @@ int ServerUpdater(DistributedManager::SystemManager& systemManager) {
 int StartProgram() {
 
 	std::cout << "-------------------------- Distributed Manager --------------------------\n";
-	systemManager = new DistributedManager::SystemManager(MAX_PHYSICS_SERVERS);
+	int maxPhysicsServer = 0;
+	std::cout << "Enter Physics servers to start: ";
+	std::cin >> maxPhysicsServer;
+
+	int maxClients = 0;
+	std::cout << "Enter max clients to connect: ";
+	std::cin >> maxClients;
+
+	systemManager = new DistributedManager::SystemManager(maxPhysicsServer, maxClients);
 
 	std::cout << "Starting server on port: " << SYSTEM_MANAGER_PORT << "\n";
-	systemManager->StartManagerServer(SYSTEM_MANAGER_PORT, MAX_PHYSICS_SERVERS + MAX_CLIENTS);
+	systemManager->StartManagerServer(SYSTEM_MANAGER_PORT, maxPhysicsServer + maxClients);
 
-	float winWidth = 800;
-	float winHeight = 600;
+	float winWidth = 400;
+	float winHeight = 700;
 
 	Window* w = nullptr;
 	w = Window::CreateGameWindow("Distributed Game Server Manager", winWidth, winHeight, false);
 	w->ShowOSPointer(true);
 	w->LockMouseToWindow(false);
+
+	ProfilerRenderer* profilerRenderer = new ProfilerRenderer(*w, ProfilerType::DistributedPhysicsServerManager);
 
 	w->GetTimer().GetTimeDeltaSeconds(); //Clear the timer so we don't get a larget first dt!
 	while (w->UpdateWindow()) {
@@ -166,6 +173,10 @@ int StartProgram() {
 		}
 
 		systemManager->GetServer()->UpdateServer();
+
+		Profiler::Update();
+		profilerRenderer->Render();
+
 	}
 
 

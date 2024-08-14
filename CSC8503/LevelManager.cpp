@@ -40,6 +40,8 @@
 #include <filesystem>
 #include <fstream>
 
+#include "Profiler.h"
+
 namespace {
 	constexpr int NETWORK_ID_BUFFER_START = 10;
 }
@@ -238,16 +240,23 @@ void LevelManager::LoadLevel(int levelID, std::mt19937 seed, int playerID, bool 
 		int createdSphereCounter = 0;
 
 		transform.SetPosition(Vector3(10, 10, 0));
-		auto* sphere = AddObjectToWorld(transform, createdSphereCounter);
+
+		/*auto* sphere = AddDistributedClientObject(transform, createdSphereCounter);
 		sphere->GetRenderObject()->SetColour(Vector4(0.0f, 0.4f, 0.2f, 1));
 		AddNetworkObject(*sphere);
 		createdSphereCounter++;
 
 		transform.SetPosition(Vector3(-20, 10, 20));
-		auto* sphereTwo = AddObjectToWorld(transform, createdSphereCounter);
+		auto* sphereTwo = AddDistributedClientObject(transform, createdSphereCounter);
 
 		sphereTwo->GetRenderObject()->SetColour(Vector4(.4f, .5f, .5f, 1));
-		AddNetworkObject(*sphereTwo);
+		AddNetworkObject(*sphereTwo);*/
+
+		//Placing the non-controllable objects
+
+		for (int i = 0; i < 2; i++) {
+			CreateObjectGrid(10, 10, 1.f, 1.f, Vector3(-100.f, 30, -90.f));
+		}
 
 		LoadLights((*mLevelList[1]).GetLights(), Vector3(0, 0, 0));
 		//AddPlayerToWorld(transform, "Player");
@@ -383,8 +392,36 @@ void LevelManager::AddNetworkObject(GameObject& objToAdd) {
 #endif
 }
 
+void LevelManager::CreateObjectGrid(int rowCount, int colCount, float rowSpacing, float colSpacing,
+	const Maths::Vector3& startPos) {
+	int objCounter = 0;
+
+	for (int x = 0; x < rowCount; ++x) {
+		for (int z = 0; z < colCount; ++z) {
+			Vector3 objPos = startPos;
+			objPos.x += x * rowSpacing;
+			objPos.z += z * colSpacing;
+
+			Transform transform;
+			transform.SetPosition(objPos);
+
+			GameObject* obj = nullptr;
+
+			if (rand() % 2) {
+				std::cout << "Creating Object at: " << transform.GetPosition() << "\n";
+				obj = AddCubeToWorld(transform, objCounter++);
+			}
+			else {
+				obj = AddSphereToWorld(transform, objCounter++);
+			}
+
+			AddNetworkObject(*obj);
+		}
+	}
+}
+
 void LevelManager::Update(float dt, bool isPlayingLevel, bool isPaused) {
-#ifdef USEGL
+#ifdef USEGLs
 	if (mShowDebug) {
 		mTakeNextTime -= dt;
 		if (mTakeNextTime < 0) {
@@ -529,7 +566,14 @@ void NCL::CSC8503::LevelManager::DebugUpdate(float dt, bool isPlayingLevel, bool
 		end = std::chrono::high_resolution_clock::now();
 		timeTaken = end - start;
 		mWorldTime = timeTaken.count();
+
+		start = std::chrono::high_resolution_clock::now();
 		mRenderer->Update(dt);
+		end = std::chrono::high_resolution_clock::now();
+		timeTaken = end - start;
+
+		Profiler::SetRenderTime(timeTaken.count());
+
 		if (mIsLevelInitialised) {
 			start = std::chrono::high_resolution_clock::now();
 			mPhysics->Update(dt);
@@ -1324,7 +1368,7 @@ GameObject* LevelManager::AddFloorToWorld(const Transform& transform, bool isOut
 	return floor;
 }
 
-GameObject* LevelManager::AddObjectToWorld(const Transform& transform, int createdCount) {
+GameObject* LevelManager::AddDistributedClientObject(const Transform& transform, int createdCount) {
 	GameObject* sphere = new GameObject();
 
 	float radius = 1.f;
@@ -1341,15 +1385,64 @@ GameObject* LevelManager::AddObjectToWorld(const Transform& transform, int creat
 		std::sqrt(std::pow(sphereSize.x, 2) + std::powf(sphereSize.z, 2))));
 	sphere->GetRenderObject()->SetColour(Vector4(0.0f, 0.4f, 0.2f, 1));
 
-	sphere->SetPhysicsObject(new PhysicsObject(&sphere->GetTransform(), sphere->GetBoundingVolume()));
-
-	sphere->GetPhysicsObject()->SetInverseMass(0);
-	sphere->GetPhysicsObject()->InitSphereInertia(false);
-
 	mWorld->AddGameObject(sphere);
 
 	return sphere;
 }
+
+GameObject* LevelManager::AddSphereToWorld(const Transform& transform, int index) {
+
+	std::string objName = "Sphere " + index;
+	GameObject* sphere = new GameObject(NoSpecialFeatures, objName);
+
+	float radius = 0.5f;
+	Vector3 sphereSize = Vector3(radius, radius, radius);
+	SphereVolume* volume = new SphereVolume(radius);
+	sphere->SetBoundingVolume((CollisionVolume*)volume);
+
+	sphere->GetTransform()
+		.SetScale(sphereSize * 2)
+		.SetPosition(transform.GetPosition())
+		.SetOrientation(transform.GetOrientation());
+
+	sphere->SetRenderObject(new RenderObject(&sphere->GetTransform(), mMeshes["Sphere"], mTextures["CheckboardRed"], mTextures["FloorNormal"], mShaders["Basic"],
+		std::sqrt(std::pow(sphereSize.x, 2) + std::powf(sphereSize.z, 2))));
+	sphere->GetRenderObject()->SetColour(Vector4(0.0f, 0.4f, 0.2f, 1));
+
+	sphere->SetCollisionLayer(CollisionLayer::NoSpecialFeatures);
+
+
+	mWorld->AddGameObject(sphere);
+
+	return (GameObject*)sphere;
+}
+
+GameObject* LevelManager::AddCubeToWorld(const Transform& transform, int index) {
+	std::string objName = "Cube " + index;
+	GameObject* cube = new GameObject(NoSpecialFeatures, objName);
+
+	float radius = 0.5f;
+	Vector3 dimensions(radius, radius, radius);
+	AABBVolume* volume = new AABBVolume(dimensions);
+	cube->SetBoundingVolume((CollisionVolume*)volume);
+
+	cube->GetTransform()
+		.SetScale(dimensions * 2)
+		.SetPosition(transform.GetPosition())
+		.SetOrientation(transform.GetOrientation());
+
+	cube->SetRenderObject(new RenderObject(&cube->GetTransform(), mMeshes["Cube"], mTextures["CheckboardRed"], mTextures["FloorNormal"], mShaders["Basic"],
+		std::sqrt(std::pow(dimensions.x, 2) + std::powf(dimensions.z, 2))));
+	cube->GetRenderObject()->SetColour(Vector4(0.0f, 0.4f, 0.2f, 1));
+
+
+	cube->SetCollisionLayer(CollisionLayer::NoSpecialFeatures);
+
+	mWorld->AddGameObject(cube);
+
+	return cube;
+}
+
 
 CCTV* LevelManager::AddCCTVToWorld(const Transform& transform, const bool isMultiplayerLevel) {
 	CCTV* camera = new CCTV(25, mWorld);

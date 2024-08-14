@@ -49,9 +49,11 @@ namespace NCL {
 
 			void SendPacket(GamePacket&  payload);
 
+			void SendReliablePacket(GamePacket& payload) const;
+
 			virtual bool UpdateClient();
 
-			void WriteAndSendClientInputPacket();
+			void WriteAndSendClientInputPacket(int playerID);
 
 			void WriteAndSendClientUseItemPacket(int playerID, int objectID);
 
@@ -68,6 +70,7 @@ namespace NCL {
 			void WriteAndSendSyncLocationSusChangePacket(int cantorPairedLocation, int changedValue);
 
 			void SetPlayerInputs(PlayerInputs& playerInputs);
+			void SetPlayerInputs(bool movementButtons[4]);
 		protected:
 			bool mIsConnected;
 

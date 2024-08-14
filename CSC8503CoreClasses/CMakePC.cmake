@@ -209,6 +209,15 @@ function(Create_CSC8503CoreClasses_Files_PC)
     )
     source_group("imgui" FILES ${imgui_Files})
 
+    set(profiler_files
+        "Profiler.h"
+        "Profiler.cpp"
+        "ProfilerRenderer.h"
+        "ProfilerRenderer.cpp"
+    )
+source_group("Profiler" FILES ${profiler_files})
+
+
     set(ALL_FILES
         ${Header_Files}
         ${Source_Files}
@@ -226,6 +235,7 @@ function(Create_CSC8503CoreClasses_Files_PC)
         ${AI_Guard}
         ${AI_CCTV}
         ${imgui_Files}
+        ${profiler_files}
     )
 
     set_source_files_properties(${ALL_FILES} PROPERTIES LANGUAGE CXX)

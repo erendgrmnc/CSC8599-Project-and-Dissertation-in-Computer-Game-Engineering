@@ -1,11 +1,13 @@
 #ifdef DISTRIBUTEDSYSTEMACTIVE
 	#ifdef BUILDFORDISTRIBUTEDMANAGER
 	#include "../DistributedPhysicsManager/ProgramStart.cpp"
+	#elif BUILDFORPHYSICSMIDWARE
+	#include "../PhysicsServerMidware/ProgramStart.cpp"
 	#else
 	#include "../DistributedGameServer/ServerStarter.cpp" 
 	#endif
 #else
-#include "../CSC8503/GameStart.cpp"
+	#include "../CSC8503/GameStart.cpp"
 #endif
 
 #ifdef USEPROSPERO
@@ -20,6 +22,8 @@ int main(int argc, char* argv[]) {
 #ifdef DISTRIBUTEDSYSTEMACTIVE
 	#ifdef BUILDFORDISTRIBUTEDMANAGER
 	StartProgram();
+	#elif BUILDFORPHYSICSMIDWARE
+	StartMidware();
 	#else
 	StartGameServer(argc, argv);
 #endif

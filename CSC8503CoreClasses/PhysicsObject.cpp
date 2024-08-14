@@ -8,8 +8,8 @@ PhysicsObject::PhysicsObject(Transform* parentTransform, const CollisionVolume* 
 	mTransform	= parentTransform;
 	mVolume		= parentVolume;
 
-	mPredictedPosition = mTransform->GetPosition();
-	mPredictedOrientation = mTransform->GetOrientation();
+	mTransform->SetPredictedPosition(mTransform->GetPosition());
+	mTransform->SetPredictedOrientation(mTransform->GetOrientation()); 
 
 	mInverseMass = inverseMass;
 	mElasticity = elasticity;
@@ -44,14 +44,6 @@ void PhysicsObject::AddForceAtPosition(const Vector3& addedForce, const Vector3&
 
 void PhysicsObject::AddTorque(const Vector3& addedTorque) {
 	mTorque += addedTorque;
-}
-
-void PhysicsObject::SetPredictedPosition(const Vector3& predictedPosition) {
-	mPredictedPosition = predictedPosition;
-}
-
-void PhysicsObject::SetPredictedOrientation(Quaternion& predictedOrientation) {
-	mPredictedOrientation = predictedOrientation;
 }
 
 void PhysicsObject::ClearForces() {
@@ -98,3 +90,4 @@ Transform* PhysicsObject::GetTransform() const {
 Vector3 PhysicsObject::GetInverseInertia() {
 	return mInverseInertia;
 }
+	

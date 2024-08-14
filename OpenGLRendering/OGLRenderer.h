@@ -51,6 +51,7 @@ namespace NCL {
 			}
 
 			virtual bool SetVerticalSync(VerticalSyncState s);
+			void SetWindow(Window& w);
 
 		protected:			
 			void BeginFrame()	override;

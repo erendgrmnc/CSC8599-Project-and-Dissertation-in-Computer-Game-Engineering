@@ -25,7 +25,6 @@ namespace NCL::CSC8503 {
 		int serverID = -1;
 		char	pos[3];
 		char	orientation[4];
-		char    predictedPos[3];
 
 		DeltaPacket() {
 			type = Delta_State;
@@ -69,8 +68,10 @@ namespace NCL::CSC8503 {
 		int lastId;
 		PlayerInputs playerInputs;
 		float mouseXLook = 0.0f;
+		int playerID;
 
 		ClientPlayerInputPacket(int lastId, const PlayerInputs& playerInputs);
+		ClientPlayerInputPacket(int lastId, int playerID, const PlayerInputs& playerInputs);
 	};
 
 	struct ClientUseItemPacket : public GamePacket {
@@ -223,24 +224,23 @@ namespace NCL::CSC8503 {
 		int currentServerCount;
 		int totalServerCount;
 
+		int clientsToConnect;
+
 		int serverIDs[20];
 		int serverPorts[20];
 		std::string borders[20];
 		std::string createdServerIPs[20];
 
-		StartDistributedGameServerPacket(int serverManagerPort, std::vector<int> serverPorts, std::vector<std::string> serverIps, const std::map<int, const std::string>& serverBorderMap);
-	};
-
-	struct GiveOwnershipOfObjectPacket : public GamePacket {
-		int objectID;
-		int newOwnerServerID;
-
-		GiveOwnershipOfObjectPacket(int newOwnerServerID, int objectID);
+		StartDistributedGameServerPacket(int serverManagerPort, int clientsToConnect, std::vector<int> serverPorts,
+		                                 std::vector<std::string> serverIps,
+		                                 const std::map<int, const std::string>& serverBorderMap);
 	};
 
 	struct StartSimulatingObjectPacket : public GamePacket {
 		int objectID;
 		int newOwnerServerID;
+		int senderServerID;
+
 		NetworkState lastFullState;
 
 		//TODO(erendgrmnc): need to decide which physics property should be passed.
@@ -256,13 +256,14 @@ namespace NCL::CSC8503 {
 		Vector3 mInverseInertia;
 		Matrix3 mInverseInteriaTensor;
 
-		StartSimulatingObjectPacket(int objectID, int newServerID, NetworkState lastFullState, PhysicsObject& physicsObj);
+		StartSimulatingObjectPacket(int objectID, int newServerID, int senderServerID, NetworkState lastFullState, PhysicsObject& physicsObj);
 	};
 
-	struct DistributedClientPacket : public GamePacket {
-		int playerID;
-		bool movementButtons[4] = { false };
-		DistributedClientPacket(int playerID, bool movementButtons[4]);
+	struct StartSimulatingObjectReceivedPacket : public GamePacket {
+		int objectID;
+		int newOwnerServerID;
+
+		StartSimulatingObjectReceivedPacket(int objectID, int newOwnerServerID);
 	};
 
 	class NetworkObject {
@@ -288,16 +289,13 @@ namespace NCL::CSC8503 {
 		NetworkState& GetLatestNetworkState();
 		void SetLatestNetworkState(NetworkState& lastState);
 
-		void StartTransitionToNewServer(int newServerID);
-		void HandleAfterTransitionStarted();
-		void FinishTransitionToNewServer();
+		void FinishTransitionToNewServer(int newServerID);
 		void HandleTransitionComplete();
-		void HandleReceiveFromAnotherServer();
+		void OnTransitionHandshakeReceived();
+		void AddReceivedObjectLastPacket(const NetworkState& state);
 
-		bool GetIsPredictedPosOutOfServer() const;
 		bool GetIsActualPosOutOfServer() const;
 		bool GetIsPredictionInfoSent() const;
-		bool GetIsOnTransitionCooldown() const;
 
 	protected:
 
@@ -323,12 +321,11 @@ namespace NCL::CSC8503 {
 
 		int networkID;
 
-		bool mIsPredictedPosOutServer = false;
 		bool mIsPredictionInfoSent = false;
 
 		bool mIsActualPosOutServer = false;
+		bool mIsWaitingHandshake = false;
 
-		bool mIsOnTransitionCooldown = false;
 		float mPassedTransitionTime = 0.f;
 
 		int mNewServerID = -1;

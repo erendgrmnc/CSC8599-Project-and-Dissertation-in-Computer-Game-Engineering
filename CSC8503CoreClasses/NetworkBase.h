@@ -35,15 +35,15 @@ enum BasicNetworkMessages {
 	SyncPlayerIdNameMap,
 	SyncAnnouncements,
 	GuardSpotSound,
+	//Distributed System Packet Types
 	DistributedClientConnectedToManager,
 	DistributedPhysicsClientConnectedToManager,
 	DistributedPhysicsServerAllClientsAreConnected,
 	DistributedClientConnectToPhysicsServer,
 	DistributedClientsGameServersAreReady,
 	StartDistributedPhysicsServer,
-	GiveOwnershipOfObject,
 	StartSimulatingObjectInServer,
-	DistributedClientSync
+	StartSimulatingObjectInServerReceived
 };
 
 enum DistributedSystemClientType {

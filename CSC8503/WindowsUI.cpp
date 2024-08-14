@@ -1,5 +1,6 @@
 #include "WindowsUI.h"
 
+#include "Profiler.h"
 #include "Win32Window.h"
 #include "imgui/imgui_impl_opengl3.h"
 #include "imgui/imgui_impl_win32.h"
@@ -49,6 +50,8 @@ void WindowsUI::RenderUI(std::function<void()> callback) {
 		ImGuiWindowFlags_NoBackground |
 		ImGuiWindowFlags_NoResize
 	);
+
+	Profiler::SetFramesPerSecond(ImGui::GetIO().Framerate);
 
 	if (callback != nullptr) {
 		callback();

@@ -22,26 +22,32 @@ TestObject::~TestObject() = default;
 
 void TestObject::Update(float dt) {
 	if (mPlayerInputs[0]) {
+		//std::cout << "Moving Left.\n";
 		MoveLeft(dt);
 	}
 	if (mPlayerInputs[1]) {
+
+		//std::cout << "Moving Right.\n";
 		MoveRight(dt);
+	}
+
+	if (mPlayerInputs[2]) {
+
+		//std::cout << "Moving Down.\n";
+		MoveDown(dt);
+	}
+
+	if (mPlayerInputs[3]) {
+		//std::cout << "Moving Up.\n";
+		MoveUp(dt);
 	}
 }
 
-void TestObject::ReceiveClientInputs(DistributedClientPacket* clientPacket) {
-	if (clientPacket[1].movementButtons[0] == true) {
-		std::cout << "Sol\n";
-	}
-
-	if (clientPacket[1].movementButtons[1] == true) {
-		std::cout << "Sag\n";
-	}
-
-	this->mPlayerInputs[0] = clientPacket->movementButtons[0];
-	this->mPlayerInputs[1] = clientPacket->movementButtons[1];
-	this->mPlayerInputs[2] = clientPacket->movementButtons[2];
-	this->mPlayerInputs[3] = clientPacket->movementButtons[3];
+void TestObject::ReceiveClientInputs(ClientPlayerInputPacket* clientPacket) {
+	this->mPlayerInputs[0] = clientPacket->playerInputs.movementButtons[0];
+	this->mPlayerInputs[1] = clientPacket->playerInputs.movementButtons[1];
+	this->mPlayerInputs[2] = clientPacket->playerInputs.movementButtons[2];
+	this->mPlayerInputs[3] = clientPacket->playerInputs.movementButtons[3];
 }
 
 void TestObject::ClearInputs() {
@@ -61,4 +67,12 @@ void TestObject::MoveLeft(float dt) {
 
 void TestObject::MoveRight(float dt) {
 	GetPhysicsObject()->AddForce({ 50, 0,0 });
+}
+
+void TestObject::MoveUp(float dt) {
+	GetPhysicsObject()->AddForce({ 0,0,50 });
+}
+
+void TestObject::MoveDown(float dt) {
+	GetPhysicsObject()->AddForce({ 0,0,-50 });
 }
