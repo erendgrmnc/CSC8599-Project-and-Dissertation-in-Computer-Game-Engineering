@@ -4,7 +4,7 @@
 #include "imgui/imgui_impl_opengl3.h"
 #include "imgui/imgui_impl_win32.h"
 
-ProfilerRenderer::ProfilerRenderer(Window& w, ProfilerType type, bool isImguiInited): OGLRenderer(w), profilerType(type) {
+ProfilerRenderer::ProfilerRenderer(Window& w, ProfilerType type, bool isImguiInited) : OGLRenderer(w), profilerType(type) {
 	// Setup Dear ImGui context
 
 	if (!isImguiInited) {
@@ -29,7 +29,6 @@ ProfilerRenderer::ProfilerRenderer(Window& w, ProfilerType type, bool isImguiIni
 		ImGui_ImplWin32_InitForOpenGL(Win32Code::Win32Window::windowHandle);
 		ImGui_ImplOpenGL3_Init();
 	}
-
 }
 
 ProfilerRenderer::~ProfilerRenderer() {
@@ -68,7 +67,7 @@ void ProfilerRenderer::EndFrame() {
 
 void ProfilerRenderer::RenderProfilerUI() {
 	ImGui_ImplOpenGL3_NewFrame();
- 	ImGui_ImplWin32_NewFrame();
+	ImGui_ImplWin32_NewFrame();
 	ImGui::NewFrame();
 
 	ImGui::Begin("Profiler", NULL,
@@ -88,6 +87,9 @@ void ProfilerRenderer::RenderProfilerUI() {
 		break;
 	}
 	case ProfilerType::DistributedPhysicsServerManager: {
+		break;
+	}
+	case ProfilerType::DistributedPhysicsMidware: {
 		break;
 	}
 	}
@@ -150,6 +152,8 @@ void ProfilerRenderer::RenderMemoryUsage() {
 	}
 }
 
+
+
 void ProfilerRenderer::RenderDistributedGameServerAttributes() {
 
 	if (ImGui::CollapsingHeader("Distributed Physics Server Attributes"))
@@ -209,7 +213,7 @@ void ProfilerRenderer::RenderDistributedGameServerAttributes() {
 		ImGui::TableNextColumn();
 		ImGui::TableNextColumn();
 
-	
+
 		ImGui::EndTable();
 	}
 }
@@ -247,6 +251,34 @@ void ProfilerRenderer::RenderDistributedClientAttributes() {
 		ImGui::TableNextColumn();
 		ImGui::TableNextColumn();
 
+
+		ImGui::EndTable();
+	}
+}
+
+void ProfilerRenderer::RenderPhysicsServerAttributes() {
+	if (ImGui::CollapsingHeader("Physics Server Midware Attributes"))
+	{
+		ImGui::BeginTable("Connection Attributes", 2);
+
+		ImGui::TableNextColumn();
+		ImGui::Text("Is connected to manager");
+		ImGui::TableNextColumn();
+		const std::string isConnectedToManagerStr = std::to_string(0);
+
+		ImGui::Text(isConnectedToManagerStr.c_str());
+
+		ImGui::TableNextColumn();
+		ImGui::Text("Started physics server instance");
+		ImGui::TableNextColumn();
+		const std::string physicsServerInstanceCtr = std::to_string(0);
+
+		ImGui::Text(physicsServerInstanceCtr.c_str());
+
+
+		ImGui::TableNextColumn();
+		ImGui::TableNextColumn();
+		ImGui::TableNextColumn();
 
 		ImGui::EndTable();
 	}

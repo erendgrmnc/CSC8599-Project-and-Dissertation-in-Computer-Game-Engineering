@@ -215,8 +215,15 @@ function(Create_CSC8503CoreClasses_Files_PC)
         "ProfilerRenderer.h"
         "ProfilerRenderer.cpp"
     )
-source_group("Profiler" FILES ${profiler_files})
+    source_group("Profiler" FILES ${profiler_files})
 
+    set(distributed_system_common_files
+        "./DistributedSystemCommonFiles/DistributedPhysicsServerDto.h"
+        "./DistributedSystemCommonFiles/DistributedPhysicsServerDto.cpp"
+        "./DistributedSystemCommonFiles/DistributedUtils.h"
+        "./DistributedSystemCommonFiles/DistributedUtils.cpp"
+    )
+    source_group("DistributedSystemCommonFiles" FILES ${distributed_system_common_files})
 
     set(ALL_FILES
         ${Header_Files}
@@ -236,6 +243,7 @@ source_group("Profiler" FILES ${profiler_files})
         ${AI_CCTV}
         ${imgui_Files}
         ${profiler_files}
+        ${distributed_system_common_files}
     )
 
     set_source_files_properties(${ALL_FILES} PROPERTIES LANGUAGE CXX)

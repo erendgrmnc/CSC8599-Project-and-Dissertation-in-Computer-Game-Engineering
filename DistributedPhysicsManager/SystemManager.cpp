@@ -6,6 +6,7 @@
 #include "GameServer.h"
 #include "NetworkBase.h"
 #include "NetworkObject.h"
+#include "../CSC8503CoreClasses/DistributedSystemCommonFiles/DistributedPhysicsServerDto.h"
 #include "ServerWorldManager.h"
 
 namespace {
@@ -165,7 +166,7 @@ bool DistributedManager::SystemManager::CheckIsGameStartable() {
 	return true;
 }
 
-DistributedManager::GameBorder& DistributedManager::SystemManager::CalculateServerBorders(int serverNum) {
+NCL::GameBorder& DistributedManager::SystemManager::CalculateServerBorders(int serverNum) {
 	if (serverNum < 0 || serverNum > mMaxPhysicsServerCount) {
 		throw std::out_of_range("Server number out of range");
 	}

@@ -7,6 +7,7 @@
 #include <thread>
 
 #include "DistributedPhysicsManagerServer.h"
+#include "../CSC8503CoreClasses/DistributedSystemCommonFiles/DistributedUtils.h"
 #include "GameServer.h"
 #include "../CSC8503CoreClasses/NavigationGrid.h"
 
@@ -34,13 +35,7 @@ void SetUpPCInputDevices(Window* w) {
 	w->LockMouseToWindow(!false);
 }
 
-NCL::DistributedManager::DistributedPhysicsServerData* createPhysicsServerData(const std::string& ipAddress, int serverId) {
-	NCL::DistributedManager::DistributedPhysicsServerData* data = new NCL::DistributedManager::DistributedPhysicsServerData();
-	data->ipAddress = ipAddress;
-	data->serverId = serverId;
 
-	return data;
-}
 
 void executeProgram(const std::string& programPath, const std::string& arguments, int serverId) {
 	STARTUPINFOA si;
@@ -60,7 +55,8 @@ void executeProgram(const std::string& programPath, const std::string& arguments
 
 	//Debug
 	std::cout << "Command Line arguments: " << commandLineCStr << std::endl;
-	auto* serverData = createPhysicsServerData(testServerIp, serverId);
+	NCL::DistributedPhysicsServerData* serverData;
+	serverData = DistributedUtils::CreatePhysicsServerData(testServerIp, serverId);
 
 	// Start the independent process.
 	if (!CreateProcessA(

@@ -7,6 +7,7 @@ namespace NCL {
 		DistributedPhysicsServer,
 		DistributedPhysicsServerManager,
 		DistributedClient,
+		DistributedPhysicsMidware
 	};
 
 	class ProfilerRenderer : public OGLRenderer {
@@ -26,6 +27,7 @@ namespace NCL {
 		void RenderMemoryUsage();
 		void RenderDistributedGameServerAttributes();
 		void RenderDistributedClientAttributes();
+		void RenderPhysicsServerAttributes();
 	};
 
 }
