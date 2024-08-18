@@ -1,36 +1,29 @@
-function(Create_PC_Physics_Server_Midware_Files)
-
-    message("PC Physics Server Midware")
-
+function(Create_Physics_Server_Midware_EntryPoint_Files)  
+    message("Entry Point Physics Server Midware Manager")
     ################################################################################
     # Source groups
     ################################################################################
-    set(Header_Files
-        "ServerMidwareManager.h"
-    )
-    source_group("Header Files" FILES ${Header_Files})
+
 
     set(Source_Files
-        "ServerMidwareManager.cpp"
-        "ProgramStart.cpp"
-
+        "main.cpp"
     )
+
     source_group("Source Files" FILES ${Source_Files})
 
     set(ALL_FILES
-        ${Header_Files}
         ${Source_Files}
     )
 
     ################################################################################
     # Target
     ################################################################################
-    #add_executable(${PROJECT_NAME}  ${ALL_FILES})
-    add_library(${PROJECT_NAME} STATIC ${ALL_FILES})
+
+    add_executable(${PROJECT_NAME}  ${ALL_FILES})
 
     #use_props(${PROJECT_NAME} "${CMAKE_CONFIGURATION_TYPES}" "${DEFAULT_CXX_PROPS}")
-    set(ROOT_NAMESPACE PhysicsServerMidware)
-
+    set(ROOT_NAMESPACE EntryPoint)
+    #
     set_target_properties(${PROJECT_NAME} PROPERTIES
         VS_GLOBAL_KEYWORD "Win32Proj"
     )
@@ -57,19 +50,19 @@ function(Create_PC_Physics_Server_Midware_Files)
         <map>
         <stack>
         <list>   
-	    <set>   
-	    <string>
+        <set>   
+        <string>
         <thread>
         <atomic>
         <functional>
         <iostream>
-	    <chrono>
-	    <sstream>
-	
-	    "../NCLCoreClasses/Vector2i.h"
+        <chrono>
+        <sstream>
+
+        "../NCLCoreClasses/Vector2i.h"
         "../NCLCoreClasses/Vector3i.h"
         "../NCLCoreClasses/Vector4i.h"
-	
+
         "../NCLCoreClasses/Vector2.h"
         "../NCLCoreClasses/Vector3.h"
         "../NCLCoreClasses/Vector4.h"
@@ -78,7 +71,7 @@ function(Create_PC_Physics_Server_Midware_Files)
         "../NCLCoreClasses/Matrix2.h"
         "../NCLCoreClasses/Matrix3.h"
         "../NCLCoreClasses/Matrix4.h"
-	
+
         "../NCLCoreClasses/GameTimer.h"
     )
 
@@ -115,22 +108,24 @@ function(Create_PC_Physics_Server_Midware_Files)
         target_link_libraries(${PROJECT_NAME} LINK_PUBLIC  "Winmm.lib")
     endif()
 
+    include_directories("../PhysicsServerMidware/")
     include_directories("../OpenGLRendering/")
     include_directories("../NCLCoreClasses/")
-    include_directories("../CSC8503CoreClasses/")
     include_directories("../ImguiSceneNode/")
+    include_directories("../CSC8503CoreClasses/")
     include_directories("../Recast")
     include_directories("../Detour")
     include_directories("../DebugUtils")
     include_directories("../DetourTileCache")
-
+    
+    target_link_libraries(${PROJECT_NAME} LINK_PUBLIC PhysicsServerMidware)
     target_link_libraries(${PROJECT_NAME} LINK_PUBLIC NCLCoreClasses)
     target_link_libraries(${PROJECT_NAME} LINK_PUBLIC CSC8503CoreClasses)
-    target_link_libraries(${PROJECT_NAME} LINK_PUBLIC ImguiSceneNode)
     target_link_libraries(${PROJECT_NAME} LINK_PUBLIC OpenGLRendering)
+    target_link_libraries(${PROJECT_NAME} LINK_PUBLIC ImguiSceneNode)
     target_link_libraries(${PROJECT_NAME} LINK_PUBLIC Recast)
     target_link_libraries(${PROJECT_NAME} LINK_PUBLIC Detour)
     target_link_libraries(${PROJECT_NAME} LINK_PUBLIC DebugUtils)
     target_link_libraries(${PROJECT_NAME} LINK_PUBLIC DetourTileCache)
-
+    
 endfunction()
