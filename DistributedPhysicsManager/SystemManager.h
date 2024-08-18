@@ -47,7 +47,8 @@ namespace NCL {
 
 			std::vector<GameInstance*> mCreatedGameInstances;
 			std::vector<DistributedPhysicsServerData*> mDistributedPhysicsServers;
-	
+
+			std::map<std::string, int> mPhysicsServerMiddlwareRunningInstanceMap;
 
 			void SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int serverID, const int port) const;
 			void SendStartDataToPhysicsServer(int gameInstanceID, int physicsServerID) const;
@@ -57,13 +58,16 @@ namespace NCL {
 			void HandleDistributedPhysicsClientConnectedPacketReceived(int peerNumber, NCL::CSC8503::DistributedPhysicsClientConnectedToManagerPacket* packet);
 			void HandleDistributedPhysicsServerAllClientsAreConnectedPacketReceived(NCL::CSC8503::DistributedPhysicsServerAllClientsAreConnectedPacket* packet);
 			void HandleAllClientsConnectedToPhysicsServer(NCL::CSC8503::DistributedPhysicsServerAllClientsAreConnectedPacket* packet);
-			void SendRunServerInstancePacket(int gameInstance, int physicsServerID, const string& borderStr);
+			void HandlePhysicsServerMiddlewareConnected(PhysicsServerMiddlewareConnectedPacket* packet);
+			void SendRunServerInstancePacket(int gameInstance, int physicsServerID, std::string midwareIpAddress, const string& borderStr);
 
 			void StartGameServers(int gameInstanceID);
 
 			bool CheckIsGameStartable(int gameInstanceID);
 
 			std::vector<DistributedPhysicsServerData*>& GetPhysicsServerDataList(int gameInstanceID) const;
+
+			std::string GetAvailablePhysicsMidware(); 
 
 			GameBorder& CalculateServerBorders(int serverNum);
 		};

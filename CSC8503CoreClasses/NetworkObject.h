@@ -249,8 +249,8 @@ namespace NCL::CSC8503 {
 		std::string createdServerIPs[20];
 
 		StartDistributedGameServerPacket(int serverManagerPort, int gameInstanceID, int clientsToConnect, std::vector<int> serverPorts,
-		                                 std::vector<std::string> serverIps,
-		                                 const std::map<int, const std::string>& serverBorderMap);
+			std::vector<std::string> serverIps,
+			const std::map<int, const std::string>& serverBorderMap);
 	};
 
 	struct StartSimulatingObjectPacket : public GamePacket {
@@ -286,9 +286,16 @@ namespace NCL::CSC8503 {
 	struct RunDistributedPhysicsServerInstancePacket : public GamePacket {
 		std::string borderStr;
 		int serverID;
+		std::string ipAddress;
 		int gameInstanceID;
-		
-		RunDistributedPhysicsServerInstancePacket(int serverID, int gameInstanceID, const std::string& borderStr);
+
+		RunDistributedPhysicsServerInstancePacket(int serverID, int gameInstanceID, const std::string& ipAddress, const std::string& borderStr);
+	};
+
+	struct PhysicsServerMiddlewareConnectedPacket : GamePacket {
+		std::string ipAddress;
+
+		PhysicsServerMiddlewareConnectedPacket(const std::string& ipAddress);
 	};
 
 	class NetworkObject {

@@ -40,6 +40,7 @@ void NCL::DistributedManager::SystemManager::RegisterPacketHandlers() {
 	mDistributedPhysicsManagerServer->RegisterPacketHandler(DistributedClientConnectedToManager, this);
 	mDistributedPhysicsManagerServer->RegisterPacketHandler(DistributedPhysicsClientConnectedToManager, this);
 	mDistributedPhysicsManagerServer->RegisterPacketHandler(BasicNetworkMessages::DistributedPhysicsServerAllClientsAreConnected, this);
+	mDistributedPhysicsManagerServer->RegisterPacketHandler(BasicNetworkMessages::PhysicsServerMiddlewareConnected, this);
 }
 
 void NCL::DistributedManager::SystemManager::ReceivePacket(int type, GamePacket* payload, int source) {
@@ -58,6 +59,11 @@ void NCL::DistributedManager::SystemManager::ReceivePacket(int type, GamePacket*
 	case DistributedPhysicsServerAllClientsAreConnected: {
 		auto* distributedPhysicsServerAllClientsAreConnectedPacket = static_cast<NCL::CSC8503::DistributedPhysicsServerAllClientsAreConnectedPacket*>(payload);
 		HandleAllClientsConnectedToPhysicsServer(distributedPhysicsServerAllClientsAreConnectedPacket);
+		break;
+	}
+	case BasicNetworkMessages::PhysicsServerMiddlewareConnected: {
+		auto* physicsServerMiddlewareConnectedPacket = static_cast<NCL::CSC8503::PhysicsServerMiddlewareConnectedPacket*>(payload);
+		HandlePhysicsServerMiddlewareConnected(physicsServerMiddlewareConnectedPacket);
 		break;
 	}
 	default:
@@ -117,6 +123,7 @@ void NCL::DistributedManager::SystemManager::HandleDistributedClientConnectedPac
 	}
 }
 
+
 void DistributedManager::SystemManager::HandleDistributedPhysicsClientConnectedPacketReceived(int peerNumber,
 	NCL::CSC8503::DistributedPhysicsClientConnectedToManagerPacket* packet) {
 
@@ -139,7 +146,6 @@ void DistributedManager::SystemManager::HandleDistributedPhysicsClientConnectedP
 void DistributedManager::SystemManager::HandleDistributedPhysicsServerAllClientsAreConnectedPacketReceived(
 	NCL::CSC8503::DistributedPhysicsServerAllClientsAreConnectedPacket* packet) {
 	//TODO(erendgrmnc): Implement logic to register all game clients are connected to a specific distributed physics server.
-
 }
 
 void DistributedManager::SystemManager::HandleAllClientsConnectedToPhysicsServer(
@@ -157,11 +163,18 @@ void DistributedManager::SystemManager::HandleAllClientsConnectedToPhysicsServer
 			SendStartGameStatusPacket(packet->gameInstanceID);
 		}
 	}
-
 }
 
-void DistributedManager::SystemManager::SendRunServerInstancePacket(int gameInstance, int physicsServerID, const std::string& borderStr) {
-	RunDistributedPhysicsServerInstancePacket packet(physicsServerID, gameInstance, borderStr);
+void DistributedManager::SystemManager::HandlePhysicsServerMiddlewareConnected(
+	PhysicsServerMiddlewareConnectedPacket* packet) {
+	std::string ipAddress = packet->ipAddress;
+	std::pair<std::string, int> newPair = std::make_pair(ipAddress, 0);
+
+	mPhysicsServerMiddlwareRunningInstanceMap.insert(newPair);
+}
+
+void DistributedManager::SystemManager::SendRunServerInstancePacket(int gameInstance, int physicsServerID, std::string midwareIpAddress, const std::string& borderStr) {
+	RunDistributedPhysicsServerInstancePacket packet(physicsServerID, gameInstance, midwareIpAddress, borderStr);
 	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
 }
 
@@ -173,7 +186,8 @@ void DistributedManager::SystemManager::StartGameServers(int gameInstanceID) {
 
 		std::cout << "Creating server(" << i << ") for game instance: " << gameInstance->GetGameID() << "\n";
 		const std::string& serverBorderStr = gameInstance->GetServerBorderStrMap()[i];
-		SendRunServerInstancePacket(gameInstance->GetGameID(), i, serverBorderStr);
+		const std::string midwareAddress = GetAvailablePhysicsMidware();
+		SendRunServerInstancePacket(gameInstance->GetGameID(), i, midwareAddress, serverBorderStr);
 	}
 	PHYSICS_SERVER_ID_BUFFER += maxServer;
 }
@@ -200,6 +214,20 @@ std::vector<DistributedPhysicsServerData*>& DistributedManager::SystemManager::G
 	}
 
 	return dataList;
+}
+
+std::string DistributedManager::SystemManager::GetAvailablePhysicsMidware() {
+	const auto& firstMidware = mPhysicsServerMiddlwareRunningInstanceMap.begin();
+	int minInstanceCount = firstMidware->second;
+	std::string returnIp = firstMidware->first;
+	for (const auto& midware : mPhysicsServerMiddlwareRunningInstanceMap) {
+		if (midware.second < minInstanceCount) {
+			minInstanceCount = midware.second;
+			returnIp = midware.first;
+		}
+	}
+	mPhysicsServerMiddlwareRunningInstanceMap[returnIp] = minInstanceCount++;
+	return returnIp.c_str();
 }
 
 

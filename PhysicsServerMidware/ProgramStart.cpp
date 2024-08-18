@@ -46,7 +46,6 @@ int StartMidware() {
 		if (Window::GetKeyboard()->KeyPressed(KeyCodes::NEXT)) {
 			w->ShowConsole(false);
 		}
-
 		if (Window::GetKeyboard()->KeyPressed(KeyCodes::T)) {
 			w->SetWindowPosition(0, 0);
 		}

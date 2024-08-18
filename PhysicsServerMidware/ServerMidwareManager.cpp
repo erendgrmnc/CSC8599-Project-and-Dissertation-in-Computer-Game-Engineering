@@ -24,6 +24,14 @@ void NCL::ServerMidwareManager::ConnectToDistributedManager(std::string& ipAddre
 
 	const std::vector<char> ipOctests = NCL::DistributedUtils::ConvertIpStrToCharArr(ipAddress);
 	auto* client = new NCL::CSC8503::GameClient();
+
+	std::function<void()> callback = [this, client] {
+		const std::string& ipAddress = client->GetIPAddress();
+		SendMidwareConnectedPacket(ipAddress);
+	};
+
+	client->AddOnClientConnected(callback);
+
 	bool isConnected = client->Connect(ipOctests[0], ipOctests[1], ipOctests[2], ipOctests[3], port, "");
 	mDistributedManagerClient = client;
 	if (isConnected) {
@@ -104,4 +112,9 @@ void ServerMidwareManager::ExecutePhysicsServerProgram(const std::string& progra
 		) {
 		std::cerr << "CreateProcess failed (" << GetLastError() << ")" << std::endl;
 	}
+}
+
+void ServerMidwareManager::SendMidwareConnectedPacket(const std::string& ipAddress) {
+	PhysicsServerMiddlewareConnectedPacket packet(ipAddress);
+	mDistributedManagerClient->SendReliablePacket(packet);
 }

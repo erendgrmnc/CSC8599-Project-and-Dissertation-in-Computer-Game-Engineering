@@ -74,6 +74,8 @@ namespace NCL {
 
 
 			void AddOnClientConnected(const std::function<void()>& callback);
+
+			std::string GetIPAddress();
 		protected:
 			bool mIsConnected;
 

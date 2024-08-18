@@ -170,4 +170,14 @@ void GameClient::SetPlayerInputs(bool movementButtons[4]) {
 void GameClient::AddOnClientConnected(const std::function<void()>& callback) {
 	mOnClientConnectedToServer.push_back(callback);
 }
+
+std::string GameClient::GetIPAddress() {
+	if (!netHandle) {
+		return ""; // Or handle the error appropriately
+	}
+
+	char ipAddress[15];
+	enet_address_get_host_ip(&netHandle->address, ipAddress, 15);
+	return std::string(ipAddress);
+}
 #endif

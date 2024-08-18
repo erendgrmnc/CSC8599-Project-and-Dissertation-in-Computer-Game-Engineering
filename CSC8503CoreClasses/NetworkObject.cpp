@@ -250,9 +250,9 @@ DistributedClientGetGameInstanceDataPacket::DistributedClientGetGameInstanceData
 	this->playerNumber = playerNumber;
 }
 
-DistributedClientGetGameInstanceDataPacket::DistributedClientGetGameInstanceDataPacket(): isGameInstanceFound(false),
-	gameInstanceID(-1),
-	playerNumber(-1) {
+DistributedClientGetGameInstanceDataPacket::DistributedClientGetGameInstanceDataPacket() : isGameInstanceFound(false),
+gameInstanceID(-1),
+playerNumber(-1) {
 	type = BasicNetworkMessages::DistributedClientGetGameInstanceData;
 	size = sizeof(DistributedClientGetGameInstanceDataPacket);
 }
@@ -353,13 +353,21 @@ StartSimulatingObjectReceivedPacket::StartSimulatingObjectReceivedPacket(int obj
 }
 
 RunDistributedPhysicsServerInstancePacket::RunDistributedPhysicsServerInstancePacket(int serverID,
-	int gameInstanceID, const std::string& borderData) {
+	int gameInstanceID, const std::string& ipAddress, const std::string& borderData): ipAddress() {
 	type = BasicNetworkMessages::RunDistributedPhysicsServerInstance;
 	size = sizeof(RunDistributedPhysicsServerInstancePacket);
 
 	this->borderStr = borderData.c_str();
 	this->serverID = serverID;
 	this->gameInstanceID = gameInstanceID;
+	this->ipAddress = ipAddress.c_str();
+}
+
+PhysicsServerMiddlewareConnectedPacket::PhysicsServerMiddlewareConnectedPacket(const std::string& ipAddress) {
+	type = BasicNetworkMessages::PhysicsServerMiddlewareConnected;
+	size = sizeof(PhysicsServerMiddlewareConnectedPacket);
+
+	this->ipAddress = ipAddress.c_str();
 }
 
 NetworkObject::NetworkObject(GameObject& o, int id) : object(o) {

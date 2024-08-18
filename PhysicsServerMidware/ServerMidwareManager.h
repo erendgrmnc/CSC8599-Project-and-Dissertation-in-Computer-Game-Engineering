@@ -24,5 +24,7 @@ namespace NCL {
 		void HandleRunInstancePacket(CSC8503::RunDistributedPhysicsServerInstancePacket* packet);
 		void StartPhysicsServerInstance(int distributedManagerPort, int physicsServerID, int gameInstanceID, std::string& borderStr);
 		void ExecutePhysicsServerProgram(const std::string& programPath, const std::string& arguments, int serverId);
+
+		void SendMidwareConnectedPacket(const std::string& ipAddress);
 	};
 }

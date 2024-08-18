@@ -34,7 +34,6 @@ void SetUpPCInputDevices(Window* w) {
 
 int StartProgram() {
 
-
 	float winWidth = 400;
 	float winHeight = 700;
 
@@ -45,7 +44,6 @@ int StartProgram() {
 	ProfilerRenderer* profilerRenderer = new ProfilerRenderer(*w, ProfilerType::DistributedPhysicsServerManager);
 
 	std::cout << "-------------------------- Distributed Manager --------------------------\n";
-
 
 	int maxPhysicsServer = 0;
 	std::cout << "Enter Physics servers to start: ";
@@ -59,7 +57,6 @@ int StartProgram() {
 
 	std::cout << "Starting server on port: " << SYSTEM_MANAGER_PORT << "\n";
 	systemManager->StartManagerServer(SYSTEM_MANAGER_PORT, maxPhysicsServer + maxClients + 20);
-
 
 
 	w->GetTimer().GetTimeDeltaSeconds(); //Clear the timer so we don't get a larget first dt!
@@ -91,7 +88,6 @@ int StartProgram() {
 
 		Profiler::Update();
 		profilerRenderer->Render();
-
 	}
 
 
