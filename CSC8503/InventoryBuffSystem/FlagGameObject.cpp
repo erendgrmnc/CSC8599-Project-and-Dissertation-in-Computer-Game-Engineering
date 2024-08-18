@@ -30,7 +30,9 @@ FlagGameObject::~FlagGameObject() {
 void FlagGameObject::GetFlag(int playerNo) {
 	mInventoryBuffSystemClassPtr->GetPlayerInventoryPtr()->AddItemToPlayer(InventoryBuffSystem::PlayerInventory::flag, playerNo);
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	GetSoundObject()->TriggerSoundEvent();
+#endif
 #endif
 
 

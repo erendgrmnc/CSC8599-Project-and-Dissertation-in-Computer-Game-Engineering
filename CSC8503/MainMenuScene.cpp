@@ -75,6 +75,10 @@ const std::string& MainMenuScene::GetPlayerName() const {
 	return mPlayerName;
 }
 
+const std::string& MainMenuScene::GetGameInstanceID() const {
+	return mGameInstanceID;
+}
+
 void MainMenuScene::InitPanelDrawFuncMap() {
 	mPanelDrawFuncMap = {
 		{ MainMenuPanels::LevelSelection, [this]() { DrawLevelSelectionPanel(); }},
@@ -148,9 +152,14 @@ void MainMenuScene::DrawMultiplayerLobby() {
 	ImGui::InputText("Player Name", mNameInputBuffer, IM_ARRAYSIZE(mIpAdressInputBuffer), 0);
 
 	if (!mIsMultiplayerLobbyOnHost) {
+
 		ImGui::SetCursorPos(ImVec2(windowSize.x * .4f, windowSize.y * .5f));
 
 		ImGui::InputText("IP Address", mIpAdressInputBuffer, IM_ARRAYSIZE(mIpAdressInputBuffer), 0);
+
+		ImGui::SetCursorPos(ImVec2(windowSize.x * .4f, windowSize.y * .7f));
+
+		ImGui::InputText("Game ID", mGameNumberBuffer, IM_ARRAYSIZE(mIpAdressInputBuffer), 0);
 	}
 
 	style.FramePadding.y = previousFramePadding;
@@ -161,6 +170,8 @@ void MainMenuScene::DrawMultiplayerLobby() {
 			TranslateIpAddress();
 		}
 		mPlayerName = std::string(mNameInputBuffer);
+		mGameInstanceID = std::string(mGameNumberBuffer);
+
 		mMultiplayerLobbyState = mIsMultiplayerLobbyOnHost ? MultiplayerLobbyPanelStates::StartAsServer : MultiplayerLobbyPanelStates::StartAsClient;
 	}
 

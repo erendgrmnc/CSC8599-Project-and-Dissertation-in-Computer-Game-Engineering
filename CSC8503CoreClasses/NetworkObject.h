@@ -1,3 +1,4 @@
+#include "DistributedSystemCommonFiles/DistributedPhysicsServerDto.h"
 #ifdef USEGL
 #pragma once
 #include "GameObject.h"
@@ -53,8 +54,10 @@ namespace NCL::CSC8503 {
 
 	struct GameStartStatePacket : public GamePacket {
 		bool isGameStarted = false;
+		int gameInstanceId;
+
 		std::string levelSeed;
-		GameStartStatePacket(bool val, const std::string& seed);
+		GameStartStatePacket(bool val, int gameInstanceId, const std::string& seed);
 	};
 
 	struct GameEndStatePacket : public GamePacket {
@@ -185,15 +188,27 @@ namespace NCL::CSC8503 {
 
 	struct DistributedClientConnectedToSystemPacket : public GamePacket {
 		int distributedClientType;
+		int gameInstanceID;
 
-		DistributedClientConnectedToSystemPacket(DistributedSystemClientType clientType);
+		DistributedClientConnectedToSystemPacket(int gameInstanceID, DistributedSystemClientType clientType);
+	};
+
+	struct DistributedClientGetGameInstanceDataPacket : public GamePacket {
+		int peerID;
+		bool isGameInstanceFound;
+		int gameInstanceID;
+		int playerNumber;
+
+		DistributedClientGetGameInstanceDataPacket(bool isGameInstanceFound, int gameInstanceID, int playerNumber);
+		DistributedClientGetGameInstanceDataPacket();
 	};
 
 	struct DistributedPhysicsClientConnectedToManagerPacket : public GamePacket {
 		int physicsServerID;
 		int phyiscsPacketDistributerPort;
+		int gameInstanceID;
 
-		DistributedPhysicsClientConnectedToManagerPacket(int port, int physicsServerID);
+		DistributedPhysicsClientConnectedToManagerPacket(int port, int physicsServerID, int gameInstanceID);
 	};
 
 	struct DistributedClientConnectToPhysicsServerPacket : public GamePacket {
@@ -204,10 +219,11 @@ namespace NCL::CSC8503 {
 	};
 
 	struct DistributedPhysicsServerAllClientsAreConnectedPacket : public GamePacket {
-		int gameServerId;
+		int gameInstanceID;
+		int gameServerID;
 		bool isGameServerReady;
 
-		DistributedPhysicsServerAllClientsAreConnectedPacket(int gameServerId, bool isGameServerReady);
+		DistributedPhysicsServerAllClientsAreConnectedPacket(int gameInstanceID, int gameServerID, bool isGameServerReady);
 	};
 
 	struct DistributedClientsGameServersAreReadyPacket : public GamePacket {
@@ -220,6 +236,7 @@ namespace NCL::CSC8503 {
 
 	struct StartDistributedGameServerPacket : public GamePacket {
 		int serverManagerPort;
+		int gameInstanceID;
 
 		int currentServerCount;
 		int totalServerCount;
@@ -231,7 +248,7 @@ namespace NCL::CSC8503 {
 		std::string borders[20];
 		std::string createdServerIPs[20];
 
-		StartDistributedGameServerPacket(int serverManagerPort, int clientsToConnect, std::vector<int> serverPorts,
+		StartDistributedGameServerPacket(int serverManagerPort, int gameInstanceID, int clientsToConnect, std::vector<int> serverPorts,
 		                                 std::vector<std::string> serverIps,
 		                                 const std::map<int, const std::string>& serverBorderMap);
 	};
@@ -264,6 +281,14 @@ namespace NCL::CSC8503 {
 		int newOwnerServerID;
 
 		StartSimulatingObjectReceivedPacket(int objectID, int newOwnerServerID);
+	};
+
+	struct RunDistributedPhysicsServerInstancePacket : public GamePacket {
+		std::string borderStr;
+		int serverID;
+		int gameInstanceID;
+		
+		RunDistributedPhysicsServerInstancePacket(int serverID, int gameInstanceID, const std::string& borderStr);
 	};
 
 	class NetworkObject {

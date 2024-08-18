@@ -90,6 +90,7 @@ void ProfilerRenderer::RenderProfilerUI() {
 		break;
 	}
 	case ProfilerType::DistributedPhysicsMidware: {
+		RenderPhysicsServerMidwareAttributes();
 		break;
 	}
 	}
@@ -256,7 +257,7 @@ void ProfilerRenderer::RenderDistributedClientAttributes() {
 	}
 }
 
-void ProfilerRenderer::RenderPhysicsServerAttributes() {
+void ProfilerRenderer::RenderPhysicsServerMidwareAttributes() {
 	if (ImGui::CollapsingHeader("Physics Server Midware Attributes"))
 	{
 		ImGui::BeginTable("Connection Attributes", 2);

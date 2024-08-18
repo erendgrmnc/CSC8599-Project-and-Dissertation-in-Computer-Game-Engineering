@@ -1,5 +1,10 @@
 #pragma once
 #include "GameServer.h"
+
+namespace NCL {
+	struct GameInstance;
+}
+
 namespace NCL {
 	namespace Networking {
 		class DistributedPhysicsManagerServer : public NCL::CSC8503::GameServer {
@@ -11,16 +16,20 @@ namespace NCL {
 			bool SendGlobalReliablePacket(GamePacket& packet) const;
 
 			void UpdateServer() override;
-			void AddPeer(int peerNumber, bool isPhysicsServerClient);
-			void SendStartGameStatusPacket() const;
-			void SendClientsGameServersAreConnectable() const;
-		protected:
-			bool mIsAllGameServersConnected = false;
+			void AddPeer(int peerNumber, bool isPhysicsServerClient, const std::string& ipAddress);
+			void HandleConnectedPhysicsServer(int gameInstanceId, int peerNumber);
+			void AddGameInstance(GameInstance* gameInstance);
 
-			std::vector<int> mConnectedGameClientPeers;
-			std::vector<int> mConnectedPhysicsClientPeers;
+			const std::string& GetPeerIpAddressStr(int peerNum);
+			std::string GetIPAddress();
 
+			GameInstance* GetGameInstance(int gameInstanceID);
+;		protected:
 			std::vector<std::string> mDistributedPhysicsServerIps;
+
+			std::vector<GameInstance*> mGameInstances;
+			std::map<int, int> mServerPeerRunningInstanceCount;
+			std::map<int, std::string> mPeerIpAddressMap;
 		};
 	}
 }

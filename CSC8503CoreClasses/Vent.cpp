@@ -35,8 +35,10 @@ void Vent::HandlePlayerUse(GameObject* userObj) {
 		playerTransform.SetPosition(newPlayerPos);
 		playerTransform.SetOrientation(teleportOrient);
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 		this->GetSoundObject()->TriggerSoundEvent();
 		mConnectedVent->GetSoundObject()->TriggerSoundEvent();
+#endif
 #endif
 		LevelManager::GetLevelManager()->GetGameWorld()->GetMainCamera().SetYaw(mTransform.GetOrientation().ToEuler().y);
 #ifdef PROSPERO
@@ -110,7 +112,9 @@ void Vent::SetIsOpen(bool isOpen, bool isSettedByServer) {
 	}
 	if (mIsOpen == true) {
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 		this->GetSoundObject()->LockDoorTriggered();
+#endif
 #endif
 	}
 }

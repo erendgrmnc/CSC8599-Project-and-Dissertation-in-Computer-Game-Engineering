@@ -53,9 +53,11 @@ LevelManager* LevelManager::instance = nullptr;
 LevelManager::LevelManager() {
 	mWorld = new GameWorld();
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	std::thread loadSoundManager([this] {mSoundManager = new SoundManager(mWorld); });
 
 	mRenderer = new GameTechRenderer(*mWorld);
+#endif
 #endif
 #ifdef USEPROSPERO
 	mRenderer = new GameTechAGCRenderer(*mWorld);
@@ -85,10 +87,13 @@ LevelManager::LevelManager() {
 	mIsLevelInitialised = false;
 
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	loadSoundManager.join();
 
 	InitialiseMiniMap();
 #endif
+#endif
+
 }
 
 LevelManager::~LevelManager() {
@@ -148,20 +153,26 @@ LevelManager::~LevelManager() {
 
 	delete mAnimation;
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	delete mSoundManager;
+#endif
 #endif
 	delete mInventoryBuffSystemClassPtr;
 	delete mSuspicionSystemClassPtr;
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	delete mSoundManager;
 	delete mMiniMap;
+#endif
 #endif
 }
 
 void LevelManager::ClearLevel() {
 
 	for (GameObject* obj : mUpdatableObjects) {
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 		obj->GetSoundObject()->Clear();
+#endif
 	}
 
 	mIsLevelInitialised = false;
@@ -255,7 +266,7 @@ void LevelManager::LoadLevel(int levelID, std::mt19937 seed, int playerID, bool 
 		//Placing the non-controllable objects
 
 		for (int i = 0; i < 2; i++) {
-			CreateObjectGrid(10, 10, 1.f, 1.f, Vector3(-100.f, 30, -90.f));
+			CreateObjectGrid(1, 1, 1.f, 1.f, Vector3(-100.f, 30, -90.f));
 		}
 
 		LoadLights((*mLevelList[1]).GetLights(), Vector3(0, 0, 0));
@@ -493,7 +504,9 @@ void LevelManager::Update(float dt, bool isPlayingLevel, bool isPaused) {
 
 		if (mUpdatableObjects.size() > 0) {
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 			mSoundManager->UpdateSounds(mUpdatableObjects);
+#endif
 #endif
 		}
 		mRenderer->Render();
@@ -592,7 +605,9 @@ void NCL::CSC8503::LevelManager::DebugUpdate(float dt, bool isPlayingLevel, bool
 			mAnimationTime = 0;
 		}
 		if (mUpdatableObjects.size() > 0) {
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 			mSoundManager->UpdateSounds(mUpdatableObjects);
+#endif
 		}
 		start = std::chrono::high_resolution_clock::now();
 		mRenderer->Render();
@@ -1469,7 +1484,9 @@ CCTV* LevelManager::AddCCTVToWorld(const Transform& transform, const bool isMult
 	camera->GenerateViewPyramid();
 	camera->SetInitAngle(transform.GetOrientation().ToEuler().y);
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	camera->SetSoundObject(new SoundObject(mSoundManager->AddCCTVSpotSound()));
+#endif
 #endif
 
 	if (!isMultiplayerLevel) {
@@ -1530,7 +1547,9 @@ Vent* LevelManager::AddVentToWorld(Vent* vent, bool isMultiplayerLevel) {
 
 
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	newVent->SetSoundObject(new SoundObject());
+#endif
 #endif
 
 	bool isServer = SceneManager::GetSceneManager()->IsServer();
@@ -1576,7 +1595,9 @@ InteractableDoor* LevelManager::AddDoorToWorld(const Transform& transform, const
 	}
 
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	newDoor->SetSoundObject(new SoundObject());
+#endif
 #endif
 
 	newDoor->SetCollisionLayer(NoSpecialFeatures);
@@ -1613,7 +1634,9 @@ PrisonDoor* LevelManager::AddPrisonDoorToWorld(PrisonDoor* door, bool isMultipla
 
 
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	newDoor->SetSoundObject(new SoundObject());
+#endif
 #endif
 
 	bool isServer = SceneManager::GetSceneManager()->IsServer();
@@ -1674,7 +1697,9 @@ FlagGameObject* LevelManager::AddFlagToWorld(const Vector3& position, InventoryB
 	}
 
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	flag->SetSoundObject(new SoundObject());
+#endif
 #endif
 	flag->SetCollisionLayer(Collectable);
 
@@ -1706,7 +1731,9 @@ PickupGameObject* LevelManager::AddPickupToWorld(const Vector3& position, Invent
 
 	pickup->SetRenderObject(new RenderObject(&pickup->GetTransform(), mMeshes["Toolbox"], mTextures["ToolboxAlbedo"], mTextures["ToolboxNormal"], mShaders["Basic"], 1));
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	pickup->SetSoundObject(new SoundObject());
+#endif
 #endif
 
 	bool isServer = SceneManager::GetSceneManager()->IsServer();
@@ -1741,7 +1768,9 @@ PointGameObject* LevelManager::AddPointObjectToWorld(const Vector3& position, in
 	pointObject->SetRenderObject(new RenderObject(&pointObject->GetTransform(), mMeshes["Coins"], mTextures["CoinsAlbedo"], mTextures["CoinsNormal"], mShaders["Basic"], 1));
 
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	pointObject->SetSoundObject(new SoundObject());
+#endif
 #endif
 
 	bool isServer = SceneManager::GetSceneManager()->IsServer();
@@ -1764,7 +1793,9 @@ PointGameObject* LevelManager::AddPointObjectToWorld(const Vector3& position, in
 
 PlayerObject* LevelManager::AddPlayerToWorld(const Transform& transform, const std::string& playerName) {
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	mTempPlayer = new PlayerObject(mWorld, mInventoryBuffSystemClassPtr, mSuspicionSystemClassPtr, mUi, new SoundObject(mSoundManager->AddWalkSound()), playerName);
+#endif
 #endif
 #ifdef USEPROSPERO#
 	mTempPlayer = new PlayerObject(mWorld, mInventoryBuffSystemClassPtr, mSuspicionSystemClassPtr, mUi, playerName);
@@ -1799,7 +1830,9 @@ void LevelManager::CreatePlayerObjectComponents(PlayerObject& playerObject, cons
 
 
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	playerObject.SetSoundObject(new SoundObject(mSoundManager->AddWalkSound()));
+#endif
 #endif
 
 	bool isServer = SceneManager::GetSceneManager()->IsServer();
@@ -1825,7 +1858,9 @@ void LevelManager::CreatePlayerObjectComponents(PlayerObject& playerObject, cons
 	playerObject.SetRenderObject(new RenderObject(&playerObject.GetTransform(), mMeshes["Player"], mTextures["FleshyAlbedo"], mTextures["Normal"], mShaders["Animation"],
 		PLAYER_MESH_SIZE));
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	playerObject.SetSoundObject(new SoundObject(mSoundManager->AddWalkSound()));
+#endif
 #endif
 
 	bool isServer = SceneManager::GetSceneManager()->IsServer();
@@ -1942,7 +1977,9 @@ GuardObject* LevelManager::AddGuardToWorld(const vector<Vector3> nodes, const Ve
 	guard->GetRenderObject()->SetIgnoredSubmeshID(1);
 #endif
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	guard->SetSoundObject(new SoundObject(mSoundManager->AddWalkSound()));
+#endif
 #endif
 	guard->SetPatrolNodes(nodes);
 	guard->SetCurrentNode(currentNode);
@@ -1997,7 +2034,9 @@ SoundEmitter* LevelManager::AddSoundEmitterToWorld(const Vector3& position, Loca
 
 	soundEmitterObjectPtr->SetCollisionLayer(Collectable);
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	soundEmitterObjectPtr->SetSoundObject(new SoundObject(mSoundManager->AddSoundEmitterSound(position)));
+#endif
 #endif
 
 

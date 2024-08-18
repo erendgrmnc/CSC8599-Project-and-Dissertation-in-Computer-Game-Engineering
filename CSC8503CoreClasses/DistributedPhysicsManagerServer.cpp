@@ -4,9 +4,6 @@
 #include "enet/enet.h"
 
 NCL::Networking::DistributedPhysicsManagerServer::DistributedPhysicsManagerServer(int onPort, int maxClients) : GameServer(onPort, maxClients) {
-	//FOR TEST
-	mDistributedPhysicsServerIps.push_back("127.0.0.1");
-	mDistributedPhysicsServerIps.push_back("127.0.0.1");
 }
 
 NCL::Networking::DistributedPhysicsManagerServer::~DistributedPhysicsManagerServer() {
@@ -40,12 +37,13 @@ void NCL::Networking::DistributedPhysicsManagerServer::UpdateServer() {
 		if (type == ENetEventType::ENET_EVENT_TYPE_CONNECT) {
 			char ipAddress[15];
 			enet_address_get_host_ip(&p->address, ipAddress, 15);
+			std::string strIp(ipAddress);
 			bool isGameServer = IsConnectedPeerAGameServer(ipAddress);
-			std::cout << "Server: New client has connected" << std::endl;
-			AddPeer(peer + 1, isGameServer);
+			std::cout << "Server: New client has connected" << '\n';
+			AddPeer(peer + 1, isGameServer, strIp);
 		}
 		else if (type == ENetEventType::ENET_EVENT_TYPE_DISCONNECT) {
-			std::cout << "Server: Client has disconnected" << std::endl;
+			std::cout << "Server: Client has disconnected" << '\n';
 			for (int i = 0; i < 3; ++i) {
 				if (mPeers[i] == peer + 1) {
 					mPeers[i] = -1;
@@ -61,8 +59,9 @@ void NCL::Networking::DistributedPhysicsManagerServer::UpdateServer() {
 	}
 }
 
-void NCL::Networking::DistributedPhysicsManagerServer::AddPeer(int peerNumber, bool isPhysicsServerClient) {
+void NCL::Networking::DistributedPhysicsManagerServer::AddPeer(int peerNumber, bool isPhysicsServerClient, const std::string& ipAddress) {
 	int emptyIndex = mClientMax;
+	mPeerIpAddressMap.insert(std::make_pair(peerNumber, ipAddress));
 	for (int i = 0; i < mClientMax; i++) {
 		if (mPeers[i] == peerNumber) {
 			return;
@@ -73,31 +72,37 @@ void NCL::Networking::DistributedPhysicsManagerServer::AddPeer(int peerNumber, b
 	}
 	if (emptyIndex < mClientMax) {
 		mPeers[emptyIndex] = peerNumber;
-		if (isPhysicsServerClient) {
-			mConnectedPhysicsClientPeers.push_back(peerNumber);
-			if (mConnectedPhysicsClientPeers.size() == mDistributedPhysicsServerIps.size()) {
-				mIsAllGameServersConnected = true;
-
-			}
-		}
-		else {
-			mConnectedGameClientPeers.push_back(peerNumber);
-		}
 	}
 }
 
-void NCL::Networking::DistributedPhysicsManagerServer::SendStartGameStatusPacket() const {
-	GameStartStatePacket state(true, "");
-	SendGlobalReliablePacket(state);
+void Networking::DistributedPhysicsManagerServer::HandleConnectedPhysicsServer(int gameInstanceId, int peerNumber) {
+	int connectedServerCount = mServerPeerRunningInstanceCount[gameInstanceId];
+	mServerPeerRunningInstanceCount[gameInstanceId] = ++connectedServerCount;
 }
 
-void Networking::DistributedPhysicsManagerServer::SendClientsGameServersAreConnectable() const {
-	DistributedClientsGameServersAreReadyPacket packet;
-	packet.ipAddresses[0] = "127.0.0.1";
-	packet.ipAddresses[1] = "127.0.0.1";
+void Networking::DistributedPhysicsManagerServer::AddGameInstance(GameInstance* gameInstance) {
+	mGameInstances.push_back(gameInstance);
+}
 
-	packet.ports[0] = 1234;
-	packet.ports[1] = 5678;
+const std::string& Networking::DistributedPhysicsManagerServer::GetPeerIpAddressStr(int peerNum) {
+	return mPeerIpAddressMap[peerNum];
+}
 
-	SendGlobalReliablePacket(packet);
+std::string Networking::DistributedPhysicsManagerServer::GetIPAddress() {
+	if (!netHandle) {
+		return ""; // Or handle the error appropriately
+	}
+
+	char ipAddress[15];
+	enet_address_get_host_ip(&netHandle->address, ipAddress, 15);
+	return std::string(ipAddress);
+}
+
+GameInstance* Networking::DistributedPhysicsManagerServer::GetGameInstance(int gameInstanceID) {
+	for (const auto& instance : mGameInstances) {
+		if (instance->GetGameID() == gameInstanceID) {
+			return instance;
+		}
+	}
+	return nullptr;
 }

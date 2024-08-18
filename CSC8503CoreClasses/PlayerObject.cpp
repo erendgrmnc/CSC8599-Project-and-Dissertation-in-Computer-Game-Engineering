@@ -68,7 +68,7 @@ PlayerObject::PlayerObject(GameWorld* world, InventoryBuffSystem::InventoryBuffS
 	SuspicionSystem::SuspicionSystemClass* suspicionSystemClassPtr,
 	UISystem* UI, SoundObject* soundObject,
 	const std::string& objName,
-	int playerID,int walkSpeed, int sprintSpeed, int crouchSpeed, Vector3 boundingVolumeOffset) {
+	int playerID, int walkSpeed, int sprintSpeed, int crouchSpeed, Vector3 boundingVolumeOffset) {
 	mName = objName;
 	mGameWorld = world;
 	mInventoryBuffSystemClassPtr = inventoryBuffSystemClassPtr;
@@ -245,16 +245,27 @@ void PlayerObject::UpdatePlayerBuffsObserver(BuffEvent buffEvent, int playerNo) 
 		mSuspicionSystemClassPtr->GetLocalSuspicionMetre()->
 			RemoveActiveLocalSusCause(SuspicionSystem::LocalSuspicionMetre::playerSprint, mPlayerID);
 		mUi->ChangeBuffSlotTransparency(SILENT_BUFF_SLOT, 1.0);
+
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 		this->GetSoundObject()->CloseDoorTriggered();
+
 #endif
+#endif
+
+
 		break;
 	case silentSprintRemoved:
 		mHasSilentSprintBuff = false;
 		mUi->ChangeBuffSlotTransparency(SILENT_BUFF_SLOT, 0.3);
+
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 		this->GetSoundObject()->CloseDoorFinished();
+
 #endif
+#endif
+
 		mObjectState = Idle;
 
 		break;
@@ -277,13 +288,13 @@ void PlayerObject::MovePlayer(float dt) {
 	Vector3 fwdAxis = mGameWorld->GetMainCamera().GetForwardVector();
 	Vector3 rightAxis = mGameWorld->GetMainCamera().GetRightVector();
 	bool isIdle = true;
-	if (SceneManager::GetSceneManager()->GetControllerInterface()->MoveForward()){
+	if (SceneManager::GetSceneManager()->GetControllerInterface()->MoveForward()) {
 		Vector3 force = fwdAxis * mMovementSpeed;
 		mPhysicsObject->AddForce(fwdAxis * mMovementSpeed);
 		isIdle = false;
 	}
 
-	if (SceneManager::GetSceneManager()->GetControllerInterface()->MoveBackwards()){
+	if (SceneManager::GetSceneManager()->GetControllerInterface()->MoveBackwards()) {
 #ifdef USEGL
 		fwdAxis = fwdAxis * -1;
 #endif
@@ -291,12 +302,12 @@ void PlayerObject::MovePlayer(float dt) {
 		isIdle = false;
 	}
 
-	if (SceneManager::GetSceneManager()->GetControllerInterface()->MoveRight()){
+	if (SceneManager::GetSceneManager()->GetControllerInterface()->MoveRight()) {
 		mPhysicsObject->AddForce(rightAxis * mMovementSpeed);
 		isIdle = false;
 	}
 
-	if (SceneManager::GetSceneManager()->GetControllerInterface()->MoveLeft()){
+	if (SceneManager::GetSceneManager()->GetControllerInterface()->MoveLeft()) {
 #ifdef USEGL
 		rightAxis = rightAxis * -1;
 #endif
@@ -306,7 +317,7 @@ void PlayerObject::MovePlayer(float dt) {
 
 	bool isSprinting = SceneManager::GetSceneManager()->GetControllerInterface()->GetSprintDown();
 	bool isCrouching = SceneManager::GetSceneManager()->GetControllerInterface()->GetCrouchPressed();
-	
+
 	GetTransform().SetOrientation(Quaternion::EulerAnglesToQuaternion(mGameWorld->GetMainCamera().GetPitch(), mGameWorld->GetMainCamera().GetYaw(), 0));
 
 	if (isIdle) {
@@ -325,7 +336,7 @@ void PlayerObject::MovePlayer(float dt) {
 
 	StopSliding();
 
-	if(Window::GetKeyboard()->KeyPressed(KeyCodes::F6))
+	if (Window::GetKeyboard()->KeyPressed(KeyCodes::F6))
 		mIsDebugUIEnabled = !mIsDebugUIEnabled;
 }
 
@@ -478,7 +489,7 @@ void PlayerObject::ControlInventory() {
 	const int usesLeft = mInventoryBuffSystemClassPtr->GetPlayerInventoryPtr()->GetItemUsesLeft(mPlayerID, mActiveItemSlot);
 
 	if (item == InventoryBuffSystem::PlayerInventory::doorKey) {
-		mUi->GetIcons()[mActiveItemSlot]->mTexture = mUi->GetKeyTexVec()[usesLeft-1];
+		mUi->GetIcons()[mActiveItemSlot]->mTexture = mUi->GetKeyTexVec()[usesLeft - 1];
 	}
 
 	if (Window::GetKeyboard()->KeyPressed(KeyCodes::K) && DEBUG_MODE) {
@@ -500,7 +511,7 @@ void PlayerObject::ControlInventory() {
 
 	if (Window::GetKeyboard()->KeyPressed(KeyCodes::NUM9) &&
 		DEBUG_MODE) {
-		mSuspicionSystemClassPtr->GetLocationBasedSuspicion()->SetMinLocationSusAmount(GetTransform().GetPosition(),20);
+		mSuspicionSystemClassPtr->GetLocationBasedSuspicion()->SetMinLocationSusAmount(GetTransform().GetPosition(), 20);
 	}
 
 	if (Window::GetKeyboard()->KeyPressed(KeyCodes::NUM0) &&
@@ -675,7 +686,7 @@ void PlayerObject::RayCastIcon(GameObject* objectHit, float distance)
 		ChangeTransparency(false, mTransparencyTop);
 		mUi->ChangeBuffSlotTransparency(NOTICETOP, mTransparencyTop);
 	}
-  
+
 	//Unlock Door
 	if ((objectHit->GetName() == "InteractableDoor") && (distance < 15) && (GetEquippedItem() == PlayerInventory::item::doorKey)) {
 
@@ -844,7 +855,7 @@ void PlayerObject::ChangeToStunned() {
 	mWalkSpeed = 0;
 	mSprintSpeed = 0;
 
-	mPhysicsObject->SetLinearVelocity(Vector3(0,0,0));
+	mPhysicsObject->SetLinearVelocity(Vector3(0, 0, 0));
 	mPlayerSpeedState = Stunned;
 
 	SetObjectState(Idle);
@@ -924,7 +935,7 @@ void PlayerObject::UpdateLocalUI(float dt) {
 	Debug::Print(itemName, Vector2(40, 82));
 	const int usesLeft = mInventoryBuffSystemClassPtr->GetPlayerInventoryPtr()->GetItemUsesLeft(mPlayerID, mActiveItemSlot);
 
-	if(usesLeft>1){
+	if (usesLeft > 1) {
 		const std::string& usesLeftStr = "UsesLeft : " + to_string(usesLeft);
 		Debug::Print(usesLeftStr, Vector2(39, 87));
 	}

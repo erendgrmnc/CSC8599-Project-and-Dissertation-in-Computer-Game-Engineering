@@ -71,6 +71,9 @@ namespace NCL {
 
 			void SetPlayerInputs(PlayerInputs& playerInputs);
 			void SetPlayerInputs(bool movementButtons[4]);
+
+
+			void AddOnClientConnected(const std::function<void()>& callback);
 		protected:
 			bool mIsConnected;
 
@@ -84,6 +87,8 @@ namespace NCL {
 			PlayerInputs* mPlayerInputs;
 
 			void SendClientInitPacket();
+
+			std::vector<std::function<void()>> mOnClientConnectedToServer;
 		};
 	}
 }

@@ -1,6 +1,8 @@
 #pragma once
-#include "../FMODCoreAPI/includes/fmod.hpp"
 #include <vector>
+#ifndef DISTRIBUTEDSYSTEMACTIVE
+#include "../FMODCoreAPI/includes/fmod.hpp"
+
 
 
 using namespace FMOD;
@@ -42,3 +44,4 @@ namespace NCL {
 		};
     }
 }
+#endif

@@ -159,6 +159,7 @@ bool MultiplayerGameScene::StartAsClient(char a, char b, char c, char d, const s
 		mThisClient->RegisterPacketHandler(BasicNetworkMessages::SyncAnnouncements, this);
 		mThisClient->RegisterPacketHandler(BasicNetworkMessages::GuardSpotSound, this);
 		mThisClient->RegisterPacketHandler(DistributedClientConnectToPhysicsServer, this);
+		mThisClient->RegisterPacketHandler(BasicNetworkMessages::DistributedClientGetGameInstanceData, this);
 
 		//FOR DISTRIBUTED SYSTEM TEST
 		//AddToPlayerPeerNameMap(SERVER_PLAYER_PEER, playerName);
@@ -166,8 +167,28 @@ bool MultiplayerGameScene::StartAsClient(char a, char b, char c, char d, const s
 
 	mLevelManager->SetIsServer(false);
 
+
+
 	return isConnected;
 
+}
+
+bool MultiplayerGameScene::StartAsClient(char a, char b, char c, char d, const std::string& playerName,
+	const std::string& gameInstanceID) {
+
+	bool isConnected = StartAsClient(a, b, c, d, playerName);
+
+	if (isConnected) {
+		std::function<void()> callback = [this, gameInstanceID] {
+			int gameID = stoi(gameInstanceID);
+			SendGameClientConnectedToDistributedManagerPacket(gameID);
+
+			};
+		mThisClient->AddOnClientConnected(callback);
+
+	}
+
+	return isConnected;
 }
 
 void MultiplayerGameScene::UpdateGame(float dt) {
@@ -210,11 +231,16 @@ void MultiplayerGameScene::UpdateGame(float dt) {
 			Debug::Print("SERVER", Vector2(5, 10), Debug::MAGENTA);
 		}
 		else {
-			Debug::Print("CLIENT", Vector2(5, 10), Debug::MAGENTA);
-			auto posVec = mNetworkObjects[mThisClient->GetPeerID() -1]->GetGameObject().GetTransform().GetPosition();
-			auto predictedPosVec = mNetworkObjects[mThisClient->GetPeerID() - 1]->GetGameObject().GetTransform().GetPredictedPosition();
+			Debug::Print("CLIENT - Player ID: " + std::to_string(mLocalPlayerId), Vector2(5, 10), Debug::MAGENTA);
 
-			int serverID = mNetworkObjects[mThisClient->GetPeerID() - 1]->GetGameObject().GetServerID();
+			int objectPerClient = 1;
+
+			int testPeerId = mLocalPlayerId < 0 ? 0 : mLocalPlayerId;
+
+			auto posVec = mNetworkObjects[testPeerId]->GetGameObject().GetTransform().GetPosition();
+			auto predictedPosVec = mNetworkObjects[testPeerId]->GetGameObject().GetTransform().GetPredictedPosition();
+
+			int serverID = mNetworkObjects[testPeerId]->GetGameObject().GetServerID();
 			if (prevServerOfObj == -1) {
 				prevServerOfObj = serverID;
 			}
@@ -254,7 +280,7 @@ void MultiplayerGameScene::UpdateGame(float dt) {
 		int counter = 0;
 		for (auto& client : mDistributedPhysicsClients) {
 			client.second->SetPlayerInputs(inputs);
-			client.second->WriteAndSendClientInputPacket(mThisClient->GetPeerID());
+			client.second->WriteAndSendClientInputPacket(mLocalPlayerId);
 			counter++;
 		}
 
@@ -274,10 +300,11 @@ void MultiplayerGameScene::UpdateGame(float dt) {
 	}
 }
 
-void MultiplayerGameScene::SetIsGameStarted(bool isGameStarted, unsigned int seed) {
+void MultiplayerGameScene::SetIsGameStarted(bool isGameStarted, int gameInstanceID, unsigned int seed) {
 	if (mIsGameStarted == isGameStarted) {
 		return;
 	}
+
 	this->mIsGameStarted = isGameStarted;
 
 	int seedToUse = seed;
@@ -424,6 +451,18 @@ void MultiplayerGameScene::ReceivePacket(int type, GamePacket* payload, int sour
 		HandleOnConnectToDistributedPhysicsServerPacketReceived(packet);
 		break;
 	}
+	case BasicNetworkMessages::DistributedClientGetGameInstanceData: {
+		DistributedClientGetGameInstanceDataPacket* packet = static_cast<DistributedClientGetGameInstanceDataPacket*>(payload);
+		if (packet->peerID == mThisClient->GetPeerID() - 1) {
+			if (!packet->isGameInstanceFound) {
+				//TODO(erendgrmnc): return to main menu.
+				break;
+			}
+			HandleOnDistributedGameClientGameInstanceDataPacketReceived(packet);
+		}
+
+		break;
+	}
 	default:
 		std::cout << "Received unknown packet. Type: " << payload->type << std::endl;
 		break;
@@ -502,6 +541,12 @@ void MultiplayerGameScene::SendPacketsThread() {
 			}
 		}
 	}
+}
+
+void MultiplayerGameScene::SendGameClientConnectedToDistributedManagerPacket(int gameInstanceID) {
+	std::cout << "Sending game client connect packet for game ID: " << gameInstanceID << "\n";
+	DistributedClientConnectedToSystemPacket packet(gameInstanceID, DistributedSystemClientType::DistributedGameClient);
+	mThisClient->SendPacket(packet);
 }
 
 GameClient* MultiplayerGameScene::GetClient() const {
@@ -624,7 +669,7 @@ int MultiplayerGameScene::GetPlayerPeerID(int peerId) {
 }
 
 void MultiplayerGameScene::SendStartGameStatusPacket(const std::string& seed) const {
-	GameStartStatePacket state(mIsGameStarted, seed);
+	GameStartStatePacket state(mIsGameStarted, 0, seed);
 	mThisServer->SendGlobalPacket(state);
 }
 
@@ -869,7 +914,9 @@ void MultiplayerGameScene::HandleAnnouncementSync(const AnnouncementSyncPacket* 
 
 void MultiplayerGameScene::HandleGuardSpotSound(GuardSpotSoundPacket* packet) const {
 	if (packet->playerId == mLocalPlayerId) {
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 		mLevelManager->GetSoundManager()->PlaySpottedSound();
+#endif
 	}
 }
 
@@ -906,6 +953,12 @@ void MultiplayerGameScene::HandleOnConnectToDistributedPhysicsServerPacketReceiv
 	std::cout << "Connecting to physics server on: " << packet->ipAddress << " | " << packet->physicsPacketDistributerPort << "\n";
 
 	ConnectClientToDistributedGameServer(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], packet->physicsPacketDistributerPort, packet->physicsServerID, "");
+}
+
+void MultiplayerGameScene::HandleOnDistributedGameClientGameInstanceDataPacketReceived(
+	DistributedClientGetGameInstanceDataPacket* packet) {
+	mGameInstanceID = packet->gameInstanceID;
+	mLocalPlayerId = packet->playerNumber;
 }
 
 bool MultiplayerGameScene::ConnectClientToDistributedGameServer(char a, char b, char c, char d, int port, int gameServerID,

@@ -134,7 +134,7 @@ void DistributedGameServer::ServerWorldManager::CreatePlayerObjects(int playerCo
 		startPos.y = 10;
 		startPos.z = 0;
 
-		CreateObjectGrid(10, 10, 1.f, 1.f, i + 1, startPos);
+		CreateObjectGrid(1, 1, 1.f, 1.f, i, startPos);
 	}
 }
 

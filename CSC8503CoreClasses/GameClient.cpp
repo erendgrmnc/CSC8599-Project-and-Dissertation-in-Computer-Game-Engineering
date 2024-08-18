@@ -62,6 +62,10 @@ bool GameClient::UpdateClient() {
 			mIsConnected = true;
 			std::cout << "Connected to server!" << std::endl;
 
+			for (const auto& callback : mOnClientConnectedToServer) {
+				callback();
+			}
+
 			//TODO(eren.degirmenci): send player init packet.
 			SendClientInitPacket();
 		}
@@ -161,5 +165,9 @@ void GameClient::SetPlayerInputs(bool movementButtons[4]) {
 	mPlayerInputs->movementButtons[1] = movementButtons[1];
 	mPlayerInputs->movementButtons[2] = movementButtons[2];
 	mPlayerInputs->movementButtons[3] = movementButtons[3];
+}
+
+void GameClient::AddOnClientConnected(const std::function<void()>& callback) {
+	mOnClientConnectedToServer.push_back(callback);
 }
 #endif

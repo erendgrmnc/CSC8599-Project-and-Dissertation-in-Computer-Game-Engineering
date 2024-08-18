@@ -45,6 +45,7 @@ namespace NCL {
 
         	int* GetIpAdressToConnect();
             const std::string& GetPlayerName() const;
+            const std::string& GetGameInstanceID() const;
         protected:
 
             bool mIsMultiplayerLobbyOnHost;
@@ -54,9 +55,11 @@ namespace NCL {
             MainMenuPanels mCurrentOpenPanel;
             MultiplayerLobbyPanelStates mMultiplayerLobbyState;
             std::string mPlayerName;
+            std::string mGameInstanceID;
 
         	char mIpAdressInputBuffer[16] = "";
         	char mNameInputBuffer[30] = "";
+            char mGameNumberBuffer[4] = "";
 
             int mIpAddress[4];
 

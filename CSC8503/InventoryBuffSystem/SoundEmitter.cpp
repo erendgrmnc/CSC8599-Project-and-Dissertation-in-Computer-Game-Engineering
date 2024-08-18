@@ -30,7 +30,9 @@ void SoundEmitter::UpdateObject(float dt) {
 		mLocationBasedSuspicionPTR->RemoveActiveLocationSusCause(LocationBasedSuspicion::continouousSound, pos);
 		this->SetActive(false);
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 		this->GetSoundObject()->GetChannel()->setPaused(true);
+#endif
 #endif
 	}
 }

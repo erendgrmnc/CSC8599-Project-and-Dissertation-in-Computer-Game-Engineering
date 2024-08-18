@@ -21,7 +21,9 @@ InteractableDoor::InteractableDoor() {
 void InteractableDoor::Unlock() {
 	mIsLocked = false;
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	this->GetSoundObject()->LockDoorTriggered();
+#endif
 #endif
 	mLockCooldown = initLockCooldown;
 	SetNavMeshFlags(2);
@@ -30,7 +32,9 @@ void InteractableDoor::Unlock() {
 void InteractableDoor::Lock() {
 	mIsLocked = true;
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	this->GetSoundObject()->LockDoorTriggered();
+#endif
 #endif
 	mLockCooldown = initLockCooldown;
 	SetNavMeshFlags(4);

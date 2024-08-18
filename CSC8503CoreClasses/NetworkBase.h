@@ -43,7 +43,9 @@ enum BasicNetworkMessages {
 	DistributedClientsGameServersAreReady,
 	StartDistributedPhysicsServer,
 	StartSimulatingObjectInServer,
-	StartSimulatingObjectInServerReceived
+	StartSimulatingObjectInServerReceived,
+	RunDistributedPhysicsServerInstance,
+	DistributedClientGetGameInstanceData
 };
 
 enum DistributedSystemClientType {

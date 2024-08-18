@@ -10,7 +10,9 @@ void Door::Open() {
 	GetTransform().SetPosition(GetTransform().GetPosition() + Vector3(0, 7.25, 0));
 	SetNavMeshFlags(1);
 #ifdef USEGL
+ #ifndef DISTRIBUTEDSYSTEMACTIVE
 	this->GetSoundObject()->TriggerSoundEvent();
+#endif
 #endif
 	mTimer = initDoorTimer;
 	mIsOpen = true;
@@ -20,7 +22,9 @@ void Door::Close() {
 	GetTransform().SetPosition(GetTransform().GetPosition() + Vector3(0,-7.25,0));
 	SetNavMeshFlags(2);
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	this->GetSoundObject()->CloseDoorTriggered();
+#endif
 #endif
 	mTimer = -1;
 	mIsOpen = false;

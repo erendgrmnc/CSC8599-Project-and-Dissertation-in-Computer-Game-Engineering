@@ -17,7 +17,7 @@ PushdownState::PushdownResult MultiplayerLobby::OnUpdate(float dt, PushdownState
 		Debug::Print(" Waiting for player to join ...", Vector2(5, 95), Debug::RED);
 		if (Window::GetKeyboard()->KeyPressed(KeyCodes::S)) {
 
-			mGameSceneManager->SetIsGameStarted(true);
+			mGameSceneManager->SetIsGameStarted(true, 0);
 			*newState = new InitialisingMultiplayerLevel(mGameSceneManager);
 			return PushdownResult::Push;
 		}
@@ -47,7 +47,7 @@ PushdownState::PushdownResult MultiplayerLobby::OnUpdate(float dt, PushdownState
 
 void MultiplayerLobby::OnAwake() {
 	mGameSceneManager->SetIsGameFinished(false, -1);
-	mGameSceneManager->SetIsGameStarted(false);
+	mGameSceneManager->SetIsGameStarted(false, -1);
 }
 
 InitialisingMultiplayerLevel::InitialisingMultiplayerLevel(MultiplayerGameScene* currentGameState){

@@ -34,11 +34,10 @@ namespace NCL {
 			void StartManagerServer(int port, int maxClients);
 			void RegisterPacketHandlers();
 			void ReceivePacket(int type, GamePacket* payload, int source) override;
-			void SendStartGameStatusPacket();
+			void SendStartGameStatusPacket(int gameInstanceID);
 			void AddServerData(DistributedPhysicsServerData& data);
-			void AddServerBorderDataToMap(std::pair<int, GameBorder*>& pair);
 
-			std::string GetServerAreaString(int serverID);
+			NCL::GameInstance* CreateNewGameInstance(int maxServer, int clientCount);
 		protected:
 			bool mIsGameStarted = false;
 			int mMaxPhysicsServerCount = 0;
@@ -46,21 +45,25 @@ namespace NCL {
 
 			NCL::Networking::DistributedPhysicsManagerServer* mDistributedPhysicsManagerServer = nullptr;
 
+			std::vector<GameInstance*> mCreatedGameInstances;
 			std::vector<DistributedPhysicsServerData*> mDistributedPhysicsServers;
-			std::map<int, GameBorder*> mPhysicsServerBorderMap;
-			std::map<int, const std::string> mPhysicsServerBorderStrMap;
+	
 
 			void SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int serverID, const int port) const;
-			void SendStartDataToPhysicsServer(int physicsServerID) const;
+			void SendStartDataToPhysicsServer(int gameInstanceID, int physicsServerID) const;
+			void SendDistributedClientGameInstanceDataPacket();
 
-			void HandleDistributedClientConnectedPacketReceived(NCL::CSC8503::DistributedClientConnectedToSystemPacket* packet);
-			void HandleDistributedPhysicsClientConnectedPacketReceived(NCL::CSC8503::DistributedPhysicsClientConnectedToManagerPacket* packet) const;
+			void HandleDistributedClientConnectedPacketReceived(int peerID, NCL::CSC8503::DistributedClientConnectedToSystemPacket* packet);
+			void HandleDistributedPhysicsClientConnectedPacketReceived(int peerNumber, NCL::CSC8503::DistributedPhysicsClientConnectedToManagerPacket* packet);
 			void HandleDistributedPhysicsServerAllClientsAreConnectedPacketReceived(NCL::CSC8503::DistributedPhysicsServerAllClientsAreConnectedPacket* packet);
 			void HandleAllClientsConnectedToPhysicsServer(NCL::CSC8503::DistributedPhysicsServerAllClientsAreConnectedPacket* packet);
+			void SendRunServerInstancePacket(int gameInstance, int physicsServerID, const string& borderStr);
 
-			void CalculatePhysicsServerBorders();
-			void SetPhysicsServerBorderStrMap();
-			bool CheckIsGameStartable();
+			void StartGameServers(int gameInstanceID);
+
+			bool CheckIsGameStartable(int gameInstanceID);
+
+			std::vector<DistributedPhysicsServerData*>& GetPhysicsServerDataList(int gameInstanceID) const;
 
 			GameBorder& CalculateServerBorders(int serverNum);
 		};

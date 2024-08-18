@@ -8,6 +8,10 @@
 #include "NetworkedGame.h"
 
 
+namespace NCL::CSC8503 {
+	struct DistributedClientGetGameInstanceDataPacket;
+}
+
 namespace NCL::CSC8503
 {
 	struct DistributedClientConnectToPhysicsServerPacket;
@@ -60,10 +64,11 @@ namespace NCL{
 
             bool StartAsServer(const std::string& playerName);
             bool StartAsClient(char a, char b, char c, char d, const std::string& playerName);
+            bool StartAsClient(char a, char b, char c, char d, const std::string& playerName, const std::string& gameInstanceID);
 	
             void UpdateGame(float dt) override;
 
-            void SetIsGameStarted(bool isGameStarted, unsigned int seed = -1);
+            void SetIsGameStarted(bool isGameStarted, int gameInstanceID, unsigned int seed = -1);
             void SetIsGameFinished(bool isGameFinished, int winningPlayerId);
             void StartLevel(const std::mt19937& levelSeed);
 
@@ -90,6 +95,8 @@ namespace NCL{
 
             void SendPacketsThread();
 
+            void SendGameClientConnectedToDistributedManagerPacket(int gameInstanceID);
+
             GameClient* GetClient() const;
             GameServer* GetServer() const;
             NetworkPlayer* GetLocalPlayer() const;
@@ -101,6 +108,7 @@ namespace NCL{
 
             int mWinningPlayerId;
             int mLocalPlayerId;
+            int mGameInstanceID = -1;
 
             int prevServerOfObj = -1; // TEST VAR
 
@@ -160,6 +168,7 @@ namespace NCL{
 
             //Distributed System functions
         	void HandleOnConnectToDistributedPhysicsServerPacketReceived(DistributedClientConnectToPhysicsServerPacket* packet);
+            void HandleOnDistributedGameClientGameInstanceDataPacketReceived(DistributedClientGetGameInstanceDataPacket* packet);
             bool ConnectClientToDistributedGameServer(char a, char b, char c, char d, int port, int gameServerID, const std::string& playerName);
         	std::vector<char> IpToCharArray(const std::string& ipAddress);
 

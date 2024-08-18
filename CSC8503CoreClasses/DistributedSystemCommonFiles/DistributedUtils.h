@@ -6,7 +6,8 @@ namespace NCL {
 
 	class DistributedUtils {
 	public:
-		 static NCL::DistributedPhysicsServerData* CreatePhysicsServerData(const std::string& ipAddress, int serverId);
+		 static NCL::DistributedPhysicsServerData* CreatePhysicsServerData(const std::string& ipAddress, int serverId, int gameInstanceID);
+		 static std::vector<char> ConvertIpStrToCharArr(std::string ipAddress);
 	protected:
 	};
 }

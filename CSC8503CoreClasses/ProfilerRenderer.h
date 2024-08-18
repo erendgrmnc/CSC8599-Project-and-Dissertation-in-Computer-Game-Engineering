@@ -27,7 +27,7 @@ namespace NCL {
 		void RenderMemoryUsage();
 		void RenderDistributedGameServerAttributes();
 		void RenderDistributedClientAttributes();
-		void RenderPhysicsServerAttributes();
+		void RenderPhysicsServerMidwareAttributes();
 	};
 
 }

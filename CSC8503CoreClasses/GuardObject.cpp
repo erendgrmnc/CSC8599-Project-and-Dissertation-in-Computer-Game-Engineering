@@ -512,6 +512,7 @@ BehaviourAction* GuardObject::PointAtPlayer() {
 				this->GetPhysicsObject()->SetLinearVelocity(Vector3(0, 0, 0));
 				if (mPointTimer <= 0) {
 #ifdef USEGL
+
 					if (!SceneManager::GetSceneManager()->IsInSingleplayer()) {
 						MultiplayerGameScene* game = reinterpret_cast<MultiplayerGameScene*>(SceneManager::GetSceneManager()->GetCurrentScene());
 						if (mPlayer) {
@@ -520,9 +521,12 @@ BehaviourAction* GuardObject::PointAtPlayer() {
 					}
 					else {
 						if (mPlayer) {
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 							mPlayer->GetSoundObject()->TriggerSoundEvent();
+#endif
 						}
 					}
+
 #endif
 					mPointTimer = POINTING_TIMER;
 					return Failure;

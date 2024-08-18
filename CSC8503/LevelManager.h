@@ -21,7 +21,7 @@ using namespace SuspicionSystem;
 
 namespace NCL {
 	constexpr float PLAYER_MESH_SIZE = 3.0f;
-	constexpr float PLAYER_INVERSE_MASS = 0.5f; 
+	constexpr float PLAYER_INVERSE_MASS = 0.5f;
 	constexpr float TIME_UNTIL_FIXED_UPDATE = 0.25f;
 	constexpr float INIT_TIMER_VALUE = 1000;
 	namespace CSC8503 {
@@ -71,7 +71,7 @@ namespace NCL {
 			Level* GetActiveLevel() const { return mLevelList[mActiveLevel]; }
 
 			Vector3 GetPlayerStartPosition(int player) const { return (*mLevelList[mActiveLevel]).GetPlayerStartTransform(player).GetPosition(); }
-			void LoadLevel(int levelID, std::mt19937 seed, int playerID,  bool isMultiplayer = false);
+			void LoadLevel(int levelID, std::mt19937 seed, int playerID, bool isMultiplayer = false);
 			PlayerObject* GetTempPlayer() { return mTempPlayer; }
 
 			void SetTempPlayer(PlayerObject* playerObject) { mTempPlayer = playerObject; }
@@ -91,8 +91,11 @@ namespace NCL {
 
 			UISystem* GetUiSystem() { return mUi; };
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 			SoundManager* GetSoundManager() { return mSoundManager; };
 #endif
+#endif
+
 			AnimationSystem* GetAnimationSystem() { return mAnimation; }
 
 			virtual void UpdateInventoryObserver(InventoryEvent invEvent, int playerNo, int invSlot, bool isItemRemoved = false) override;
@@ -125,7 +128,7 @@ namespace NCL {
 
 			FlagGameObject* GetMainFlag();
 
-			Helipad* GetHelipad(); 
+			Helipad* GetHelipad();
 
 			Texture* GetTexture(std::string name) { return mTextures[name]; }
 
@@ -171,7 +174,7 @@ namespace NCL {
 
 			void InitialiseIcons();
 
-            void InitialiseMiniMap();
+			void InitialiseMiniMap();
 
 			void LoadMap(const std::unordered_map<Transform, TileType>& tileMap, const Vector3& startPosition, int rotation = 0);
 
@@ -188,7 +191,7 @@ namespace NCL {
 			void LoadCCTVList(const std::vector<Transform>& transforms, const Vector3& startPosition, int rotation = 0);
 
 			void LoadDecorations(const std::unordered_map<DecorationType, std::vector<Transform>>& decorationMap, const Vector3& startPosition, int rotation = 0);
-			
+
 			void LoadCCTVs(std::mt19937 seed, const bool isMultiplayerLevel = false);
 
 			void LoadDoorsInNavGrid();
@@ -213,12 +216,12 @@ namespace NCL {
 			InteractableDoor* AddDoorToWorld(const Transform& transform, const Vector3& offset, bool isMultiplayerLevel = false);
 			PrisonDoor* AddPrisonDoorToWorld(PrisonDoor* door, bool isMultiplayerLevel);
 
-			FlagGameObject* AddFlagToWorld(const Vector3& position, InventoryBuffSystemClass* inventoryBuffSystemClassPtr, SuspicionSystemClass* suspicionSystemClassPtr, 
-				std::mt19937 seed,bool isMultiplayerLevel);
+			FlagGameObject* AddFlagToWorld(const Vector3& position, InventoryBuffSystemClass* inventoryBuffSystemClassPtr, SuspicionSystemClass* suspicionSystemClassPtr,
+				std::mt19937 seed, bool isMultiplayerLevel);
 
 			PickupGameObject* AddPickupToWorld(const Vector3& position, InventoryBuffSystemClass* inventoryBuffSystemClassPtr, const bool& isMultiplayer);
 
-		
+
 
 			PlayerObject* AddPlayerToWorld(const Transform& transform, const std::string& playerName);
 
@@ -250,8 +253,12 @@ namespace NCL {
 			PhysicsSystem* mPhysics;
 
 			AnimationSystem* mAnimation;
-
+#ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 			SoundManager* mSoundManager;
+#endif
+#endif
+
 
 			vector<GameObject*> mUpdatableObjects;
 
@@ -266,7 +273,7 @@ namespace NCL {
 
 			UISystem* mUi;
 #ifdef USEGL
-            MiniMap* mMiniMap;
+			MiniMap* mMiniMap;
 #endif
 			FlagGameObject* mMainFlag;
 

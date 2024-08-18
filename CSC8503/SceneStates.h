@@ -48,6 +48,7 @@ namespace NCL {
             bool mIsClientConnected;
             int ipToConnect[4];
             std::string mPlayerName;
+            std::string mGameInstanceID;
         };
 
         class MultiplayerLobbyState : public PushdownState {

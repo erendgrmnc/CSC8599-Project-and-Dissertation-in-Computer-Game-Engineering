@@ -107,7 +107,9 @@ const void CCTV::OnPlayerSeen(PlayerObject* mPlayerObject){
 		LevelManager::GetLevelManager()->GetSuspicionSystem()->GetLocalSuspicionMetre()->AddActiveLocalSusCause(LocalSuspicionMetre::cameraLOS, mPlayerObject->GetPlayerID());
 	hadSeenPlayer[playerID] = true;
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	this->GetSoundObject()->TriggerSoundEvent();
+#endif
 #endif
 }
 
@@ -124,7 +126,9 @@ const void CCTV::OnPlayerNotSeen(PlayerObject* mPlayerObject){
 		
 	hadSeenPlayer[playerID] = false;
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 	this->GetSoundObject()->SetNotTriggered();
+#endif
 #endif
 
 }

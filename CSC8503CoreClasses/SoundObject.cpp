@@ -1,4 +1,6 @@
 #ifdef USEGL
+#ifndef DISTRIBUTEDSYSTEMACTIVE
+
 
 #include "SoundObject.h"
 
@@ -56,7 +58,7 @@ void SoundObject::Clear() {
 	mIsLocked = false;
 }
 
-bool SoundObject::GetisTiggered(){
+bool SoundObject::GetisTiggered() {
 	return mIsTriggered;
 }
 
@@ -67,4 +69,5 @@ bool SoundObject::GetIsClosed() {
 bool SoundObject::GetIsLocked() {
 	return mIsLocked;
 }
+#endif
 #endif

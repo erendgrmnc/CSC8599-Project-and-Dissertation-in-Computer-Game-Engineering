@@ -31,7 +31,7 @@ namespace {
 
 	constexpr bool DEBUG_MODE = false;
 }
-
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 NetworkPlayer::NetworkPlayer(NetworkedGame* game, int num) : 
 	PlayerObject(game->GetLevelManager()->GetGameWorld(), LevelManager::GetLevelManager()->GetInventoryBuffSystem(),
 	LevelManager::GetLevelManager()->GetSuspicionSystem(),new UISystem(), new SoundObject(LevelManager::GetLevelManager()->GetSoundManager()->AddWalkSound()), "") {
@@ -47,6 +47,24 @@ NetworkPlayer::NetworkPlayer(MultiplayerGameScene* game, int num, const std::str
 	this->SetName(objName);
 
 }
+#else
+NetworkPlayer::NetworkPlayer(NetworkedGame* game, int num) :
+	PlayerObject(game->GetLevelManager()->GetGameWorld(), LevelManager::GetLevelManager()->GetInventoryBuffSystem(),
+		LevelManager::GetLevelManager()->GetSuspicionSystem(), new UISystem(), "") {
+	//this->game = game;
+	mPlayerID = num;
+}
+
+NetworkPlayer::NetworkPlayer(MultiplayerGameScene* game, int num, const std::string& objName) : PlayerObject(game->GetLevelManager()->GetGameWorld(),
+	LevelManager::GetLevelManager()->GetInventoryBuffSystem(), LevelManager::GetLevelManager()->GetSuspicionSystem(),
+	LevelManager::GetLevelManager()->GetUiSystem(), "") {
+	this->game = game;
+	mPlayerID = num;
+	this->SetName(objName);
+
+}
+#endif
+
 
 NetworkPlayer::~NetworkPlayer() {
 }

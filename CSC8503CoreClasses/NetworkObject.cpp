@@ -23,11 +23,12 @@ void SyncPlayerListPacket::SyncPlayerList(std::vector<int>& clientPlayerList) co
 	}
 }
 
-GameStartStatePacket::GameStartStatePacket(bool val, const std::string& seed) {
+GameStartStatePacket::GameStartStatePacket(bool val, int gameInstanceId, const std::string& seed) {
 	type = BasicNetworkMessages::GameStartState;
 	size = sizeof(GameStartStatePacket);
 
 	isGameStarted = val;
+	this->gameInstanceId = gameInstanceId;
 	this->levelSeed = seed;
 }
 
@@ -230,18 +231,39 @@ GuardSpotSoundPacket::GuardSpotSoundPacket(const int playerId) {
 	this->playerId = playerId;
 }
 
-DistributedClientConnectedToSystemPacket::DistributedClientConnectedToSystemPacket(DistributedSystemClientType clientType) {
+DistributedClientConnectedToSystemPacket::DistributedClientConnectedToSystemPacket(
+	int gameInstanceID, DistributedSystemClientType clientType) {
 	type = BasicNetworkMessages::DistributedClientConnectedToManager;
 	size = sizeof(DistributedClientConnectedToSystemPacket);
+
+	this->gameInstanceID = gameInstanceID;
 	this->distributedClientType = clientType;
 }
 
-DistributedPhysicsClientConnectedToManagerPacket::DistributedPhysicsClientConnectedToManagerPacket(int port, int physicsServerID) {
+DistributedClientGetGameInstanceDataPacket::DistributedClientGetGameInstanceDataPacket(bool isGameInstanceFound, int gameInstanceID,
+	int playerNumber) {
+	type = BasicNetworkMessages::DistributedClientGetGameInstanceData;
+	size = sizeof(DistributedClientGetGameInstanceDataPacket);
+
+	this->isGameInstanceFound = isGameInstanceFound;
+	this->gameInstanceID = gameInstanceID;
+	this->playerNumber = playerNumber;
+}
+
+DistributedClientGetGameInstanceDataPacket::DistributedClientGetGameInstanceDataPacket(): isGameInstanceFound(false),
+	gameInstanceID(-1),
+	playerNumber(-1) {
+	type = BasicNetworkMessages::DistributedClientGetGameInstanceData;
+	size = sizeof(DistributedClientGetGameInstanceDataPacket);
+}
+
+DistributedPhysicsClientConnectedToManagerPacket::DistributedPhysicsClientConnectedToManagerPacket(int port, int physicsServerID, int gameInstanceID) {
 	type = BasicNetworkMessages::DistributedPhysicsClientConnectedToManager;
 	size = sizeof(DistributedPhysicsClientConnectedToManagerPacket);
 
 	this->phyiscsPacketDistributerPort = port;
 	this->physicsServerID = physicsServerID;
+	this->gameInstanceID = gameInstanceID;
 }
 
 DistributedClientConnectToPhysicsServerPacket::DistributedClientConnectToPhysicsServerPacket(int port, int physicsServerID, const std::string& ipAddress) {
@@ -253,12 +275,12 @@ DistributedClientConnectToPhysicsServerPacket::DistributedClientConnectToPhysics
 	this->ipAddress = ipAddress;
 }
 
-DistributedPhysicsServerAllClientsAreConnectedPacket::DistributedPhysicsServerAllClientsAreConnectedPacket(int gameServerId, bool isGameServerReady) {
+DistributedPhysicsServerAllClientsAreConnectedPacket::DistributedPhysicsServerAllClientsAreConnectedPacket(int gameInstanceID, int gameServerID, bool isGameServerReady) {
 	type = BasicNetworkMessages::DistributedPhysicsServerAllClientsAreConnected;
 	size = sizeof(DistributedPhysicsServerAllClientsAreConnectedPacket);
 
 	this->isGameServerReady = isGameServerReady;
-	this->gameServerId = gameServerId;
+	this->gameServerID = gameServerID;
 }
 
 DistributedClientsGameServersAreReadyPacket::DistributedClientsGameServersAreReadyPacket() {
@@ -266,11 +288,12 @@ DistributedClientsGameServersAreReadyPacket::DistributedClientsGameServersAreRea
 	size = sizeof(DistributedClientsGameServersAreReadyPacket);
 }
 
-StartDistributedGameServerPacket::StartDistributedGameServerPacket(int serverManagerPort, int maxClientCount, std::vector<int> serverPorts, std::vector<std::string> serverIps, const std::map<int, const std::string>& serverBorderMap) {
+StartDistributedGameServerPacket::StartDistributedGameServerPacket(int serverManagerPort, int gameInstanceID, int maxClientCount, std::vector<int> serverPorts, std::vector<std::string> serverIps, const std::map<int, const std::string>& serverBorderMap) {
 	type = BasicNetworkMessages::StartDistributedPhysicsServer;
 	size = sizeof(StartDistributedGameServerPacket);
 
 	this->serverManagerPort = serverManagerPort;
+	this->gameInstanceID = gameInstanceID;
 
 	this->totalServerCount = serverBorderMap.size();
 	this->currentServerCount = serverIps.size();
@@ -323,10 +346,20 @@ StartSimulatingObjectPacket::StartSimulatingObjectPacket(int objectID, int newSe
 
 StartSimulatingObjectReceivedPacket::StartSimulatingObjectReceivedPacket(int objectID, int newOwnerServerID) {
 	type = BasicNetworkMessages::StartSimulatingObjectInServerReceived;
-	size = sizeof(StartSimulatingObjectInServerReceived);
+	size = sizeof(StartSimulatingObjectReceivedPacket);
 
 	this->objectID = objectID;
 	this->newOwnerServerID = newOwnerServerID;
+}
+
+RunDistributedPhysicsServerInstancePacket::RunDistributedPhysicsServerInstancePacket(int serverID,
+	int gameInstanceID, const std::string& borderData) {
+	type = BasicNetworkMessages::RunDistributedPhysicsServerInstance;
+	size = sizeof(RunDistributedPhysicsServerInstancePacket);
+
+	this->borderStr = borderData.c_str();
+	this->serverID = serverID;
+	this->gameInstanceID = gameInstanceID;
 }
 
 NetworkObject::NetworkObject(GameObject& o, int id) : object(o) {

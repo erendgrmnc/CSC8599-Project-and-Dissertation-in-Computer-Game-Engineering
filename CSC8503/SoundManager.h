@@ -1,5 +1,6 @@
 #pragma once
 #include "Vector3.h"
+#ifndef DISTRIBUTEDSYSTEMACTIVE
 #include "../CSC8503CoreClasses/SoundObject.h"
 #include "../CSC8503CoreClasses/GameObject.h"
 #include "../CSC8503CoreClasses/GameWorld.h"
@@ -64,3 +65,5 @@ namespace NCL{
 		};
 	}
 }
+
+#endif

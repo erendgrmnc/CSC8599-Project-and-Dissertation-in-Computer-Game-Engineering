@@ -8,20 +8,17 @@
 #include "NetworkObject.h"
 #include "../CSC8503CoreClasses/DistributedSystemCommonFiles/DistributedPhysicsServerDto.h"
 #include "ServerWorldManager.h"
+#include "DistributedSystemCommonFiles/DistributedUtils.h"
 
 namespace {
-	constexpr int GAME_AREA_MIN_X = -150;
-	constexpr int GAME_AREA_MAX_X = 150;
-
-	constexpr int GAME_AREA_MIN_Z = -150;
-	constexpr int GAME_AREA_MAX_Z = 150;
+	int GAME_INSTANCE_ID_BUFFER = 0;
+	int PHYSICS_SERVER_ID_BUFFER = 0;
 }
 
 NCL::DistributedManager::SystemManager::SystemManager(int maxPhysicsServerCount, int maxClientCount) {
 	mDistributedPhysicsManagerServer = nullptr;
 	mMaxPhysicsServerCount = maxPhysicsServerCount;
 	mMaxClientCount = maxClientCount;
-	CalculatePhysicsServerBorders();
 	NetworkBase::Initialise();
 }
 
@@ -46,15 +43,16 @@ void NCL::DistributedManager::SystemManager::RegisterPacketHandlers() {
 }
 
 void NCL::DistributedManager::SystemManager::ReceivePacket(int type, GamePacket* payload, int source) {
+	std::cout << "Packet Received, Type: " << type << "\n";
 	switch (type) {
 	case DistributedClientConnectedToManager: {
-		auto* distributedClientConnectPacket = (NCL::CSC8503::DistributedClientConnectedToSystemPacket*)payload;
-		HandleDistributedClientConnectedPacketReceived(distributedClientConnectPacket);
+		auto* distributedClientConnectPacket = static_cast<NCL::CSC8503::DistributedClientConnectedToSystemPacket*>(payload);
+		HandleDistributedClientConnectedPacketReceived(source, distributedClientConnectPacket);
 		break;
 	}
 	case DistributedPhysicsClientConnectedToManager: {
 		auto* distributedPhysicsClientConnectedToManagerPacket = (NCL::CSC8503::DistributedPhysicsClientConnectedToManagerPacket*)payload;
-		HandleDistributedPhysicsClientConnectedPacketReceived(distributedPhysicsClientConnectedToManagerPacket);
+		HandleDistributedPhysicsClientConnectedPacketReceived(source + 1, distributedPhysicsClientConnectedToManagerPacket);
 		break;
 	}
 	case DistributedPhysicsServerAllClientsAreConnected: {
@@ -68,9 +66,9 @@ void NCL::DistributedManager::SystemManager::ReceivePacket(int type, GamePacket*
 	}
 }
 
-void NCL::DistributedManager::SystemManager::SendStartGameStatusPacket() {
+void NCL::DistributedManager::SystemManager::SendStartGameStatusPacket(int gameInstanceID) {
 	mIsGameStarted = true;
-	GameStartStatePacket state(mIsGameStarted, "");
+	GameStartStatePacket state(mIsGameStarted, gameInstanceID, "");
 	mDistributedPhysicsManagerServer->SendGlobalPacket(state);
 }
 
@@ -80,34 +78,62 @@ SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int serve
 	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
 }
 
-void DistributedManager::SystemManager::SendStartDataToPhysicsServer(int physicsServerID) const {
+void DistributedManager::SystemManager::SendStartDataToPhysicsServer(int gameInstanceID, int physicsServerID) const {
 	std::vector<int> serverPorts;
 	std::vector<std::string> serverIps;
 
-	for (const auto& createdServer : mDistributedPhysicsServers) {
-		serverIps.push_back(createdServer->ipAddress);
-		serverPorts.push_back(createdServer->dataSenderPort);
-	}
+	auto* gameInstance = mDistributedPhysicsManagerServer->GetGameInstance(gameInstanceID);
 
-	StartDistributedGameServerPacket packet(1234, mMaxClientCount,serverPorts, serverIps, mPhysicsServerBorderStrMap);
+	for (const auto& createdServer : mDistributedPhysicsServers) {
+		serverIps.push_back(createdServer->GetServerIPAddress());
+		serverPorts.push_back(createdServer->GetDataSenderPort());
+	}
+	auto& physicsServersBorderStrMap = gameInstance->GetServerBorderStrMap();
+	StartDistributedGameServerPacket packet(1234, gameInstanceID, mMaxClientCount, serverPorts, serverIps, physicsServersBorderStrMap);
 	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
 }
 
-void NCL::DistributedManager::SystemManager::HandleDistributedClientConnectedPacketReceived(NCL::CSC8503::DistributedClientConnectedToSystemPacket* packet) {
-	//TODO(erendgrmcn): Implement logic to register connected Game Client.
+void NCL::DistributedManager::SystemManager::HandleDistributedClientConnectedPacketReceived(int peerID, NCL::CSC8503::DistributedClientConnectedToSystemPacket* packet) {
+	switch (packet->distributedClientType) {
+	case DistributedSystemClientType::DistributedGameClient: {
+		DistributedClientGetGameInstanceDataPacket dataPacket;
+		dataPacket.peerID = peerID;
+		GameInstance* gameInstance = mDistributedPhysicsManagerServer->GetGameInstance(packet->gameInstanceID);
+		if (gameInstance == nullptr) {
+			dataPacket.isGameInstanceFound = false;
+		}
+		else {
+			dataPacket.gameInstanceID = gameInstance->GetGameID();
+			dataPacket.playerNumber = gameInstance->AddPlayer(peerID);
+			dataPacket.isGameInstanceFound = true;
+
+			mDistributedPhysicsManagerServer->SendGlobalReliablePacket(dataPacket);
+
+			if (gameInstance->IsServersReadyToStart()) {
+				StartGameServers(gameInstance->GetGameID());
+			}
+		}
+	}
+	}
 }
 
-void DistributedManager::SystemManager::HandleDistributedPhysicsClientConnectedPacketReceived(
-	NCL::CSC8503::DistributedPhysicsClientConnectedToManagerPacket* packet) const {
-	std::cout << "Distributed Physics Server Info Packet Sent! Ip: 127.0.0.1 | port: " << packet->phyiscsPacketDistributerPort << std::endl;
+void DistributedManager::SystemManager::HandleDistributedPhysicsClientConnectedPacketReceived(int peerNumber,
+	NCL::CSC8503::DistributedPhysicsClientConnectedToManagerPacket* packet) {
+
+	const std::string& ipAddress = mDistributedPhysicsManagerServer->GetPeerIpAddressStr(peerNumber);
+	auto* serverData = DistributedUtils::CreatePhysicsServerData(ipAddress, packet->physicsServerID, packet->gameInstanceID);
+	AddServerData(*serverData);
+
+	std::string serverIpAddress = mDistributedPhysicsManagerServer->GetIPAddress();
+	std::cout << "Distributed Physics Server Info Packet Sent! IP: " << serverIpAddress << "| port: " << packet->phyiscsPacketDistributerPort << std::endl;
 	int portForClientsToConnect = packet->phyiscsPacketDistributerPort;
-	mDistributedPhysicsServers.at(packet->physicsServerID)->dataSenderPort = portForClientsToConnect;
+	serverData->SetDataSenderPort(portForClientsToConnect);
 
 
 	std::cout << "Sending physics server data packet to server: " << packet->physicsServerID << "\n";
-	SendStartDataToPhysicsServer(packet->physicsServerID);
+	SendStartDataToPhysicsServer(packet->gameInstanceID, packet->physicsServerID);
 
-	SendDistributedPhysicsServerInfoToClients("127.0.0.1", packet->physicsServerID, portForClientsToConnect);
+	SendDistributedPhysicsServerInfoToClients(serverData->GetServerIPAddress(), packet->physicsServerID, portForClientsToConnect);
 }
 
 void DistributedManager::SystemManager::HandleDistributedPhysicsServerAllClientsAreConnectedPacketReceived(
@@ -120,112 +146,72 @@ void DistributedManager::SystemManager::HandleAllClientsConnectedToPhysicsServer
 	NCL::CSC8503::DistributedPhysicsServerAllClientsAreConnectedPacket* packet) {
 	if (packet->isGameServerReady) {
 		for (const auto& server : mDistributedPhysicsServers) {
-			if (server->serverId == packet->gameServerId) {
-				server->isAllClientsConnectedToServer = true;
+			if (server->GetServerID() == packet->gameServerID) {
+				server->SetIsAllClientsConnectedToServer(true);
 				break;
 			}
 		}
 
-		if (CheckIsGameStartable()) {
+		if (CheckIsGameStartable(packet->gameInstanceID)) {
 			std::cout << "Starting Game!\n";
-				SendStartGameStatusPacket();
+			SendStartGameStatusPacket(packet->gameInstanceID);
 		}
 	}
 
 }
 
-void DistributedManager::SystemManager::CalculatePhysicsServerBorders() {
-	for (int i = 0; i < mMaxPhysicsServerCount; i++) {
-		GameBorder& border = CalculateServerBorders(i);
-		std::pair<int, GameBorder*> pair = std::make_pair(i, &border);
-		AddServerBorderDataToMap(pair);
-	}
-	SetPhysicsServerBorderStrMap();
+void DistributedManager::SystemManager::SendRunServerInstancePacket(int gameInstance, int physicsServerID, const std::string& borderStr) {
+	RunDistributedPhysicsServerInstancePacket packet(physicsServerID, gameInstance, borderStr);
+	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
 }
 
-void DistributedManager::SystemManager::SetPhysicsServerBorderStrMap() {
-	std::cout << "-------------- SERVER BORDERS ---------------\n";
-	for (const auto& pair : mPhysicsServerBorderMap) {
-		const std::string& borderStr = GetServerAreaString(pair.first);
-		std::pair<int, const std::string> strPair = std::make_pair(pair.first, borderStr);
-		std::cout << "Server(" << pair.first << "): " << pair.second->minX << "," << pair.second->maxX << "|" << pair.second->minZ << ", " << pair.second->maxZ << "\n";
-		mPhysicsServerBorderStrMap.insert(strPair);
+void DistributedManager::SystemManager::StartGameServers(int gameInstanceID) {
+	auto* gameInstance = mDistributedPhysicsManagerServer->GetGameInstance(gameInstanceID);
+	int maxServer = gameInstance->GetServerCount();
+
+	for (int i = PHYSICS_SERVER_ID_BUFFER; i < PHYSICS_SERVER_ID_BUFFER + maxServer; i++) {
+
+		std::cout << "Creating server(" << i << ") for game instance: " << gameInstance->GetGameID() << "\n";
+		const std::string& serverBorderStr = gameInstance->GetServerBorderStrMap()[i];
+		SendRunServerInstancePacket(gameInstance->GetGameID(), i, serverBorderStr);
 	}
+	PHYSICS_SERVER_ID_BUFFER += maxServer;
 }
 
-bool DistributedManager::SystemManager::CheckIsGameStartable() {
-	if (mDistributedPhysicsServers.size() != mMaxPhysicsServerCount) {
-		return false;
-	}
-
-	for (const auto& server : mDistributedPhysicsServers) {
-		if (!server->isServerStarted || !server->isAllClientsConnectedToServer)
+bool DistributedManager::SystemManager::CheckIsGameStartable(int gameInstanceID) {
+	auto& serverList = GetPhysicsServerDataList(gameInstanceID);
+	for (const auto& server : serverList) {
+		if (!server->GetIsServerStarted() || !server->GetIsAllClientsConnectedToServer())
 			return false;
 	}
 
 	return true;
 }
 
-NCL::GameBorder& DistributedManager::SystemManager::CalculateServerBorders(int serverNum) {
-	if (serverNum < 0 || serverNum > mMaxPhysicsServerCount) {
-		throw std::out_of_range("Server number out of range");
-	}
+std::vector<DistributedPhysicsServerData*>& DistributedManager::SystemManager::GetPhysicsServerDataList(
+	int gameInstanceID) const {
 
-	GameBorder* border = new GameBorder(0.f, 0.f, 0.f, 0.f);
+	std::vector< DistributedPhysicsServerData*> dataList;
 
-	// Calculate the number of columns and rows based on the number of servers
-	int numCols, numRows;
-	if (mMaxPhysicsServerCount == 3) {
-		// Special case for 3 servers
-		numCols = 2;  // 2 columns
-		numRows = 2;  // 2 rows, but we only use 1 row in the bottom row
-	}
-	else {
-		double sqrt = std::sqrt(mMaxPhysicsServerCount);
-		numCols = static_cast<int>(std::ceil(sqrt));
-		numRows = static_cast<int>(std::ceil(static_cast<double>(mMaxPhysicsServerCount) / numCols));
-	}
-
-	// Calculate the width and height of each region
-	int rectWidth = (GAME_AREA_MAX_X - GAME_AREA_MIN_X) / numCols;
-	int rectHeight = (GAME_AREA_MAX_Z - GAME_AREA_MIN_Z) / numRows;
-
-	// Determine which row and column this server is responsible for
-	int row = serverNum / numCols;
-	int col = serverNum % numCols;
-
-	// Set the borders
-	border->minX = GAME_AREA_MIN_X + col * rectWidth;
-	border->minZ = GAME_AREA_MIN_Z + row * rectHeight;
-	border->maxX = (col == numCols - 1) ? GAME_AREA_MAX_X : (border->minX + rectWidth);
-	border->maxZ = (row == numRows - 1) ? GAME_AREA_MAX_Z : (border->minZ + rectHeight);
-
-	// Adjustments for the special 3-server layout
-	if (mMaxPhysicsServerCount == 3) {
-		if (serverNum == 2) {
-			// The bottom row server spans the full width
-			border->minX = GAME_AREA_MIN_X;
-			border->maxX = GAME_AREA_MAX_X;
+	for (const auto& serverData : mDistributedPhysicsServers) {
+		if (serverData->GetGameInstanceID() == gameInstanceID) {
+			dataList.push_back(serverData);
 		}
 	}
 
-	return *border;
+	return dataList;
 }
 
-std::string DistributedManager::SystemManager::GetServerAreaString(int serverID) {
-	std::stringstream ss;
-	GameBorder* borders = mPhysicsServerBorderMap[serverID];
-	ss << borders->minX << "/" << borders->maxX << "|" << borders->minZ << "/" << borders->maxZ;
-	return ss.str();
+
+NCL::GameInstance* DistributedManager::SystemManager::CreateNewGameInstance(int maxServer, int clientCount) {
+	GameInstance* newGame = new GameInstance(++GAME_INSTANCE_ID_BUFFER, maxServer, PHYSICS_SERVER_ID_BUFFER, clientCount);
+	mDistributedPhysicsManagerServer->AddGameInstance(newGame);
+
+	return newGame;
 }
 
 void DistributedManager::SystemManager::AddServerData(DistributedPhysicsServerData& data) {
 	mDistributedPhysicsServers.push_back(&data);
-}
-
-void DistributedManager::SystemManager::AddServerBorderDataToMap(
-	std::pair<int, GameBorder*>& pair) {
-	mPhysicsServerBorderMap.insert(pair);
 }
 
 NCL::Networking::DistributedPhysicsManagerServer* NCL::DistributedManager::SystemManager::GetServer() const {

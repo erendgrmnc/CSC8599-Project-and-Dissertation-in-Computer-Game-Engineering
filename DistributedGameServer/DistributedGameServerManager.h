@@ -36,7 +36,7 @@ namespace NCL {
 
 		class DistributedGameServerManager : public PacketReceiver {
 		public:
-			DistributedGameServerManager(int serverId, const std::string& serverBordersStr);
+			DistributedGameServerManager(int serverID, int gameInstanceID,  const std::string& serverBordersStr);
 			~DistributedGameServerManager();
 
 			NCL::Networking::DistributedPhysicsServerClient* GetDistributedPhysicsServer() const;
@@ -66,7 +66,8 @@ namespace NCL {
 			bool mIsGameStarted = false;
 			bool mIsPlayerObjectsCreated = false;
 
-			int mGameServerId;
+			int mGameServerID;
+			int mGameInstanceID;
 			int mServerSideLastFullID;
 			int mPacketsToSnapshot;
 

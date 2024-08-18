@@ -125,7 +125,7 @@ function(Create_PC_Distributed_Game_Server_Files)
     include_directories("../Detour")
     include_directories("../DebugUtils")
     include_directories("../DetourTileCache")
-    include_directories("../FMODCoreAPI/includes")
+
 
     target_link_libraries(${PROJECT_NAME} LINK_PUBLIC NCLCoreClasses)
     target_link_libraries(${PROJECT_NAME} LINK_PUBLIC CSC8503CoreClasses)
@@ -135,12 +135,5 @@ function(Create_PC_Distributed_Game_Server_Files)
     target_link_libraries(${PROJECT_NAME} LINK_PUBLIC Detour)
     target_link_libraries(${PROJECT_NAME} LINK_PUBLIC DebugUtils)
     target_link_libraries(${PROJECT_NAME} LINK_PUBLIC DetourTileCache)
-    target_link_libraries(${PROJECT_NAME} LINK_PUBLIC "../FMODCoreAPI/libs/fmod_vc")
-    target_link_libraries(${PROJECT_NAME} LINK_PUBLIC "../FMODCoreAPI/libs/fmodL_vc")
 
-    file(GLOB DLLS "../FMODCoreAPI/dlls/*.dll")
-
-    foreach(DLL ${DLLS})
-          add_custom_command(TARGET ${PROJECT_NAME} PRE_BUILD COMMAND ${CMAKE_COMMAND} -E copy ${DLL} $<TARGET_FILE_DIR:${PROJECT_NAME}>)
-    endforeach(DLL)
 endfunction()
