@@ -11,6 +11,7 @@ namespace {
 
 NCL::ServerMidwareManager::ServerMidwareManager() : mDistributedManagerClient(nullptr) {
 	distributedManagerPort = -1;
+	int mMidwareID = -1;
 	NetworkBase::Initialise();
 }
 
@@ -41,9 +42,20 @@ void NCL::ServerMidwareManager::ConnectToDistributedManager(std::string& ipAddre
 
 void NCL::ServerMidwareManager::ReceivePacket(int type, GamePacket* payload, int source) {
 	switch (type) {
+	case BasicNetworkMessages::PhysicsServerMiddlewareData: {
+		auto* packet = static_cast<PhysicsServerMiddlewareDataPacket*>(payload);
+		std::cout << "Received peer ID: " << packet->peerID << "| Midware peer ID: " << mDistributedManagerClient->GetPeerID() << "\n";
+		if (mDistributedManagerClient->GetPeerID() -1 == packet->peerID) {
+			HandleMidwareDataPacket(packet);
+		}
+		break;
+	}
 	case BasicNetworkMessages::RunDistributedPhysicsServerInstance: {
 		RunDistributedPhysicsServerInstancePacket* packet = static_cast<RunDistributedPhysicsServerInstancePacket*>(payload);
-		HandleRunInstancePacket(packet);
+		std::cout << "Midware ID from packet: " << packet->midwareID << " | Midware ID: " << mMidwareID<< "\n";
+		if (packet->midwareID == mMidwareID) {
+			HandleRunInstancePacket(packet);
+		}
 		break;
 	}
 	default:
@@ -60,6 +72,7 @@ void NCL::ServerMidwareManager::Update(float dt) {
 
 void NCL::ServerMidwareManager::RegisterDistributedManagerClientPackets() {
 	mDistributedManagerClient->RegisterPacketHandler(BasicNetworkMessages::RunDistributedPhysicsServerInstance, this);
+	mDistributedManagerClient->RegisterPacketHandler(BasicNetworkMessages::PhysicsServerMiddlewareData, this);
 }
 
 void NCL::ServerMidwareManager::HandleRunInstancePacket(RunDistributedPhysicsServerInstancePacket* packet) {
@@ -112,6 +125,11 @@ void ServerMidwareManager::ExecutePhysicsServerProgram(const std::string& progra
 		) {
 		std::cerr << "CreateProcess failed (" << GetLastError() << ")" << std::endl;
 	}
+}
+
+void ServerMidwareManager::HandleMidwareDataPacket(CSC8503::PhysicsServerMiddlewareDataPacket* packet) {
+	mMidwareID = packet->middlewareID;
+	std::cout << "Received middleware ID: " << mMidwareID << "\n";
 }
 
 void ServerMidwareManager::SendMidwareConnectedPacket(const std::string& ipAddress) {

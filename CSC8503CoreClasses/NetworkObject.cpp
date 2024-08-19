@@ -353,14 +353,14 @@ StartSimulatingObjectReceivedPacket::StartSimulatingObjectReceivedPacket(int obj
 }
 
 RunDistributedPhysicsServerInstancePacket::RunDistributedPhysicsServerInstancePacket(int serverID,
-	int gameInstanceID, const std::string& ipAddress, const std::string& borderData): ipAddress() {
+	int gameInstanceID, int midwareID, const std::string& borderData) {
 	type = BasicNetworkMessages::RunDistributedPhysicsServerInstance;
 	size = sizeof(RunDistributedPhysicsServerInstancePacket);
 
 	this->borderStr = borderData.c_str();
 	this->serverID = serverID;
 	this->gameInstanceID = gameInstanceID;
-	this->ipAddress = ipAddress.c_str();
+	this->midwareID = midwareID;
 }
 
 PhysicsServerMiddlewareConnectedPacket::PhysicsServerMiddlewareConnectedPacket(const std::string& ipAddress) {
@@ -368,6 +368,15 @@ PhysicsServerMiddlewareConnectedPacket::PhysicsServerMiddlewareConnectedPacket(c
 	size = sizeof(PhysicsServerMiddlewareConnectedPacket);
 
 	this->ipAddress = ipAddress.c_str();
+}
+
+PhysicsServerMiddlewareDataPacket::PhysicsServerMiddlewareDataPacket(int peerID, int middlewareID) {
+
+	type = BasicNetworkMessages::PhysicsServerMiddlewareData;
+	size = sizeof(PhysicsServerMiddlewareDataPacket);
+
+	this->peerID = peerID;
+	this->middlewareID = middlewareID;
 }
 
 NetworkObject::NetworkObject(GameObject& o, int id) : object(o) {

@@ -6,6 +6,8 @@
 #include <functional>
 #include <random>
 #include "NetworkedGame.h"
+#include <imgui/imgui.h>
+
 
 
 namespace NCL::CSC8503 {
@@ -112,6 +114,8 @@ namespace NCL{
 
             int prevServerOfObj = -1; // TEST VAR
 
+            ImFont* profilerFont = nullptr;
+
             void UpdateAsServer(float dt);
             void UpdateAsClient(float dt);
 
@@ -173,6 +177,8 @@ namespace NCL{
         	std::vector<char> IpToCharArray(const std::string& ipAddress);
 
         	void ShowPlayerList() const;
+
+            void DrawCanvas() override;
 
             std::vector<std::function<void()>> mOnGameStarts;
 

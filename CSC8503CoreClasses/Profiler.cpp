@@ -1,5 +1,6 @@
 #include "./Profiler.h"
 
+#include <corecrt_io.h>
 #include <Psapi.h>
 #include <imgui/imgui.h>
 
@@ -17,8 +18,12 @@ DWORDLONG Profiler::sTotalPhysMem = 0;
 DWORDLONG Profiler::sUsedPhysMem = 0;
 SIZE_T Profiler::sPhysMemUsedByProgram = 0;
 
+bool Profiler::sIsConnectedToGameManager = false;
+
 int Profiler::sTotalCreatedObjects = 0;
 int Profiler::sObjectsInBorders = 0;
+int Profiler::sCreatedPhysicsServerInstance = 0;
+int Profiler::sConnectedPhysicsServerCount = 0;
 
 float Profiler::sFramesPerSecond = 0.f;
 float Profiler::sTimePassedPerUpdate = 0.f;
@@ -29,6 +34,7 @@ float Profiler::sWorldTime = 0.f;
 float Profiler::sPhysicsPredictionTime = 0.f;
 float Profiler::sLastDeltaSnapshotTime = 0.f;
 float Profiler::sLastFullSnapshotTime = 0.f;
+
 
 
 NCL::Profiler::Profiler() {
@@ -80,6 +86,18 @@ int Profiler::GetTotalObjectsInServer() {
 
 void Profiler::SetTotalObjectsInServer(int objCount) {
 	sTotalCreatedObjects = objCount;
+}
+
+int Profiler::GetConnectedPhysicsServerCount() {
+	return sConnectedPhysicsServerCount;
+}
+
+void Profiler::SetConnectedServerCount(int serverCount) {
+	sConnectedPhysicsServerCount = serverCount;
+}
+
+void Profiler::SetCreatedPhysicsServerCount(int createdServerCount) {
+	sCreatedPhysicsServerInstance = createdServerCount;
 }
 
 int Profiler::GetObjectsOnBorders() {
@@ -156,6 +174,14 @@ float Profiler::GetLastFullSnapshotTime() {
 
 void Profiler::SetLastFullSnapshotTime(float time) {
 	sLastFullSnapshotTime = time;
+}
+
+bool Profiler::GetIsConnectedToGameManager() {
+	return sIsConnectedToGameManager;
+}
+
+void Profiler::SetIsConnectedToGameManager(bool isConnectedToGameManager) {
+	sIsConnectedToGameManager = isConnectedToGameManager;
 }
 
 void Profiler::SetNetworkTime(float networkTime) {

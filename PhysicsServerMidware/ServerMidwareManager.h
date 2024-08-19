@@ -1,6 +1,10 @@
 #pragma once
 #include "NetworkBase.h"
 
+namespace NCL::CSC8503 {
+	struct PhysicsServerMiddlewareDataPacket;
+}
+
 namespace NCL {
 	namespace CSC8503 {
 		struct RunDistributedPhysicsServerInstancePacket;
@@ -18,12 +22,14 @@ namespace NCL {
 	protected:
 		std::string serverManagerIpAddress;
 		int distributedManagerPort;
+		int mMidwareID;
 		CSC8503::GameClient* mDistributedManagerClient;
 
 		void RegisterDistributedManagerClientPackets();
 		void HandleRunInstancePacket(CSC8503::RunDistributedPhysicsServerInstancePacket* packet);
 		void StartPhysicsServerInstance(int distributedManagerPort, int physicsServerID, int gameInstanceID, std::string& borderStr);
 		void ExecutePhysicsServerProgram(const std::string& programPath, const std::string& arguments, int serverId);
+		void HandleMidwareDataPacket(CSC8503::PhysicsServerMiddlewareDataPacket* packet);
 
 		void SendMidwareConnectedPacket(const std::string& ipAddress);
 	};

@@ -18,8 +18,17 @@ namespace NCL {
 
 		static std::string GetMemoryUsageStr(DWORDLONG memCtr);
 
+		static bool GetIsConnectedToGameManager();
+		static void SetIsConnectedToGameManager(bool isConnectedToGameManager);
+
 		static int GetTotalObjectsInServer();
 		static void SetTotalObjectsInServer(int objCount);
+
+		static int GetConnectedPhysicsServerCount();
+		static void SetConnectedServerCount(int serverCount);
+
+		static int GetCreatedPhysicsServerCount();
+		static void SetCreatedPhysicsServerCount(int createdServerCount);
 
 		static int GetObjectsOnBorders();
 		static void SetObjectsInBorders(int objCount);
@@ -53,6 +62,8 @@ namespace NCL {
 
 	protected:
 
+		static bool sIsConnectedToGameManager;
+
 		static void CalculateMemoryUsage();
 		static void CalculateMemoryUsageByProgram();
 
@@ -66,6 +77,8 @@ namespace NCL {
 
 		static int sTotalCreatedObjects;
 		static int sObjectsInBorders;
+		static int sCreatedPhysicsServerInstance;
+		static int sConnectedPhysicsServerCount;
 
 		static float sTimePassedPerUpdate;
 		static float sRenderTime;

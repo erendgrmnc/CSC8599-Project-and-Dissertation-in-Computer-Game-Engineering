@@ -14,10 +14,11 @@ int StartMidware() {
 	std::string input;
 	std::cin >> input;
 
-	if (input != "e" ) {
+	if (input != "e") {
 		distributedManagerIpAddress = input;
 	}
 
+	std::cout << "Ip to connect: " << distributedManagerIpAddress << "\n";
 
 	std::cout << "Please enter distributed manager port: ";
 

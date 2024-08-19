@@ -48,18 +48,18 @@ namespace NCL {
 			std::vector<GameInstance*> mCreatedGameInstances;
 			std::vector<DistributedPhysicsServerData*> mDistributedPhysicsServers;
 
-			std::map<std::string, int> mPhysicsServerMiddlwareRunningInstanceMap;
+			std::map<int, int> mPhysicsServerMiddlwareRunningInstanceMap;
 
 			void SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int serverID, const int port) const;
 			void SendStartDataToPhysicsServer(int gameInstanceID, int physicsServerID) const;
-			void SendDistributedClientGameInstanceDataPacket();
+			void SendPhysicsServerMiddlewareDataPacket(int peerID, int midwareID);
 
 			void HandleDistributedClientConnectedPacketReceived(int peerID, NCL::CSC8503::DistributedClientConnectedToSystemPacket* packet);
 			void HandleDistributedPhysicsClientConnectedPacketReceived(int peerNumber, NCL::CSC8503::DistributedPhysicsClientConnectedToManagerPacket* packet);
 			void HandleDistributedPhysicsServerAllClientsAreConnectedPacketReceived(NCL::CSC8503::DistributedPhysicsServerAllClientsAreConnectedPacket* packet);
 			void HandleAllClientsConnectedToPhysicsServer(NCL::CSC8503::DistributedPhysicsServerAllClientsAreConnectedPacket* packet);
-			void HandlePhysicsServerMiddlewareConnected(PhysicsServerMiddlewareConnectedPacket* packet);
-			void SendRunServerInstancePacket(int gameInstance, int physicsServerID, std::string midwareIpAddress, const string& borderStr);
+			void HandlePhysicsServerMiddlewareConnected(int peerID, PhysicsServerMiddlewareConnectedPacket* packet);
+			void SendRunServerInstancePacket(int gameInstance, int physicsServerID, int midwareID, const string& borderStr);
 
 			void StartGameServers(int gameInstanceID);
 
@@ -67,7 +67,7 @@ namespace NCL {
 
 			std::vector<DistributedPhysicsServerData*>& GetPhysicsServerDataList(int gameInstanceID) const;
 
-			std::string GetAvailablePhysicsMidware(); 
+			int GetAvailablePhysicsMidware(); 
 
 			GameBorder& CalculateServerBorders(int serverNum);
 		};

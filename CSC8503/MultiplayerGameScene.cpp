@@ -1,4 +1,6 @@
-﻿#include "PhysicsObject.h"
+﻿#include <imgui/imgui.h>
+
+#include "PhysicsObject.h"
 #include "Profiler.h"
 #ifdef USEGL
 #include "MultiplayerGameScene.h"
@@ -38,6 +40,7 @@ namespace {
 }
 
 MultiplayerGameScene::MultiplayerGameScene() : mPlayerPeerNameMap() {
+
 	mThisServer = nullptr;
 	mThisClient = nullptr;
 
@@ -58,6 +61,7 @@ MultiplayerGameScene::MultiplayerGameScene() : mPlayerPeerNameMap() {
 	for (int i = 0; i < MAX_PLAYER; i++) {
 		mPlayerList.push_back(-1);
 	}
+	profilerFont = ImGui::GetIO().Fonts->AddFontFromFileTTF("fonts/BebasNeue-Regular.ttf", 13.f, NULL, ImGui::GetIO().Fonts->GetGlyphRangesDefault());
 }
 
 MultiplayerGameScene::~MultiplayerGameScene() {
@@ -977,6 +981,8 @@ bool MultiplayerGameScene::ConnectClientToDistributedGameServer(char a, char b, 
 	std::pair<int, GameClient*> connectedClient = std::make_pair(gameServerID, client);
 	mDistributedPhysicsClients.insert(connectedClient);
 
+	Profiler::SetConnectedServerCount(mDistributedPhysicsClients.size());
+
 	return isConnected;
 }
 
@@ -1017,6 +1023,52 @@ void MultiplayerGameScene::ShowPlayerList() const {
 			Debug::Print(ss.str(), position, textColour);
 			position.y += VERTICAL_MARGIN_BETWEEN_PLAYER_NAMES;
 		}
+	}
+}
+
+void MultiplayerGameScene::DrawCanvas() {
+	if (ImGui::CollapsingHeader("Distributed Client Attributes"))
+	{
+		ImGui::BeginTable("Client Attributes", 2);
+
+		ImGui::TableNextColumn();
+		ImGui::Text("FPS");
+		ImGui::TableNextColumn();
+		const std::string fpsStr = std::to_string(Profiler::GetFramesPerSecond());
+
+		ImGui::Text(fpsStr.c_str());
+
+		ImGui::TableNextColumn();
+
+		ImGui::Text("Network Time");
+		ImGui::TableNextColumn();
+		std::string objInServerStr = std::to_string(Profiler::GetNetworkTime()) + "ms";
+		ImGui::Text(objInServerStr.c_str());
+
+		ImGui::TableNextColumn();
+
+		ImGui::Text("Connected Distributed Game Servers");
+		ImGui::TableNextColumn();
+		std::string connectedServerCount = std::to_string(Profiler::GetConnectedPhysicsServerCount());
+		ImGui::Text(connectedServerCount.c_str());
+
+		ImGui::TableNextColumn();
+
+		ImGui::TableNextColumn();
+		ImGui::Text("Time passed per update");
+		ImGui::TableNextColumn();
+		std::string timePassedPerUpdateStr = std::to_string(Profiler::GetTimePassedPerUpdate()) + "ms";
+		ImGui::Text(timePassedPerUpdateStr.c_str());
+
+
+		ImGui::TableNextColumn();
+
+		ImGui::TableNextColumn();
+		ImGui::TableNextColumn();
+		ImGui::TableNextColumn();
+
+
+		ImGui::EndTable();
 	}
 }
 

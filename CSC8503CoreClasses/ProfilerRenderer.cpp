@@ -87,6 +87,7 @@ void ProfilerRenderer::RenderProfilerUI() {
 		break;
 	}
 	case ProfilerType::DistributedPhysicsServerManager: {
+		RenderDistributedGameServerManagerAttributes();
 		break;
 	}
 	case ProfilerType::DistributedPhysicsMidware: {
@@ -257,15 +258,49 @@ void ProfilerRenderer::RenderDistributedClientAttributes() {
 	}
 }
 
+void ProfilerRenderer::RenderDistributedGameServerManagerAttributes() {
+	if (ImGui::CollapsingHeader("Physics Server Manager Attributes"))
+	{
+		ImGui::BeginTable("Connection Attributes", 2);
+
+		ImGui::TableNextColumn();
+		ImGui::Text("Connected Physics Middlewares");
+		ImGui::TableNextColumn();
+		const std::string isConnectedToManagerStr = std::to_string(0);
+
+		ImGui::Text(isConnectedToManagerStr.c_str());
+
+		ImGui::TableNextColumn();
+		ImGui::Text("Connected Game Clients");
+		ImGui::TableNextColumn();
+		const std::string physicsServerInstanceCtr = std::to_string(0);
+
+		ImGui::Text(physicsServerInstanceCtr.c_str());
+
+
+		ImGui::TableNextColumn();
+		ImGui::Text("Started Game Instances");
+		ImGui::TableNextColumn();
+
+		ImGui::Text(physicsServerInstanceCtr.c_str());
+
+		ImGui::TableNextColumn();
+		ImGui::TableNextColumn();
+		ImGui::TableNextColumn();
+
+		ImGui::EndTable();
+	}
+}
+
 void ProfilerRenderer::RenderPhysicsServerMidwareAttributes() {
-	if (ImGui::CollapsingHeader("Physics Server Midware Attributes"))
+	if (ImGui::CollapsingHeader("Physics Server Middleware Attributes"))
 	{
 		ImGui::BeginTable("Connection Attributes", 2);
 
 		ImGui::TableNextColumn();
 		ImGui::Text("Is connected to manager");
 		ImGui::TableNextColumn();
-		const std::string isConnectedToManagerStr = std::to_string(0);
+		const std::string isConnectedToManagerStr = std::to_string(Profiler::GetIsConnectedToGameManager());
 
 		ImGui::Text(isConnectedToManagerStr.c_str());
 

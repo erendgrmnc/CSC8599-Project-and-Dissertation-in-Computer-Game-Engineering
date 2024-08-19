@@ -286,16 +286,23 @@ namespace NCL::CSC8503 {
 	struct RunDistributedPhysicsServerInstancePacket : public GamePacket {
 		std::string borderStr;
 		int serverID;
-		std::string ipAddress;
+		int midwareID;
 		int gameInstanceID;
 
-		RunDistributedPhysicsServerInstancePacket(int serverID, int gameInstanceID, const std::string& ipAddress, const std::string& borderStr);
+		RunDistributedPhysicsServerInstancePacket(int serverID, int gameInstanceID, int midwareID, const std::string& borderStr);
 	};
 
-	struct PhysicsServerMiddlewareConnectedPacket : GamePacket {
+	struct PhysicsServerMiddlewareConnectedPacket : public GamePacket {
 		std::string ipAddress;
 
 		PhysicsServerMiddlewareConnectedPacket(const std::string& ipAddress);
+	};
+
+	struct PhysicsServerMiddlewareDataPacket : public GamePacket {
+		int middlewareID;
+		int peerID;
+
+		PhysicsServerMiddlewareDataPacket(int peerID, int middlewareID);
 	};
 
 	class NetworkObject {
