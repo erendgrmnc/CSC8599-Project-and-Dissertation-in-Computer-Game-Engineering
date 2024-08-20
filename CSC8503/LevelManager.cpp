@@ -238,57 +238,6 @@ void LevelManager::ResetLevel() {
 }
 
 void LevelManager::LoadLevel(int levelID, std::mt19937 seed, int playerID, bool isMultiplayer) {
-	if (levelID == 6) {
-		mActiveLevel = levelID;
-		mStartTimer = 5;
-		ClearLevel();
-		Transform transform = Transform();
-		Vector3 offset(0, 0, 0);
-		transform.SetPosition(offset);
-
-		AddFloorToWorld(transform, false);
-
-		int createdSphereCounter = 0;
-
-		transform.SetPosition(Vector3(10, 10, 0));
-
-		/*auto* sphere = AddDistributedClientObject(transform, createdSphereCounter);
-		sphere->GetRenderObject()->SetColour(Vector4(0.0f, 0.4f, 0.2f, 1));
-		AddNetworkObject(*sphere);
-		createdSphereCounter++;
-
-		transform.SetPosition(Vector3(-20, 10, 20));
-		auto* sphereTwo = AddDistributedClientObject(transform, createdSphereCounter);
-
-		sphereTwo->GetRenderObject()->SetColour(Vector4(.4f, .5f, .5f, 1));
-		AddNetworkObject(*sphereTwo);*/
-
-		//Placing the non-controllable objects
-
-		for (int i = 0; i < 2; i++) {
-			CreateObjectGrid(1, 1, 1.f, 1.f, Vector3(-100.f, 30, -90.f));
-		}
-
-		LoadLights((*mLevelList[1]).GetLights(), Vector3(0, 0, 0));
-		//AddPlayerToWorld(transform, "Player");
-		mWorld->SortObjects();
-		SendWallFloorInstancesToGPU();
-		mRenderer->FillLightUBO();
-		mRenderer->FillTextureDataUBO();
-
-		mNavMeshThread = std::thread([this] {
-			mBuilder->BuildNavMesh(mLevelLayout);
-			LoadDoorsInNavGrid();
-			std::cout << "Nav Mesh Set\n";
-			});
-
-		mTimer = INIT_TIMER_VALUE;
-
-		mIsLevelInitialised = true;
-		mWorld->SortObjects();
-		return;
-	}
-
 	mIsServer = SceneManager::GetSceneManager()->IsServer();
 
 	if (levelID > mLevelList.size() - 1) return;
@@ -378,6 +327,56 @@ void LevelManager::LoadLevel(int levelID, std::mt19937 seed, int playerID, bool 
 	mWorld->SortObjects();
 }
 
+void NCL::CSC8503::LevelManager::LoadLevel(int playerID, int playerCount, int objectsPerPlayer) {
+	mActiveLevel = 6;
+	mStartTimer = 5;
+	ClearLevel();
+	Transform transform = Transform();
+	Vector3 offset(0, 0, 0);
+	transform.SetPosition(offset);
+
+	AddFloorToWorld(transform, false);
+
+	int createdSphereCounter = 0;
+
+	transform.SetPosition(Vector3(10, 10, 0));
+
+	/*auto* sphere = AddDistributedClientObject(transform, createdSphereCounter);
+	sphere->GetRenderObject()->SetColour(Vector4(0.0f, 0.4f, 0.2f, 1));
+	AddNetworkObject(*sphere);
+	createdSphereCounter++;
+
+	transform.SetPosition(Vector3(-20, 10, 20));
+	auto* sphereTwo = AddDistributedClientObject(transform, createdSphereCounter);
+
+	sphereTwo->GetRenderObject()->SetColour(Vector4(.4f, .5f, .5f, 1));
+	AddNetworkObject(*sphereTwo);*/
+
+	//Placing the non-controllable objects
+
+	for (int i = 0; i < playerCount; i++) {
+		CreateObjectGrid(10, 10, objectsPerPlayer, 1.f, 1.f, Vector3(-100.f, 30, -90.f));
+	}
+
+	LoadLights((*mLevelList[1]).GetLights(), Vector3(0, 0, 0));
+	mWorld->SortObjects();
+	SendWallFloorInstancesToGPU();
+	mRenderer->FillLightUBO();
+	mRenderer->FillTextureDataUBO();
+
+	mNavMeshThread = std::thread([this] {
+		mBuilder->BuildNavMesh(mLevelLayout);
+		LoadDoorsInNavGrid();
+		std::cout << "Nav Mesh Set\n";
+		});
+
+	mTimer = INIT_TIMER_VALUE;
+
+	mIsLevelInitialised = true;
+	mWorld->SortObjects();
+	return;
+}
+
 void LevelManager::SendWallFloorInstancesToGPU() {
 #ifdef USEGL
 	for (const auto& [key, val] : mInstanceMatrices) {
@@ -403,7 +402,7 @@ void LevelManager::AddNetworkObject(GameObject& objToAdd) {
 #endif
 }
 
-void LevelManager::CreateObjectGrid(int rowCount, int colCount, float rowSpacing, float colSpacing,
+void LevelManager::CreateObjectGrid(int rowCount, int colCount, int totalObjectToCreate, float rowSpacing, float colSpacing,
 	const Maths::Vector3& startPos) {
 	int objCounter = 0;
 
@@ -427,6 +426,10 @@ void LevelManager::CreateObjectGrid(int rowCount, int colCount, float rowSpacing
 			}
 
 			AddNetworkObject(*obj);
+
+			if (objCounter == totalObjectToCreate) {
+				return;
+			}
 		}
 	}
 }
@@ -439,8 +442,8 @@ void LevelManager::Update(float dt, bool isPlayingLevel, bool isPaused) {
 			DebugUpdate(dt, isPlayingLevel, isPaused);
 			mTakeNextTime = 0.1f;
 			return;
-		}
 	}
+}
 #endif
 	if (isPlayingLevel) {
 		mGameState = LevelState;
@@ -500,7 +503,7 @@ void LevelManager::Update(float dt, bool isPlayingLevel, bool isPaused) {
 				mPhysics->Update(dt);
 			}
 			mAnimation->Update(dt, mUpdatableObjects);
-		}	
+		}
 
 		if (mUpdatableObjects.size() > 0) {
 #ifdef USEGL

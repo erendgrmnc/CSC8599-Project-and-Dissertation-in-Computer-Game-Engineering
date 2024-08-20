@@ -37,10 +37,10 @@ namespace NCL {
 
 			void Update(float dt);
 			void AddNetworkObject(CSC8503::GameObject& objToAdd);
-			void CreatePlayerObjects(int playerCount);
+			void CreatePlayerObjects(int playerCount, int objectsPerPlayer);
 			void HandleTransitionHandshakeReceived(CSC8503::StartSimulatingObjectReceivedPacket* packet);
 			void HandleOutgoingObject(int networkObjectID);
-			void CreateObjectGrid(int rowCount, int colCount, float rowSpacing, float colSpacing, int playerID, const Maths::Vector3& startPos);
+			void CreateObjectGrid(int rowCount, int colCount, int objectsPerPlayer, float rowSpacing, float colSpacing, int playerID, const Maths::Vector3& startPos);
 
 			std::vector<CSC8503::TestObject*> GetTestObjects();
 			std::vector<CSC8503::NetworkObject*>* GetNetworkObjects();

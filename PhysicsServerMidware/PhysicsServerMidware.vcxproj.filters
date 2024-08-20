@@ -1,45 +1,45 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClCompile Include="C:\Users\erenl\git-repos\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\CMakeFiles\PhysicsServerMidware.dir\cmake_pch.cxx">
+    <ClCompile Include="C:\CSC8599\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\CMakeFiles\PhysicsServerMidware.dir\cmake_pch.cxx">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="C:\Users\erenl\git-repos\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\ServerMidwareManager.cpp">
+    <ClCompile Include="C:\CSC8599\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\ServerMidwareManager.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="C:\Users\erenl\git-repos\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\ProgramStart.cpp">
+    <ClCompile Include="C:\CSC8599\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\ProgramStart.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="C:\Users\erenl\git-repos\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\ServerMidwareManager.h">
+    <ClInclude Include="C:\CSC8599\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\ServerMidwareManager.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="C:\Users\erenl\git-repos\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\CMakeFiles\PhysicsServerMidware.dir\Debug\cmake_pch.hxx">
+    <ClInclude Include="C:\CSC8599\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\CMakeFiles\PhysicsServerMidware.dir\Debug\cmake_pch.hxx">
       <Filter>Precompile Header File</Filter>
     </ClInclude>
-    <ClInclude Include="C:\Users\erenl\git-repos\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\CMakeFiles\PhysicsServerMidware.dir\Release\cmake_pch.hxx">
+    <ClInclude Include="C:\CSC8599\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\CMakeFiles\PhysicsServerMidware.dir\Release\cmake_pch.hxx">
       <Filter>Precompile Header File</Filter>
     </ClInclude>
-    <ClInclude Include="C:\Users\erenl\git-repos\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\CMakeFiles\PhysicsServerMidware.dir\MinSizeRel\cmake_pch.hxx">
+    <ClInclude Include="C:\CSC8599\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\CMakeFiles\PhysicsServerMidware.dir\MinSizeRel\cmake_pch.hxx">
       <Filter>Precompile Header File</Filter>
     </ClInclude>
-    <ClInclude Include="C:\Users\erenl\git-repos\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\CMakeFiles\PhysicsServerMidware.dir\RelWithDebInfo\cmake_pch.hxx">
+    <ClInclude Include="C:\CSC8599\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\CMakeFiles\PhysicsServerMidware.dir\RelWithDebInfo\cmake_pch.hxx">
       <Filter>Precompile Header File</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <CustomBuild Include="C:\Users\erenl\git-repos\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\CMakeLists.txt" />
+    <CustomBuild Include="C:\CSC8599\CSC8599-Project-and-Dissertation-in-Computer-Game-Engineering\PhysicsServerMidware\CMakeLists.txt" />
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Header Files">
-      <UniqueIdentifier>{782E366A-F6AF-38DC-B8D0-C2979F0FD91F}</UniqueIdentifier>
+      <UniqueIdentifier>{4E0B1094-FFAB-300D-B4B9-52D21E3BEEBE}</UniqueIdentifier>
     </Filter>
     <Filter Include="Precompile Header File">
-      <UniqueIdentifier>{85CEC3A3-58D0-3DE5-AB83-649F10A6AAB0}</UniqueIdentifier>
+      <UniqueIdentifier>{0968B972-1953-3A34-9605-A7E1D49B71F6}</UniqueIdentifier>
     </Filter>
     <Filter Include="Source Files">
-      <UniqueIdentifier>{653F8E8F-E9ED-35AA-9287-8F211D00BFB5}</UniqueIdentifier>
+      <UniqueIdentifier>{32AB5304-3124-3A8F-9176-23DCB5CBCB13}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>

@@ -257,13 +257,14 @@ playerNumber(-1) {
 	size = sizeof(DistributedClientGetGameInstanceDataPacket);
 }
 
-DistributedPhysicsClientConnectedToManagerPacket::DistributedPhysicsClientConnectedToManagerPacket(int port, int physicsServerID, int gameInstanceID) {
+DistributedPhysicsClientConnectedToManagerPacket::DistributedPhysicsClientConnectedToManagerPacket(int port, int physicsServerID, int gameInstanceID, std::string ipAddress) {
 	type = BasicNetworkMessages::DistributedPhysicsClientConnectedToManager;
 	size = sizeof(DistributedPhysicsClientConnectedToManagerPacket);
 
 	this->phyiscsPacketDistributerPort = port;
 	this->physicsServerID = physicsServerID;
 	this->gameInstanceID = gameInstanceID;
+	this->ipAddress = ipAddress.c_str();
 }
 
 DistributedClientConnectToPhysicsServerPacket::DistributedClientConnectToPhysicsServerPacket(int port, int physicsServerID, const std::string& ipAddress) {
@@ -288,7 +289,7 @@ DistributedClientsGameServersAreReadyPacket::DistributedClientsGameServersAreRea
 	size = sizeof(DistributedClientsGameServersAreReadyPacket);
 }
 
-StartDistributedGameServerPacket::StartDistributedGameServerPacket(int serverManagerPort, int gameInstanceID, int maxClientCount, std::vector<int> serverPorts, std::vector<std::string> serverIps, const std::map<int, const std::string>& serverBorderMap) {
+StartDistributedGameServerPacket::StartDistributedGameServerPacket(int serverManagerPort, int gameInstanceID, int maxClientCount, int objectsPerPlayer, std::vector<int> serverPorts, std::vector<std::string> serverIps, const std::map<int, const std::string>& serverBorderMap) {
 	type = BasicNetworkMessages::StartDistributedPhysicsServer;
 	size = sizeof(StartDistributedGameServerPacket);
 
@@ -298,6 +299,7 @@ StartDistributedGameServerPacket::StartDistributedGameServerPacket(int serverMan
 	this->totalServerCount = serverBorderMap.size();
 	this->currentServerCount = serverIps.size();
 	this->clientsToConnect = maxClientCount;
+	this->objectsPerPlayer = objectsPerPlayer;
 
 	for (int i = 0; i < totalServerCount; i++) {
 		serverIDs[i] = i;

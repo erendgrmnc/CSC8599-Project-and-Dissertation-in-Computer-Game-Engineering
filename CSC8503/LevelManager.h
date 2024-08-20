@@ -72,6 +72,8 @@ namespace NCL {
 
 			Vector3 GetPlayerStartPosition(int player) const { return (*mLevelList[mActiveLevel]).GetPlayerStartTransform(player).GetPosition(); }
 			void LoadLevel(int levelID, std::mt19937 seed, int playerID, bool isMultiplayer = false);
+			//For Distributed System
+			void LoadLevel(int playerID, int playerCount, int objectsPerPlayer);
 			PlayerObject* GetTempPlayer() { return mTempPlayer; }
 
 			void SetTempPlayer(PlayerObject* playerObject) { mTempPlayer = playerObject; }
@@ -200,7 +202,7 @@ namespace NCL {
 
 			void AddNetworkObject(GameObject& objToAdd);
 
-			void CreateObjectGrid(int rowCount, int colCount, float rowSpacing, float colSpacing, const Maths::Vector3& startPos);
+			void CreateObjectGrid(int rowCount, int colCount, int totalObjectToCreate, float rowSpacing, float colSpacing, const Maths::Vector3& startPos);
 
 			GameObject* AddWallToWorld(const Transform& transform);
 			GameObject* AddCornerWallToWorld(const Transform& transform);

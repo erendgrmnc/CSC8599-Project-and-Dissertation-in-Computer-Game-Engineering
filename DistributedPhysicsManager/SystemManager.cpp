@@ -97,7 +97,7 @@ void DistributedManager::SystemManager::SendStartDataToPhysicsServer(int gameIns
 		serverPorts.push_back(createdServer->GetDataSenderPort());
 	}
 	auto& physicsServersBorderStrMap = gameInstance->GetServerBorderStrMap();
-	StartDistributedGameServerPacket packet(1234, gameInstanceID, mMaxClientCount, serverPorts, serverIps, physicsServersBorderStrMap);
+	StartDistributedGameServerPacket packet(1234, gameInstanceID, mMaxClientCount, gameInstance->GetObjectsPerPlayer(), serverPorts, serverIps, physicsServersBorderStrMap);
 	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
 }
 
@@ -119,6 +119,8 @@ void NCL::DistributedManager::SystemManager::HandleDistributedClientConnectedPac
 			dataPacket.gameInstanceID = gameInstance->GetGameID();
 			dataPacket.playerNumber = gameInstance->AddPlayer(peerID);
 			dataPacket.isGameInstanceFound = true;
+			dataPacket.objectsPerPlayer = gameInstance->GetObjectsPerPlayer();
+			dataPacket.playerCount = gameInstance->GetPlayerCountToStartServers();
 
 			mDistributedPhysicsManagerServer->SendGlobalReliablePacket(dataPacket);
 			Profiler::SetConnectedGameClients(Profiler::GetConnectedGameClients() + 1);
@@ -135,8 +137,7 @@ void NCL::DistributedManager::SystemManager::HandleDistributedClientConnectedPac
 void DistributedManager::SystemManager::HandleDistributedPhysicsClientConnectedPacketReceived(int peerNumber,
 	NCL::CSC8503::DistributedPhysicsClientConnectedToManagerPacket* packet) {
 
-	const std::string& ipAddress = mDistributedPhysicsManagerServer->GetPeerIpAddressStr(peerNumber);
-	auto* serverData = DistributedUtils::CreatePhysicsServerData(ipAddress, packet->physicsServerID, packet->gameInstanceID);
+	auto* serverData = DistributedUtils::CreatePhysicsServerData(packet->ipAddress, packet->physicsServerID, packet->gameInstanceID);
 	AddServerData(*serverData);
 
 	std::string serverIpAddress = mDistributedPhysicsManagerServer->GetIPAddress();
@@ -244,8 +245,8 @@ int DistributedManager::SystemManager::GetAvailablePhysicsMidware() {
 }
 
 
-NCL::GameInstance* DistributedManager::SystemManager::CreateNewGameInstance(int maxServer, int clientCount) {
-	GameInstance* newGame = new GameInstance(++GAME_INSTANCE_ID_BUFFER, maxServer, PHYSICS_SERVER_ID_BUFFER, clientCount);
+NCL::GameInstance* DistributedManager::SystemManager::CreateNewGameInstance(int maxServer, int clientCount, int objectsPerPlayer) {
+	GameInstance* newGame = new GameInstance(++GAME_INSTANCE_ID_BUFFER, maxServer, PHYSICS_SERVER_ID_BUFFER, clientCount, objectsPerPlayer);
 	mDistributedPhysicsManagerServer->AddGameInstance(newGame);
 
 

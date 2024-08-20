@@ -121,7 +121,7 @@ void NCL::DistributedGameServer::ServerWorldManager::AddNetworkObject(CSC8503::G
 	AddNetworkObjectToNetworkObjects(networkObj);
 }
 
-void DistributedGameServer::ServerWorldManager::CreatePlayerObjects(int playerCount) {
+void DistributedGameServer::ServerWorldManager::CreatePlayerObjects(int playerCount, int objectsPerPlayer) {
 	for (int i = 0; i < playerCount; i++) {
 		Vector3 startPos;
 		if (i == 0) {
@@ -134,7 +134,7 @@ void DistributedGameServer::ServerWorldManager::CreatePlayerObjects(int playerCo
 		startPos.y = 10;
 		startPos.z = 0;
 
-		CreateObjectGrid(1, 1, 1.f, 1.f, i, startPos);
+		CreateObjectGrid(10, 10, objectsPerPlayer, 1.f, 1.f, i, startPos);
 	}
 }
 
@@ -217,7 +217,7 @@ void DistributedGameServer::ServerWorldManager::HandleOutgoingObject(int network
 	}
 }
 
-void DistributedGameServer::ServerWorldManager::CreateObjectGrid(int rowCount, int colCount, float rowSpacing,
+void DistributedGameServer::ServerWorldManager::CreateObjectGrid(int rowCount, int colCount, int objectsPerPlayer, float rowSpacing,
 	float colSpacing, int playerID, const Vector3& startPos) {
 	int objCounter = 0;
 
@@ -253,6 +253,10 @@ void DistributedGameServer::ServerWorldManager::CreateObjectGrid(int rowCount, i
 			}
 
 			mGameWorld->AddGameObject(obj);
+
+			if (objectsPerPlayer == objCounter) {
+				return;
+			}
 		}
 	}
 }

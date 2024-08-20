@@ -53,6 +53,10 @@ int StartProgram() {
 	std::cout << "Enter max clients to connect: ";
 	std::cin >> maxClients;
 
+	int objectsPerPlayer = 1;
+	std::cout << "Enter objects to create per player: ";
+	std::cin >> objectsPerPlayer;
+
 	systemManager = new DistributedManager::SystemManager(maxPhysicsServer, maxClients);
 
 	std::cout << "Starting server on port: " << SYSTEM_MANAGER_PORT << "\n";
@@ -75,7 +79,7 @@ int StartProgram() {
 
 		if (Window::GetKeyboard()->KeyPressed(KeyCodes::S)) {
 			//Start a game instance
-			systemManager->CreateNewGameInstance(maxPhysicsServer, maxClients);
+			systemManager->CreateNewGameInstance(maxPhysicsServer, maxClients, objectsPerPlayer);
 		}
 
 		if (Window::GetKeyboard()->KeyPressed(KeyCodes::SPACE)) {

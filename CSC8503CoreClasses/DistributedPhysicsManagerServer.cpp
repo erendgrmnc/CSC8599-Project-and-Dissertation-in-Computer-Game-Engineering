@@ -83,7 +83,7 @@ void Networking::DistributedPhysicsManagerServer::HandleConnectedPhysicsServer(i
 
 void Networking::DistributedPhysicsManagerServer::AddGameInstance(GameInstance* gameInstance) {
 	mGameInstances.push_back(gameInstance);
-
+	std::cout << "New game instance created with ID: " << gameInstance->GetGameID() << "\n";
 	Profiler::SetStartedGameInstance(mGameInstances.size());
 }
 

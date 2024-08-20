@@ -12,11 +12,12 @@ namespace  {
 
 NCL::GameInstance::GameInstance() = default;
 
-NCL::GameInstance::GameInstance(int id, int serverCount, int serverIDBuffer, int playerCountToStartServers) {
+NCL::GameInstance::GameInstance(int id, int serverCount, int serverIDBuffer, int playerCountToStartServers, int objectsPerPlayer) {
 	this->mGameID = id;
 	this->mServerCount = serverCount;
 	mPlayerIDBuffer = -1;
 	mPlayerCountToStartGame = playerCountToStartServers;
+	mObjectsToInstantiatePerPlayer = objectsPerPlayer;
 
 	CalculatePhysicsServerBorders(serverIDBuffer);
 }
@@ -66,6 +67,10 @@ int NCL::GameInstance::AddPlayer(int peerID) {
 	mClientPeerPlayerIDMap.insert(playerPair);
 
 	return playerID;
+}
+
+int NCL::GameInstance::GetObjectsPerPlayer() {
+	return mObjectsToInstantiatePerPlayer;
 }
 
 const int NCL::GameInstance::GetPlayerCountToStartServers() {

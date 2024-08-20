@@ -140,6 +140,7 @@ int RunGame(){
         timeTaken = end - start;
 
         Profiler::SetTimePassedPerUpdate(timeTaken.count());
+        Profiler::Update();
     }
 
     //Note: B Schwarz - is this necessary/desirable for PS5?

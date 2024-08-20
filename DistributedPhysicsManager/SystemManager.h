@@ -37,7 +37,7 @@ namespace NCL {
 			void SendStartGameStatusPacket(int gameInstanceID);
 			void AddServerData(DistributedPhysicsServerData& data);
 
-			NCL::GameInstance* CreateNewGameInstance(int maxServer, int clientCount);
+			NCL::GameInstance* CreateNewGameInstance(int maxServer, int clientCount, int objectsPerPlayer);
 		protected:
 			bool mIsGameStarted = false;
 			int mMaxPhysicsServerCount = 0;

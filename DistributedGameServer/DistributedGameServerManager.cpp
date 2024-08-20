@@ -10,6 +10,7 @@
 #include "Profiler.h"
 #include "ServerWorldManager.h"
 #include "TestObject.h"
+#include <DistributedSystemCommonFiles/DistributedUtils.h>
 
 namespace {
 	constexpr int TEST_MAX_CLIENT = 10;
@@ -51,8 +52,6 @@ bool DistributedGameServer::DistributedGameServerManager::StartDistributedGameSe
 		mThisDistributedPhysicsServer->RegisterOnConnectedToDistributedManagerEvent(onConnectedToDistributedManager);
 
 		std::string serverName = "Server " + mGameServerID;
-
-
 
 		mThisDistributedPhysicsServer->Connect(a, b, c, d, port, serverName);
 		RegisterGameServerPackets();
@@ -301,7 +300,9 @@ void DistributedGameServer::DistributedGameServerManager::SendAllClientsAreConne
 }
 
 void DistributedGameServer::DistributedGameServerManager::SendPacketSenderServerStartedPacket(int port) const {
-	DistributedPhysicsClientConnectedToManagerPacket packet(port, mGameServerID, mGameInstanceID);
+	std::string ipAddressOfMachine = DistributedUtils::GetMachineIPV4Address();
+	std::cout << "IPV4 Address of the machine: " << ipAddressOfMachine << std::endl;
+	DistributedPhysicsClientConnectedToManagerPacket packet(port, mGameServerID, mGameInstanceID, ipAddressOfMachine);
 	std::cout << "Sending packet distributer started packet...\n";
 	mThisDistributedPhysicsServer->SendPacket(packet);
 }
@@ -407,12 +408,12 @@ void DistributedGameServer::DistributedGameServerManager::HandleStartGameServerP
 		}
 	}
 	if (!mIsPlayerObjectsCreated) {
-		mServerWorldManager->CreatePlayerObjects(packet->clientsToConnect);
+		mServerWorldManager->CreatePlayerObjects(packet->clientsToConnect, packet->objectsPerPlayer);
 		mIsPlayerObjectsCreated = true;
 	}
 
 	for (int i = 0; i < packet->currentServerCount; i++) {
-		if (i == mGameServerID) {
+		if (packet->createdServerIPs[i] == DistributedUtils::GetMachineIPV4Address() && mPacketSenderServerPort == packet->serverPorts[i]) {
 			continue;
 		}
 

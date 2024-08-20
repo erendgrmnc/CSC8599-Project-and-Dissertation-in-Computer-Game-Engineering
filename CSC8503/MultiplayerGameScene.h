@@ -112,6 +112,8 @@ namespace NCL{
             int mWinningPlayerId;
             int mLocalPlayerId;
             int mGameInstanceID = -1;
+            int mTotalPlayerCount = 1;
+            int mObjectsPerPlayer = 1;
 
             int prevServerOfObj = -1; // TEST VAR
 

@@ -244,7 +244,7 @@ void MultiplayerGameScene::UpdateGame(float dt) {
 
 				int objectPerClient = 1;
 
-				int testPeerId = mLocalPlayerId < 0 ? 0 : mLocalPlayerId;
+				int testPeerId = mLocalPlayerId < 0 ? 0 : mLocalPlayerId * mObjectsPerPlayer;
 
 				auto posVec = mNetworkObjects[testPeerId]->GetGameObject().GetTransform().GetPosition();
 				auto predictedPosVec = mNetworkObjects[testPeerId]->GetGameObject().GetTransform().GetPredictedPosition();
@@ -270,19 +270,19 @@ void MultiplayerGameScene::UpdateGame(float dt) {
 		//TODO(erendgrmnc): create another func
 		bool inputs[4] = { false,false,false,false };
 
-		if (Window::GetKeyboard()->KeyDown(KeyCodes::LEFT)) {
+		if (Window::GetKeyboard()->KeyDown(KeyCodes::J)) {
 			inputs[0] = true;
 		}
 
-		if (Window::GetKeyboard()->KeyDown(KeyCodes::RIGHT)) {
+		if (Window::GetKeyboard()->KeyDown(KeyCodes::L)) {
 			inputs[1] = true;
 		}
 
-		if (Window::GetKeyboard()->KeyDown(KeyCodes::UP)) {
+		if (Window::GetKeyboard()->KeyDown(KeyCodes::I)) {
 			inputs[2] = true;
 		}
 
-		if (Window::GetKeyboard()->KeyDown(KeyCodes::DOWN)) {
+		if (Window::GetKeyboard()->KeyDown(KeyCodes::K)) {
 			inputs[3] = true;
 		}
 
@@ -692,7 +692,7 @@ void MultiplayerGameScene::InitWorld(const std::mt19937& levelSeed) {
 	mLevelManager->GetGameWorld()->ClearAndErase();
 	mLevelManager->GetPhysics()->Clear();
 
-	mLevelManager->LoadLevel(6, levelSeed, 0, true);
+	mLevelManager->LoadLevel(mLocalPlayerId, mTotalPlayerCount, mObjectsPerPlayer);
 
 	//SpawnPlayers();
 
@@ -968,6 +968,8 @@ void MultiplayerGameScene::HandleOnConnectToDistributedPhysicsServerPacketReceiv
 void MultiplayerGameScene::HandleOnDistributedGameClientGameInstanceDataPacketReceived(
 	DistributedClientGetGameInstanceDataPacket* packet) {
 	mGameInstanceID = packet->gameInstanceID;
+	mTotalPlayerCount = packet->playerCount;
+	mObjectsPerPlayer = packet->objectsPerPlayer;
 	mLocalPlayerId = packet->playerNumber;
 }
 
@@ -987,7 +989,7 @@ bool MultiplayerGameScene::ConnectClientToDistributedGameServer(char a, char b, 
 	std::pair<int, GameClient*> connectedClient = std::make_pair(gameServerID, client);
 	mDistributedPhysicsClients.insert(connectedClient);
 
-	Profiler::SetConnectedServerCount(Profiler::GetConnectedPhysicsServerCount()+1);
+	Profiler::SetConnectedServerCount(Profiler::GetConnectedPhysicsServerCount() + 1);
 
 	return isConnected;
 }

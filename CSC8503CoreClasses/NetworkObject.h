@@ -198,6 +198,8 @@ namespace NCL::CSC8503 {
 		bool isGameInstanceFound;
 		int gameInstanceID;
 		int playerNumber;
+		int playerCount;
+		int objectsPerPlayer;
 
 		DistributedClientGetGameInstanceDataPacket(bool isGameInstanceFound, int gameInstanceID, int playerNumber);
 		DistributedClientGetGameInstanceDataPacket();
@@ -207,8 +209,9 @@ namespace NCL::CSC8503 {
 		int physicsServerID;
 		int phyiscsPacketDistributerPort;
 		int gameInstanceID;
+		std::string ipAddress;
 
-		DistributedPhysicsClientConnectedToManagerPacket(int port, int physicsServerID, int gameInstanceID);
+		DistributedPhysicsClientConnectedToManagerPacket(int port, int physicsServerID, int gameInstanceID, std::string ipAddress);
 	};
 
 	struct DistributedClientConnectToPhysicsServerPacket : public GamePacket {
@@ -242,13 +245,14 @@ namespace NCL::CSC8503 {
 		int totalServerCount;
 
 		int clientsToConnect;
+		int objectsPerPlayer;
 
 		int serverIDs[20];
 		int serverPorts[20];
 		std::string borders[20];
 		std::string createdServerIPs[20];
 
-		StartDistributedGameServerPacket(int serverManagerPort, int gameInstanceID, int clientsToConnect, std::vector<int> serverPorts,
+		StartDistributedGameServerPacket(int serverManagerPort, int gameInstanceID, int clientsToConnect, int objectsPerPlayer, std::vector<int> serverPorts,
 			std::vector<std::string> serverIps,
 			const std::map<int, const std::string>& serverBorderMap);
 	};

@@ -17,11 +17,12 @@ namespace NCL {
 	class GameInstance {
 	public:
 		GameInstance();
-		GameInstance(int id, int serverCount, int serverIDBuffer, int playerCountToStartServers = 1);
+		GameInstance(int id, int serverCount, int serverIDBuffer, int playerCountToStartServers = 1, int objectsToInstantiatePerPlayer = 1);
 
 		int GetGameID();
 		int GetServerCount();
 		int AddPlayer(int peerID);
+		int GetObjectsPerPlayer();
 		const int GetPlayerCountToStartServers();
 
 		bool IsServersReadyToStart();
@@ -31,6 +32,7 @@ namespace NCL {
 		int mGameID;
 		int mServerCount;
 		int mPlayerCountToStartGame;
+		int mObjectsToInstantiatePerPlayer;
 
 		int mPlayerIDBuffer;
 
