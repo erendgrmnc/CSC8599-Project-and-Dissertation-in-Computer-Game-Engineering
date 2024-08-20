@@ -27,6 +27,15 @@ namespace NCL {
 		static int GetConnectedPhysicsServerCount();
 		static void SetConnectedServerCount(int serverCount);
 
+		static int GetConnectedGameClients();
+		static void SetConnectedGameClients(int connectedGameClients);
+
+		static int GetStartedGameInstances();
+		static void SetStartedGameInstance(int val);
+
+		static int GetConnectedPhysicsServerMiddlewares();
+		static void SetConnectedPhysicsServerMiddlewares(int val);
+
 		static int GetCreatedPhysicsServerCount();
 		static void SetCreatedPhysicsServerCount(int createdServerCount);
 
@@ -79,6 +88,9 @@ namespace NCL {
 		static int sObjectsInBorders;
 		static int sCreatedPhysicsServerInstance;
 		static int sConnectedPhysicsServerCount;
+		static int sConnectedPhysicsServerMiddlewares;
+		static int sConnectedGameClients;
+		static int sStartedGameInstances;
 
 		static float sTimePassedPerUpdate;
 		static float sRenderTime;

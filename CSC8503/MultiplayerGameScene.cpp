@@ -235,27 +235,33 @@ void MultiplayerGameScene::UpdateGame(float dt) {
 			Debug::Print("SERVER", Vector2(5, 10), Debug::MAGENTA);
 		}
 		else {
-			Debug::Print("CLIENT - Player ID: " + std::to_string(mLocalPlayerId), Vector2(5, 10), Debug::MAGENTA);
-
-			int objectPerClient = 1;
-
-			int testPeerId = mLocalPlayerId < 0 ? 0 : mLocalPlayerId;
-
-			auto posVec = mNetworkObjects[testPeerId]->GetGameObject().GetTransform().GetPosition();
-			auto predictedPosVec = mNetworkObjects[testPeerId]->GetGameObject().GetTransform().GetPredictedPosition();
-
-			int serverID = mNetworkObjects[testPeerId]->GetGameObject().GetServerID();
-			if (prevServerOfObj == -1) {
-				prevServerOfObj = serverID;
+			if (Window::GetKeyboard()->KeyPressed(KeyCodes::P)) {
+				mShowDebugInfo = !mShowDebugInfo;
 			}
 
-			std::string serverStr = "Object Server: " + std::to_string(serverID);
-			std::string str = "Object Position: " + std::to_string(posVec.x) + ", " + std::to_string(posVec.y) + ", " + std::to_string(posVec.z);
-			std::string predictedPosStr = "Predicted Object Position: " + std::to_string(predictedPosVec.x) + ", " + std::to_string(predictedPosVec.y) + ", " + std::to_string(predictedPosVec.z);
+			if (mShowDebugInfo) {
+				Debug::Print("CLIENT - Player ID: " + std::to_string(mLocalPlayerId), Vector2(5, 10), Debug::MAGENTA);
 
-			Debug::Print(serverStr, Vector2(5, 15), Debug::GREEN);
-			Debug::Print(str, Vector2(5, 25), Debug::RED);
-			Debug::Print(predictedPosStr, Vector2(5, 35), Debug::BLUE);
+				int objectPerClient = 1;
+
+				int testPeerId = mLocalPlayerId < 0 ? 0 : mLocalPlayerId;
+
+				auto posVec = mNetworkObjects[testPeerId]->GetGameObject().GetTransform().GetPosition();
+				auto predictedPosVec = mNetworkObjects[testPeerId]->GetGameObject().GetTransform().GetPredictedPosition();
+
+				int serverID = mNetworkObjects[testPeerId]->GetGameObject().GetServerID();
+				if (prevServerOfObj == -1) {
+					prevServerOfObj = serverID;
+				}
+
+				std::string serverStr = "Object Server: " + std::to_string(serverID);
+				std::string str = "Object Position: " + std::to_string(posVec.x) + ", " + std::to_string(posVec.y) + ", " + std::to_string(posVec.z);
+				std::string predictedPosStr = "Predicted Object Position: " + std::to_string(predictedPosVec.x) + ", " + std::to_string(predictedPosVec.y) + ", " + std::to_string(predictedPosVec.z);
+
+				Debug::Print(serverStr, Vector2(5, 15), Debug::GREEN);
+				Debug::Print(str, Vector2(5, 25), Debug::RED);
+				Debug::Print(predictedPosStr, Vector2(5, 35), Debug::BLUE);
+			}
 		}
 
 		mLevelManager->Update(dt, mGameState == InitialisingLevelState, false);
@@ -981,7 +987,7 @@ bool MultiplayerGameScene::ConnectClientToDistributedGameServer(char a, char b, 
 	std::pair<int, GameClient*> connectedClient = std::make_pair(gameServerID, client);
 	mDistributedPhysicsClients.insert(connectedClient);
 
-	Profiler::SetConnectedServerCount(mDistributedPhysicsClients.size());
+	Profiler::SetConnectedServerCount(Profiler::GetConnectedPhysicsServerCount()+1);
 
 	return isConnected;
 }
@@ -1054,7 +1060,6 @@ void MultiplayerGameScene::DrawCanvas() {
 
 		ImGui::TableNextColumn();
 
-		ImGui::TableNextColumn();
 		ImGui::Text("Time passed per update");
 		ImGui::TableNextColumn();
 		std::string timePassedPerUpdateStr = std::to_string(Profiler::GetTimePassedPerUpdate()) + "ms";
@@ -1067,6 +1072,52 @@ void MultiplayerGameScene::DrawCanvas() {
 		ImGui::TableNextColumn();
 		ImGui::TableNextColumn();
 
+
+		ImGui::EndTable();
+	}
+
+	if (ImGui::CollapsingHeader("Memory Usage"))
+	{
+		ImGui::BeginTable("Memory Usage Table", 2);
+
+		ImGui::TableNextColumn();
+		ImGui::Text("Virtual Memory By Program");
+		ImGui::TableNextColumn();
+		const std::string& memStr = Profiler::GetVirtualMemoryUsageByProgram();
+
+		ImGui::Text(memStr.c_str());
+
+		ImGui::TableNextColumn();
+
+		ImGui::Text("Virtual Memory");
+		ImGui::TableNextColumn();
+		ImGui::Text(Profiler::GetVirtualMemoryUsage().c_str());
+
+		ImGui::TableNextColumn();
+
+		ImGui::Text("Total Virtual Memory");
+		ImGui::TableNextColumn();
+		ImGui::Text(Profiler::GetTotalVirtualMemory().c_str());
+
+		ImGui::TableNextColumn();
+		ImGui::TableNextColumn();
+		ImGui::TableNextColumn();
+
+		ImGui::Text("Physical Memory By Program");
+		ImGui::TableNextColumn();
+		ImGui::Text(Profiler::GetPhysicalMemoryUsageByProgram().c_str());
+
+		ImGui::TableNextColumn();
+
+		ImGui::Text("Physical Memory");
+		ImGui::TableNextColumn();
+		ImGui::Text(Profiler::GetPhysicalMemoryUsage().c_str());
+
+		ImGui::TableNextColumn();
+
+		ImGui::Text("Total Physical Memory");
+		ImGui::TableNextColumn();
+		ImGui::Text(Profiler::GetTotalPhysicalMemory().c_str());
 
 		ImGui::EndTable();
 	}

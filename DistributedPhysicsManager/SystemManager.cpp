@@ -6,6 +6,7 @@
 #include "GameServer.h"
 #include "NetworkBase.h"
 #include "NetworkObject.h"
+#include "Profiler.h"
 #include "../CSC8503CoreClasses/DistributedSystemCommonFiles/DistributedPhysicsServerDto.h"
 #include "ServerWorldManager.h"
 #include "DistributedSystemCommonFiles/DistributedUtils.h"
@@ -120,6 +121,7 @@ void NCL::DistributedManager::SystemManager::HandleDistributedClientConnectedPac
 			dataPacket.isGameInstanceFound = true;
 
 			mDistributedPhysicsManagerServer->SendGlobalReliablePacket(dataPacket);
+			Profiler::SetConnectedGameClients(Profiler::GetConnectedGameClients() + 1);
 
 			if (gameInstance->IsServersReadyToStart()) {
 				StartGameServers(gameInstance->GetGameID());
@@ -178,10 +180,12 @@ void DistributedManager::SystemManager::HandlePhysicsServerMiddlewareConnected(i
 	std::cout << "Adding physics middleware with ID: " << newMidwareID << "\n";
 	mPhysicsServerMiddlwareRunningInstanceMap.insert(newPair);
 
+	Profiler::SetConnectedPhysicsServerMiddlewares(Profiler::GetConnectedPhysicsServerMiddlewares() + 1);
+
 	SendPhysicsServerMiddlewareDataPacket(peerID, newMidwareID);
 }
 
-void DistributedManager::SystemManager::SendRunServerInstancePacket(int gameInstance, int physicsServerID,int midwareID, const std::string& borderStr) {
+void DistributedManager::SystemManager::SendRunServerInstancePacket(int gameInstance, int physicsServerID, int midwareID, const std::string& borderStr) {
 	RunDistributedPhysicsServerInstancePacket packet(physicsServerID, gameInstance, midwareID, borderStr);
 	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
 }
@@ -239,10 +243,11 @@ int DistributedManager::SystemManager::GetAvailablePhysicsMidware() {
 	return midwareID;
 }
 
- 
+
 NCL::GameInstance* DistributedManager::SystemManager::CreateNewGameInstance(int maxServer, int clientCount) {
 	GameInstance* newGame = new GameInstance(++GAME_INSTANCE_ID_BUFFER, maxServer, PHYSICS_SERVER_ID_BUFFER, clientCount);
 	mDistributedPhysicsManagerServer->AddGameInstance(newGame);
+
 
 	return newGame;
 }

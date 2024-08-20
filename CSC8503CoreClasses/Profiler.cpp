@@ -24,6 +24,9 @@ int Profiler::sTotalCreatedObjects = 0;
 int Profiler::sObjectsInBorders = 0;
 int Profiler::sCreatedPhysicsServerInstance = 0;
 int Profiler::sConnectedPhysicsServerCount = 0;
+int Profiler::sConnectedGameClients = 0;
+int Profiler::sConnectedPhysicsServerMiddlewares = 0;
+int Profiler::sStartedGameInstances = 0;
 
 float Profiler::sFramesPerSecond = 0.f;
 float Profiler::sTimePassedPerUpdate = 0.f;
@@ -34,8 +37,6 @@ float Profiler::sWorldTime = 0.f;
 float Profiler::sPhysicsPredictionTime = 0.f;
 float Profiler::sLastDeltaSnapshotTime = 0.f;
 float Profiler::sLastFullSnapshotTime = 0.f;
-
-
 
 NCL::Profiler::Profiler() {
 
@@ -94,6 +95,34 @@ int Profiler::GetConnectedPhysicsServerCount() {
 
 void Profiler::SetConnectedServerCount(int serverCount) {
 	sConnectedPhysicsServerCount = serverCount;
+}
+
+int Profiler::GetConnectedGameClients() {
+	return sConnectedGameClients;
+}
+
+void Profiler::SetConnectedGameClients(int connectedGameClients) {
+	sConnectedGameClients = connectedGameClients;
+}
+
+int Profiler::GetStartedGameInstances() {
+	return sStartedGameInstances;
+}
+
+void Profiler::SetStartedGameInstance(int val) {
+	sStartedGameInstances = val;
+}
+
+int Profiler::GetConnectedPhysicsServerMiddlewares() {
+	return sConnectedPhysicsServerMiddlewares;
+}
+
+void Profiler::SetConnectedPhysicsServerMiddlewares(int val) {
+	sConnectedPhysicsServerMiddlewares = val;
+}
+
+int Profiler::GetCreatedPhysicsServerCount() {
+	return sCreatedPhysicsServerInstance;
 }
 
 void Profiler::SetCreatedPhysicsServerCount(int createdServerCount) {

@@ -1,6 +1,7 @@
 #include "DistributedPhysicsManagerServer.h"
 
 #include "NetworkObject.h"
+#include "Profiler.h"
 #include "enet/enet.h"
 
 NCL::Networking::DistributedPhysicsManagerServer::DistributedPhysicsManagerServer(int onPort, int maxClients) : GameServer(onPort, maxClients) {
@@ -82,6 +83,8 @@ void Networking::DistributedPhysicsManagerServer::HandleConnectedPhysicsServer(i
 
 void Networking::DistributedPhysicsManagerServer::AddGameInstance(GameInstance* gameInstance) {
 	mGameInstances.push_back(gameInstance);
+
+	Profiler::SetStartedGameInstance(mGameInstances.size());
 }
 
 const std::string& Networking::DistributedPhysicsManagerServer::GetPeerIpAddressStr(int peerNum) {

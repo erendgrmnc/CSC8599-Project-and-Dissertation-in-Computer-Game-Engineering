@@ -107,6 +107,7 @@ namespace NCL{
             bool mIsGameStarted = false;
             bool mIsGameFinished = false;
             bool mIsServer = false;
+            bool mShowDebugInfo = true;
 
             int mWinningPlayerId;
             int mLocalPlayerId;

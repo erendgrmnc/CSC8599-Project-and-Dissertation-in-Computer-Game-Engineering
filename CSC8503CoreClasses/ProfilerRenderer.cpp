@@ -180,35 +180,35 @@ void ProfilerRenderer::RenderDistributedGameServerAttributes() {
 
 		ImGui::Text("Physics Time");
 		ImGui::TableNextColumn();
-		std::string physicsTime = std::to_string(Profiler::GetPhysicsTime());
+		std::string physicsTime = std::to_string(Profiler::GetPhysicsTime()) + " ms";
 		ImGui::Text(physicsTime.c_str());
 
 		ImGui::TableNextColumn();
 
 		ImGui::Text("Physics Prediction Time");
 		ImGui::TableNextColumn();
-		std::string physicsPredictionTime = std::to_string(Profiler::GetPhysicsPredictionTime());
+		std::string physicsPredictionTime = std::to_string(Profiler::GetPhysicsPredictionTime()) + " ms";
 		ImGui::Text(physicsPredictionTime.c_str());
 
 		ImGui::TableNextColumn();
 
 		ImGui::Text("World Time");
 		ImGui::TableNextColumn();
-		std::string worldTimeStr = std::to_string(Profiler::GetWorldTime());
+		std::string worldTimeStr = std::to_string(Profiler::GetWorldTime()) + " ms";
 		ImGui::Text(worldTimeStr.c_str());
 
 		ImGui::TableNextColumn();
 
 		ImGui::Text("Full Snapshot Time");
 		ImGui::TableNextColumn();
-		std::string fullPacketTimeStr = std::to_string(Profiler::GetLastFullSnapshotTime());
+		std::string fullPacketTimeStr = std::to_string(Profiler::GetLastFullSnapshotTime()) + " ms";
 		ImGui::Text(fullPacketTimeStr.c_str());
 
 		ImGui::TableNextColumn();
 
 		ImGui::Text("Delta Snapshot Time");
 		ImGui::TableNextColumn();
-		std::string deltaPacketTimeStr = std::to_string(Profiler::GetLastDeltaSnapshotTime());
+		std::string deltaPacketTimeStr = std::to_string(Profiler::GetLastDeltaSnapshotTime()) + " ms";
 		ImGui::Text(deltaPacketTimeStr.c_str());
 
 		ImGui::TableNextColumn();
@@ -266,23 +266,22 @@ void ProfilerRenderer::RenderDistributedGameServerManagerAttributes() {
 		ImGui::TableNextColumn();
 		ImGui::Text("Connected Physics Middlewares");
 		ImGui::TableNextColumn();
-		const std::string isConnectedToManagerStr = std::to_string(0);
+		const std::string isConnectedToManagerStr = std::to_string(Profiler::GetConnectedPhysicsServerMiddlewares());
 
 		ImGui::Text(isConnectedToManagerStr.c_str());
 
 		ImGui::TableNextColumn();
 		ImGui::Text("Connected Game Clients");
 		ImGui::TableNextColumn();
-		const std::string physicsServerInstanceCtr = std::to_string(0);
-
-		ImGui::Text(physicsServerInstanceCtr.c_str());
+		const std::string connectedGameClients = std::to_string(Profiler::GetConnectedGameClients());
+		ImGui::Text(connectedGameClients.c_str());
 
 
 		ImGui::TableNextColumn();
 		ImGui::Text("Started Game Instances");
 		ImGui::TableNextColumn();
-
-		ImGui::Text(physicsServerInstanceCtr.c_str());
+		const std::string startedGameInstances = std::to_string(Profiler::GetStartedGameInstances());
+		ImGui::Text(startedGameInstances.c_str());
 
 		ImGui::TableNextColumn();
 		ImGui::TableNextColumn();
