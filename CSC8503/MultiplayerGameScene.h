@@ -108,6 +108,10 @@ namespace NCL{
             bool mIsGameFinished = false;
             bool mIsServer = false;
             bool mShowDebugInfo = true;
+            bool mObjLoggerStarted = false;
+
+            float mObjLogTimer = 0.f;
+            int mLogCtr = 0;
 
             int mWinningPlayerId;
             int mLocalPlayerId;
@@ -134,6 +138,8 @@ namespace NCL{
             void HandleClientPlayerInput(ClientPlayerInputPacket* playerMovementPacket, int playerPeerID);
 
             void SpawnPlayers();
+
+            void LogObjectPositionToTxtFile(const Maths::Vector3& position, int timeAsSecond);
 
         	NetworkPlayer* AddPlayerObject(const Maths::Vector3& position, int playerNum);
 

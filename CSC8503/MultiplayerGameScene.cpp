@@ -1,4 +1,5 @@
-﻿#include <imgui/imgui.h>
+﻿#include <fstream>
+#include <imgui/imgui.h>
 
 #include "PhysicsObject.h"
 #include "Profiler.h"
@@ -261,6 +262,15 @@ void MultiplayerGameScene::UpdateGame(float dt) {
 				Debug::Print(serverStr, Vector2(5, 15), Debug::GREEN);
 				Debug::Print(str, Vector2(5, 25), Debug::RED);
 				Debug::Print(predictedPosStr, Vector2(5, 35), Debug::BLUE);
+
+				if (mObjLoggerStarted) {
+					mObjLogTimer += dt;
+					if (mObjLogTimer >= 1.f) {
+						mLogCtr++;
+						LogObjectPositionToTxtFile(posVec, mLogCtr);
+						mObjLogTimer = 0;
+					}
+				}
 			}
 		}
 
@@ -276,6 +286,9 @@ void MultiplayerGameScene::UpdateGame(float dt) {
 
 		if (Window::GetKeyboard()->KeyDown(KeyCodes::L)) {
 			inputs[1] = true;
+			if (mObjLoggerStarted == false) {
+				mObjLoggerStarted = true;
+			}
 		}
 
 		if (Window::GetKeyboard()->KeyDown(KeyCodes::I)) {
@@ -734,6 +747,20 @@ void MultiplayerGameScene::SpawnPlayers() {
 	localPlayer->SetIsLocalPlayer(true);
 	mLevelManager->SetTempPlayer((PlayerObject*)mLocalPlayer);
 	mLocalPlayer->ToggleIsRendered();
+}
+
+void MultiplayerGameScene::LogObjectPositionToTxtFile(const Vector3& position, int timeAsSecond) {
+	std::ofstream file("object_positions.txt", std::ios::app); // Open file in append mode
+
+	if (file.is_open()) {
+		std::stringstream ss;
+		ss << "(" << std::fixed << std::setprecision(6) << position.x << "), (" << std::fixed << std::setprecision(6) << position.y << "), (" << std::fixed << std::setprecision(6) << position.z << ") - (" << timeAsSecond << ")\n";
+		file << ss.str();
+		file.close();
+	}
+	else {
+		std::cerr << "Error opening file for writing." << std::endl;
+	}
 }
 
 NetworkPlayer* MultiplayerGameScene::AddPlayerObject(const Vector3& position, int playerNum) {
