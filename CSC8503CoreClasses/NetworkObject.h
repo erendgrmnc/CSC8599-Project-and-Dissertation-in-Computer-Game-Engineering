@@ -249,7 +249,7 @@ namespace NCL::CSC8503 {
 
 		int serverIDs[20];
 		int serverPorts[20];
-		std::string borders[20];
+		char borders[20][256];
 		std::string createdServerIPs[20];
 
 		StartDistributedGameServerPacket(int serverManagerPort, int gameInstanceID, int clientsToConnect, int objectsPerPlayer, std::vector<int> serverPorts,
@@ -288,12 +288,13 @@ namespace NCL::CSC8503 {
 	};
 
 	struct RunDistributedPhysicsServerInstancePacket : public GamePacket {
-		std::string borderStr;
+
 		int serverID;
 		int midwareID;
 		int gameInstanceID;
 
-		RunDistributedPhysicsServerInstancePacket(int serverID, int gameInstanceID, int midwareID, const std::string& borderStr);
+		char borderStr[256];
+		RunDistributedPhysicsServerInstancePacket(int serverID, int gameInstanceID, int midwareID, std::string borderStr);
 	};
 
 	struct PhysicsServerMiddlewareConnectedPacket : public GamePacket {

@@ -1,7 +1,6 @@
 #include <iostream>
 
 #include "SystemManager.h"
-#include "../ImguiSceneNode/UINode.h"
 #include "Win32Window.h"
 #include "../NCLCoreClasses/Window.h"
 #include <thread>

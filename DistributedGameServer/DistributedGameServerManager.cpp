@@ -400,8 +400,9 @@ void DistributedGameServer::DistributedGameServerManager::HandleStartGameServerP
 	if (mPhysicsServerBorderMap.size() != packet->totalServerCount) {
 		for (int i = 0; i < packet->totalServerCount; i++) {
 			if (!mPhysicsServerBorderMap.contains(i)) {
-				std::cout << "Received Border for server " << i << " " << packet->borders[i] << "\n";
-				PhyscisServerBorderData* serverBorderData = CreatePhysicsServerBorders(packet->borders[i]);
+				std::string borderStr(packet->borders[i]);
+				std::cout << "Received Border for server " << i << " " << borderStr << "\n";
+				PhyscisServerBorderData* serverBorderData = CreatePhysicsServerBorders(borderStr);
 				std::pair<int, PhyscisServerBorderData*> pair = std::make_pair(packet->serverIDs[i], serverBorderData);
 				mPhysicsServerBorderMap.insert(pair);
 			}

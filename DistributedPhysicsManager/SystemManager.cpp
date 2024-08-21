@@ -29,6 +29,7 @@ NCL::DistributedManager::SystemManager::~SystemManager() {
 }
 
 void NCL::DistributedManager::SystemManager::StartManagerServer(int port, int maxClients) {
+	mSystemManagerPort = port;
 	mDistributedPhysicsManagerServer = new NCL::Networking::DistributedPhysicsManagerServer(port, maxClients);
 
 	std::cout << "Server started..." << "\n";
@@ -97,7 +98,7 @@ void DistributedManager::SystemManager::SendStartDataToPhysicsServer(int gameIns
 		serverPorts.push_back(createdServer->GetDataSenderPort());
 	}
 	auto& physicsServersBorderStrMap = gameInstance->GetServerBorderStrMap();
-	StartDistributedGameServerPacket packet(1234, gameInstanceID, mMaxClientCount, gameInstance->GetObjectsPerPlayer(), serverPorts, serverIps, physicsServersBorderStrMap);
+	StartDistributedGameServerPacket packet(mSystemManagerPort, gameInstanceID, mMaxClientCount, gameInstance->GetObjectsPerPlayer(), serverPorts, serverIps, physicsServersBorderStrMap);
 	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
 }
 
@@ -186,8 +187,9 @@ void DistributedManager::SystemManager::HandlePhysicsServerMiddlewareConnected(i
 	SendPhysicsServerMiddlewareDataPacket(peerID, newMidwareID);
 }
 
-void DistributedManager::SystemManager::SendRunServerInstancePacket(int gameInstance, int physicsServerID, int midwareID, const std::string& borderStr) {
-	RunDistributedPhysicsServerInstancePacket packet(physicsServerID, gameInstance, midwareID, borderStr);
+void DistributedManager::SystemManager::SendRunServerInstancePacket(int gameInstance, int physicsServerID, int midwareID, std::string borderStr) {
+	RunDistributedPhysicsServerInstancePacket packet(physicsServerID, gameInstance, midwareID, borderStr.c_str());
+	std::cout << "Server start border: " << packet.borderStr << "\n";
 	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
 }
 
@@ -198,7 +200,7 @@ void DistributedManager::SystemManager::StartGameServers(int gameInstanceID) {
 	for (int i = PHYSICS_SERVER_ID_BUFFER; i < PHYSICS_SERVER_ID_BUFFER + maxServer; i++) {
 
 		std::cout << "Creating server(" << i << ") for game instance: " << gameInstance->GetGameID() << "\n";
-		const std::string& serverBorderStr = gameInstance->GetServerBorderStrMap()[i];
+		std::string serverBorderStr = gameInstance->GetServerBorderStrMap()[i].c_str();
 		int midwareID = GetAvailablePhysicsMidware();
 		std::cout << "Sending create server to midware with ID: " << midwareID << "\n";
 		SendRunServerInstancePacket(gameInstance->GetGameID(), i, midwareID, serverBorderStr);

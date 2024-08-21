@@ -42,6 +42,7 @@ namespace NCL {
 			bool mIsGameStarted = false;
 			int mMaxPhysicsServerCount = 0;
 			int mMaxClientCount = 0;
+			int mSystemManagerPort;
 
 			NCL::Networking::DistributedPhysicsManagerServer* mDistributedPhysicsManagerServer = nullptr;
 
@@ -59,7 +60,7 @@ namespace NCL {
 			void HandleDistributedPhysicsServerAllClientsAreConnectedPacketReceived(NCL::CSC8503::DistributedPhysicsServerAllClientsAreConnectedPacket* packet);
 			void HandleAllClientsConnectedToPhysicsServer(NCL::CSC8503::DistributedPhysicsServerAllClientsAreConnectedPacket* packet);
 			void HandlePhysicsServerMiddlewareConnected(int peerID, PhysicsServerMiddlewareConnectedPacket* packet);
-			void SendRunServerInstancePacket(int gameInstance, int physicsServerID, int midwareID, const string& borderStr);
+			void SendRunServerInstancePacket(int gameInstance, int physicsServerID, int midwareID, std::string borderStr);
 
 			void StartGameServers(int gameInstanceID);
 

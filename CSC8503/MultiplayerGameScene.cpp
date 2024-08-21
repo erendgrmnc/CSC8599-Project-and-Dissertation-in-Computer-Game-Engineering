@@ -286,16 +286,9 @@ void MultiplayerGameScene::UpdateGame(float dt) {
 			inputs[3] = true;
 		}
 
-
-		int counter = 0;
 		for (auto& client : mDistributedPhysicsClients) {
 			client.second->SetPlayerInputs(inputs);
 			client.second->WriteAndSendClientInputPacket(mLocalPlayerId);
-			counter++;
-		}
-
-		if (counter != 2) {
-			std::cout << "2 servera client paket atmadı\n";
 		}
 	}
 	else {

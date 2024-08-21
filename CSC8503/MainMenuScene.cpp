@@ -93,7 +93,7 @@ void MainMenuScene::DrawLevelSelectionPanel() {
 	ImGui::PushFont(mButtonFont);
 
 	ImGui::PushFont(mHeaderFont);
-	ImGui::SetCursorPos(ImVec2(windowSize.x * .2f, windowSize.y * .1f));
+	ImGui::SetCursorPos(ImVec2(windowSize.x * .4f, windowSize.y * .4f));
 	ImGui::TextColored(ImVec4(1, 0, 0, 1), "Distributed System Client");
 	ImGui::PopFont();
 
@@ -127,16 +127,6 @@ void MainMenuScene::DrawMultiplayerLobby() {
 
 	if (ImGui::Button("Close", ImVec2(windowSize.x * .1f , windowSize.y * .1f))) {
 		mCurrentOpenPanel = MainMenuPanels::LevelSelection;
-	}
-
-	ImGui::SetCursorPos(ImVec2(windowSize.x * .3f, windowSize.y * .01f));
-	if (ImGui::Button("Host", ImVec2(windowSize.x * .3f, windowSize.y * .1f))) {
-		mIsMultiplayerLobbyOnHost = true;
-	}
-
-	ImGui::SetCursorPos(ImVec2(windowSize.x * .6f, windowSize.y * .01f));
-	if (ImGui::Button("Join", ImVec2(windowSize.x * .3f, windowSize.y * .1f))) {
-		mIsMultiplayerLobbyOnHost = false;
 	}
 
 	const ImVec2 ipInputSize(windowSize.x * .3f, windowSize.y * .020f);

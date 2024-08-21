@@ -76,7 +76,8 @@ void NCL::ServerMidwareManager::RegisterDistributedManagerClientPackets() {
 }
 
 void NCL::ServerMidwareManager::HandleRunInstancePacket(RunDistributedPhysicsServerInstancePacket* packet) {
-	StartPhysicsServerInstance(distributedManagerPort, packet->serverID, packet->gameInstanceID, packet->borderStr);
+	std::string serverBorderStr(packet->borderStr);
+	StartPhysicsServerInstance(distributedManagerPort, packet->serverID, packet->gameInstanceID, serverBorderStr);
 }
 
 void ServerMidwareManager::StartPhysicsServerInstance(int distributedManagerPort, int physicsServerID, int gameInstanceID,

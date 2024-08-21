@@ -307,10 +307,17 @@ StartDistributedGameServerPacket::StartDistributedGameServerPacket(int serverMan
 
 		auto it = serverBorderMap.find(i);
 		if (it != serverBorderMap.end()) {
-			borders[i] = it->second;
+			char arr[256];
+			strcpy(arr, it->second.c_str());
+
+			for (int j = 0; j < 256; j++) {
+				this->borders[i][j] = arr[j];
+			}
 		}
 		else {
-			borders[i] = ""; // Handle missing key
+			for (int j = 0; j < 256; j++) {
+				this->borders[i][j] = '\0';// Handle missing key
+			}
 		}
 	}
 
@@ -355,14 +362,15 @@ StartSimulatingObjectReceivedPacket::StartSimulatingObjectReceivedPacket(int obj
 }
 
 RunDistributedPhysicsServerInstancePacket::RunDistributedPhysicsServerInstancePacket(int serverID,
-	int gameInstanceID, int midwareID, const std::string& borderData) {
+	int gameInstanceID, int midwareID, std::string borderData) {
 	type = BasicNetworkMessages::RunDistributedPhysicsServerInstance;
 	size = sizeof(RunDistributedPhysicsServerInstancePacket);
 
-	this->borderStr = borderData.c_str();
 	this->serverID = serverID;
 	this->gameInstanceID = gameInstanceID;
 	this->midwareID = midwareID;
+
+	strcpy(this->borderStr, borderData.c_str());
 }
 
 PhysicsServerMiddlewareConnectedPacket::PhysicsServerMiddlewareConnectedPacket(const std::string& ipAddress) {
