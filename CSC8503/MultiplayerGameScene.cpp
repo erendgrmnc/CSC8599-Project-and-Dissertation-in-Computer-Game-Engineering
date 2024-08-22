@@ -801,16 +801,11 @@ NetworkPlayer* MultiplayerGameScene::AddPlayerObject(const Vector3& position, in
 }
 
 void MultiplayerGameScene::HandleFullPacket(FullPacket* fullPacket) {
-	if (fullPacket->objectID == 10) {
-		std::cout << "Reading packet for Eren\n";
-	}
 
 	if (fullPacket->serverID <= -1 || mDistributedPhysicsClients[fullPacket->serverID]->GetClientLastFullID() > fullPacket->fullState.stateID) {
 		std::cout << "Discarding full packet. ServerID: " << fullPacket->serverID << "| Client Side Last ID: " << mDistributedPhysicsClients[fullPacket->serverID]->GetClientLastFullID() << "| Full Packet ID: " << fullPacket->fullState.stateID << "\n";
 		return;
 	}
-
-	//std::cout << "Received full packet \n";
 
 	for (int i = 0; i < mNetworkObjects.size(); i++) {
 		if (mNetworkObjects[i]->GetnetworkID() == fullPacket->objectID) {
@@ -818,13 +813,11 @@ void MultiplayerGameScene::HandleFullPacket(FullPacket* fullPacket) {
 			mNetworkObjects[i]->ReadPacket(*fullPacket);
 		}
 	}
-	//std::cout << "Reading packet from coming serverID: " << fullPacket->serverID << "\n";
 	mDistributedPhysicsClients[fullPacket->serverID]->SetClientLastFullID(fullPacket->fullState.stateID);
 }
 
 void MultiplayerGameScene::HandleDeltaPacket(DeltaPacket* deltaPacket) {
 
-	//std::cout << "Received delta packet \n";
 	for (int i = 0; i < mNetworkObjects.size(); i++) {
 		if (mNetworkObjects[i]->GetnetworkID() == deltaPacket->objectID) {
 			mNetworkObjects[i]->ReadPacket(*deltaPacket);

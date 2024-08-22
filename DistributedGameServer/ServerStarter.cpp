@@ -130,9 +130,6 @@ int StartGameServer(int argc, char* argv[]) {
 
 		Profiler::Update();
 		profilerRenderer->Render();
-	
-		
-		//std::cout << "Network Update Time: " << timeTaken << "\n";
 	}
 
 	return 0;
