@@ -24,13 +24,10 @@ DistributedGameServer/Debug
 DistributedGameServer/Release
 DistributedPhysicsManager/Debug
 DistributedPhysicsManager/Release
-ImguiSceneNode/Release
-ImguiSceneNode/Debug
 DistributedPhysicsManager/DistributedPhysicsManager.dir/Debug
 DistributedGameServer/DistributedGameServer.dir/Debug
 PhysicsServerMidware/PhysicsServerMidware.dir/Debug
 PhysicsServerMidware/Debug
-ImguiSceneNode/ImguiSceneNode.dir/Debug
 CSC8503CoreClasses/Debug
 CSC8503CoreClasses/CSC8503CoreClasses.dir/Debug
 ALL_BUILD.vcxproj
@@ -70,7 +67,6 @@ EntryPoint/EntryPoint.dir
 
 x64/Debug/
 x64/Release/
-CSC8508.sln
 DebugUtils/Debug
 DebugUtils/Release
 DebugUtils/DebugUtils.dir
