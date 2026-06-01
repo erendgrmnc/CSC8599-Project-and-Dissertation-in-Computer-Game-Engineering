@@ -4,7 +4,7 @@
 #include <Psapi.h>
 #include <imgui/imgui.h>
 
-#include "AnimationSystem.h"
+using namespace NCL;
 
 namespace {
 	static constexpr int BYTE_TO_MB = 1048576;

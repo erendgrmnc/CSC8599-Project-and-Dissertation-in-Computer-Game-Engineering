@@ -10,6 +10,8 @@
 #include "TestObject.h"
 #include "glad/gl.h"
 
+using namespace NCL;
+
 
 namespace {
 	constexpr int NETWORK_ID_BUFFER = 10;

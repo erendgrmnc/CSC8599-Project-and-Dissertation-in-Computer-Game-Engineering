@@ -4,6 +4,8 @@
 #include "Profiler.h"
 #include "enet/enet.h"
 
+using namespace NCL;
+
 NCL::Networking::DistributedPhysicsManagerServer::DistributedPhysicsManagerServer(int onPort, int maxClients) : GameServer(onPort, maxClients) {
 }
 

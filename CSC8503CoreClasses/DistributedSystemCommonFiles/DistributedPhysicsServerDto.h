@@ -1,4 +1,9 @@
 #pragma once
+
+#include <map>
+#include <string>
+#include <vector>
+
 namespace NCL {
 	struct GameBorder {
 		double maxX = 0.f;

@@ -1,5 +1,6 @@
 #pragma once
-#include "AnimationSystem.h"
+
+#include <Windows.h>
 
 namespace NCL {
 	class Profiler {

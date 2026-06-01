@@ -11,6 +11,8 @@
 #include "ServerWorldManager.h"
 #include "DistributedSystemCommonFiles/DistributedUtils.h"
 
+using namespace NCL;
+
 namespace {
 	int GAME_INSTANCE_ID_BUFFER = 0;
 	int PHYSICS_SERVER_ID_BUFFER = 0;

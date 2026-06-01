@@ -12,6 +12,8 @@
 #include "TestObject.h"
 #include <DistributedSystemCommonFiles/DistributedUtils.h>
 
+using namespace NCL;
+
 namespace {
 	constexpr int TEST_MAX_CLIENT = 10;
 	constexpr int TEST_MAX_GAME_SERVER = 10;

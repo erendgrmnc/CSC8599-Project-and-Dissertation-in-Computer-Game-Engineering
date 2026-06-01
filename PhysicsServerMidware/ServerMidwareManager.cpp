@@ -1,9 +1,13 @@
 #include "ServerMidwareManager.h"
 
-#include "AnimationSystem.h"
+#include <Windows.h>
+
 #include "GameClient.h"
 #include "NetworkObject.h"
 #include "DistributedSystemCommonFiles/DistributedUtils.h"
+
+using namespace NCL;
+using namespace NCL::CSC8503;
 
 namespace {
 	const std::string PHYSIC_SERVER_PATH = "./DistributedPhysicsServer/EntryPoint.exe";

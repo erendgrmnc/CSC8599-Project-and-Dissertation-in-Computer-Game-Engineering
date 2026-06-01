@@ -42,14 +42,10 @@ function(Create_CSC8503CoreClasses_Files_PC)
     source_group("AI\\Pathfinding" FILES ${AI_Pathfinding})
 
     set(AI_Guard
-        "GuardObject.h"
-        "GuardObject.cpp"
     )
     source_group("AI\\Guard" FILES ${AI_Guard})
 
     set(AI_CCTV
-        "CCTV.h"
-        "CCTV.cpp"
     )
     source_group("AI\\CCTV" FILES ${AI_CCTV})
 
@@ -69,38 +65,14 @@ function(Create_CSC8503CoreClasses_Files_PC)
     source_group("Collision Detection" FILES ${Collision_Detection})
 
     set(Level_Creation
-        "JsonParser.h"
-        "JsonParser.cpp"
-        "Level.h"
-        "Level.cpp"
-        "LevelEnums.h"
-        "LevelEnums.cpp"
-        "Room.h"
-        "Room.cpp"
     )
     source_group("Level\\Level Creation" FILES ${Level_Creation})
 
     set(NavMesh
-        "RecastBuilder.h"
-        "RecastBuilder.cpp"
     )
     source_group("Level\\NavMesh" FILES ${NavMesh})
 
     set(Level_Objects
-        "Door.h"
-        "Door.cpp"
-        "InteractableDoor.h"
-        "InteractableDoor.cpp"
-        "Interactable.h"
-        "PrisonDoor.h"
-        "PrisonDoor.cpp"
-        "Helipad.h"
-        "Helipad.cpp"
-        "Vent.h"
-        "Vent.cpp"
-        "Interactable.h"
-        "PointGameObject.h"
-        "PointGameObject.cpp"
     )
     source_group("Level\\Level Objects" FILES ${Level_Objects})
 
@@ -141,12 +113,10 @@ function(Create_CSC8503CoreClasses_Files_PC)
     set(Header_Files
         "Debug.h"
         "GameObject.h"
-        "PlayerObject.h"
         "GameWorld.h"
         "RenderObject.h"
         "Transform.h"
         "AnimationObject.h"
-        "AnimationSystem.h"
         "SoundObject.h"
         "TestObject.h"
     )
@@ -155,12 +125,10 @@ function(Create_CSC8503CoreClasses_Files_PC)
     set(Source_Files
         "Debug.cpp"
         "GameObject.cpp"
-        "PlayerObject.cpp"
         "GameWorld.cpp"
         "RenderObject.cpp"
         "Transform.cpp"
         "AnimationObject.cpp"
-        "AnimationSystem.cpp"
         "SoundObject.cpp"
         "TestObject.cpp"
     )

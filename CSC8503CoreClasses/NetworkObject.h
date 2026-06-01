@@ -6,6 +6,11 @@
 #include "NetworkState.h"
 #include "GameClient.h"
 
+// Distributed manager/server/world headers reference NCL::CSC8503 packet and
+// object types unqualified; this directive (previously pulled in transitively
+// via the removed team-game include chain) keeps that name lookup working.
+using namespace NCL::CSC8503;
+
 namespace NCL::CSC8503 {
 	class GameObject;
 
