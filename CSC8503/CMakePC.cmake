@@ -6,79 +6,20 @@ function(Create_PC_CSC8503_Files)
     # Source groups
     ################################################################################
     set(Header_Files
-        "GameTechRenderer.h"
-        "LevelManager.h"
-        "NetworkedGame.h"
-        "NetworkPlayer.h"
-        "StateGameObject.h"
-        "MultiplayerGameScene.h"
         "DistributedMultiplayerGameScene.h"
-        "GameSceneManager.h"
-        "SinglePlayerStates.h"
-        "Scene.h"
-        "SceneManager.h"
-        "SceneStates.h"
-        "MainMenuScene.h"
-        "SoundManager.h"
-        "MultiplayerStates.h"
-        "BaseUI.h"
-        "WindowsUI.h"
-        "ControllerInterface.h"
-        "MiniMap.h"
     )
     source_group("Header Files" FILES ${Header_Files})
 
     set(Inventory_Buff_System
-        "InventoryBuffSystem/InventoryBuffSystem.h"
-        "InventoryBuffSystem/PlayerInventory.h"
-        "InventoryBuffSystem/PlayerInventory.cpp"
-        "InventoryBuffSystem/PlayerBuffs.h"
-        "InventoryBuffSystem/PlayerBuffs.cpp"
-        "InventoryBuffSystem/PickupGameObject.h"
-        "InventoryBuffSystem/PickupGameObject.cpp"    
-        "InventoryBuffSystem/FlagGameObject.h"
-        "InventoryBuffSystem/FlagGameObject.cpp"
-        "InventoryBuffSystem/SoundEmitter.h"
-        "InventoryBuffSystem/SoundEmitter.cpp"
-        "InventoryBuffSystem/Item.h"
-        "InventoryBuffSystem/Item.cpp"
     )
     source_group("Inventory Buff System" FILES ${Inventory_Buff_System})
 
     set(Suspicion_System
-        "SuspicionSystem/GlobalSuspicionMetre.h"
-        "SuspicionSystem/GlobalSuspicionMetre.cpp"
-        "SuspicionSystem/LocationBasedSuspicion.h"
-        "SuspicionSystem/LocationBasedSuspicion.cpp"
-        "SuspicionSystem/LocalSuspicionMetre.h"
-        "SuspicionSystem/LocalSuspicionMetre.cpp"
-        "SuspicionSystem/SuspicionMetre.h"
-        "SuspicionSystem/SuspicionMetre.cpp"
-        "SuspicionSystem/SuspicionSystem.h"
     )
     source_group("Suspicion System" FILES ${Suspicion_System})
 
     set(Source_Files
-        "GameTechRenderer.cpp"
-        "LevelManager.cpp"
-        "NetworkedGame.cpp"
-        "NetworkPlayer.cpp"
-        "StateGameObject.cpp"
-        "MultiplayerGameScene.cpp"
         "DistributedMultiplayerGameScene.cpp"
-        "GameSceneManager.cpp"
-        "SinglePlayerStates.cpp"
-        "Scene.cpp"
-        "SceneManager.cpp"
-        "SceneStates.cpp"
-        "MainMenuScene.cpp"
-        "SoundManager.cpp"
-        "MultiplayerStates.cpp"
-        "BaseUI.cpp"
-        "WindowsUI.cpp"
-        "ControllerInterface.cpp"
-        "MiniMap.cpp"
-        "GameStart.cpp"
         "DistributedClientStart.cpp"
     )
 
@@ -235,7 +176,6 @@ function(Create_PC_CSC8503_Files)
     include_directories("../Detour")
     include_directories("../DebugUtils")
     include_directories("../DetourTileCache")
-    include_directories("../FMODCoreAPI/includes")
 
     target_link_libraries(${PROJECT_NAME} LINK_PUBLIC NCLCoreClasses)
     target_link_libraries(${PROJECT_NAME} LINK_PUBLIC CSC8503CoreClasses)
@@ -244,12 +184,4 @@ function(Create_PC_CSC8503_Files)
     target_link_libraries(${PROJECT_NAME} LINK_PUBLIC Detour)
     target_link_libraries(${PROJECT_NAME} LINK_PUBLIC DebugUtils)
     target_link_libraries(${PROJECT_NAME} LINK_PUBLIC DetourTileCache)
-    target_link_libraries(${PROJECT_NAME} LINK_PUBLIC "../FMODCoreAPI/libs/fmod_vc")
-    target_link_libraries(${PROJECT_NAME} LINK_PUBLIC "../FMODCoreAPI/libs/fmodL_vc")
-
-    file(GLOB DLLS "../FMODCoreAPI/dlls/*.dll")
-
-    foreach(DLL ${DLLS})
-          add_custom_command(TARGET ${PROJECT_NAME} PRE_BUILD COMMAND ${CMAKE_COMMAND} -E copy ${DLL} $<TARGET_FILE_DIR:${PROJECT_NAME}>)
-    endforeach(DLL)
 endfunction()
