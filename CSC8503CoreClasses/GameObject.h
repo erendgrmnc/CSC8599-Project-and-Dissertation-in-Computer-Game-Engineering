@@ -7,7 +7,6 @@ using std::vector;
 namespace NCL::CSC8503 {
 	class NetworkObject;
 	class PhysicsObject;
-	class SoundObject;
 	class RenderObject;
 
 	enum CollisionLayer {
@@ -98,10 +97,6 @@ namespace NCL::CSC8503 {
 			return mNetworkObject;
 		}
 
-		SoundObject* GetSoundObject() const {
-			return mSoundObject;
-		}
-
 
 #ifdef USEGL
 		void SetIsSensed(bool sensed);
@@ -120,12 +115,6 @@ namespace NCL::CSC8503 {
 		void SetPhysicsObject(PhysicsObject* newObject) {
 			mPhysicsObject = newObject;
 			mHasPhysics = true;
-		}
-
-
-
-		void SetSoundObject(SoundObject* newObject) {
-			mSoundObject = newObject;
 		}
 
 		const std::string& GetName() const {
@@ -187,7 +176,6 @@ namespace NCL::CSC8503 {
 		PhysicsObject* mPhysicsObject;
 		RenderObject* mRenderObject;
 		NetworkObject* mNetworkObject;
-		SoundObject* mSoundObject;
 
 		bool		mIsSensed;
 		bool		mHasPhysics;

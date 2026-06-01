@@ -117,7 +117,6 @@ function(Create_CSC8503CoreClasses_Files_PC)
         "RenderObject.h"
         "Transform.h"
         "AnimationObject.h"
-        "SoundObject.h"
         "TestObject.h"
     )
     source_group("Header Files" FILES ${Header_Files})
@@ -129,7 +128,6 @@ function(Create_CSC8503CoreClasses_Files_PC)
         "RenderObject.cpp"
         "Transform.cpp"
         "AnimationObject.cpp"
-        "SoundObject.cpp"
         "TestObject.cpp"
     )
     source_group("Source Files" FILES ${Source_Files})
