@@ -2,18 +2,13 @@
 
 #include "GameClient.h"
 
-DistributedMultiplayerGameScene::DistributedMultiplayerGameScene() {
-	mThisServer = nullptr;
-	mThisClient = nullptr;
+using namespace NCL::CSC8503;
 
+DistributedMultiplayerGameScene::DistributedMultiplayerGameScene() {
 	mClientSideLastFullID = 0;
 	mServerSideLastFullID = 0;
 
-	mGameState = NCL::CSC8503::MainMenuState;
-
 	NetworkBase::Initialise();
-	mTimeToNextPacket = 0.0f;
-	mPacketsToSnapshot = 0;
 }
 
 DistributedMultiplayerGameScene::~DistributedMultiplayerGameScene() {
@@ -84,10 +79,6 @@ void DistributedMultiplayerGameScene::UpdatePhysicsClients(float dt) const {
 	for (const auto& client : mDistributedPhysicsClients) {
 		client->UpdateClient();
 	}
-}
-
-void DistributedMultiplayerGameScene::SetItemsLeftToZero() {
-
 }
 
 void DistributedMultiplayerGameScene::HandleOnConnectToDistributedPhysicsServerPacketReceived(

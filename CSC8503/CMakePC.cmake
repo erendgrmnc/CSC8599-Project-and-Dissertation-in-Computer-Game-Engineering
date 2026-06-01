@@ -79,6 +79,7 @@ function(Create_PC_CSC8503_Files)
         "ControllerInterface.cpp"
         "MiniMap.cpp"
         "GameStart.cpp"
+        "DistributedClientStart.cpp"
     )
 
 

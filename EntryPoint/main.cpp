@@ -4,10 +4,10 @@
 	#elif BUILDFORPHYSICSMIDWARE
 	#include "../PhysicsServerMidware/ProgramStart.cpp"
 	#else
-	#include "../DistributedGameServer/ServerStarter.cpp" 
+	#include "../DistributedGameServer/ServerStarter.cpp"
 	#endif
 #else
-	#include "../CSC8503/GameStart.cpp"
+	#include "../CSC8503/DistributedClientStart.cpp"
 #endif
 
 #ifdef USEPROSPERO
@@ -27,8 +27,8 @@ int main(int argc, char* argv[]) {
 	StartGameServer(argc, argv);
 #endif
 
-#else 
-	RunGame();
+#else
+	RunDistributedClient();
 #endif
 
 }
