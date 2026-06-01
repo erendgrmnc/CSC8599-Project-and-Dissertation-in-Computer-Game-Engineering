@@ -39,7 +39,7 @@ These map to the `DISTRIBUTEDSYSTEMACTIVE`, `BUILDFORDISTRIBUTEDMANAGER`, and `B
 | MANAGER=true | Distributed Manager (orchestrator) | `StartProgram()` | `DistributedPhysicsManager/ProgramStart.cpp` |
 | MIDWARE=true | Physics Server Midware (process launcher) | `StartMidware()` | `PhysicsServerMidware/ProgramStart.cpp` |
 | both false | Distributed Game Server (physics sim) | `StartGameServer()` | `DistributedGameServer/ServerStarter.cpp` |
-| DISTRIBUTED_SYSTEM_ACTIVE=false | Original single/multiplayer game | `RunGame()` | `CSC8503/GameStart.cpp` |
+| DISTRIBUTED_SYSTEM_ACTIVE=false | Thin distributed client | `RunDistributedClient()` | `CSC8503/DistributedClientStart.cpp` |
 
 **Only one role builds per configuration.** To switch roles you must edit these CMake variables and regenerate (clean cache). Running the full distributed system therefore means producing several differently-configured builds of the same solution.
 
@@ -49,8 +49,8 @@ The four roles form a hierarchy that bootstraps a distributed simulation:
 
 1. **Distributed Manager** (`SystemManager`) — the orchestrator. Listens on port **1234**. The operator enters server count, client count, and objects-per-player at the console, then presses **S** to create a `GameInstance`. The manager computes a spatial `GameBorder` (min/max X and Z) for each physics server, then tells midwares to launch the server processes and tells clients where to connect.
 2. **Physics Server Midware** (`ServerMidwareManager`) — runs on each physics machine; connects to the manager and, on receiving a `RunDistributedPhysicsServerInstance` packet, spawns a **Distributed Game Server** process. Launch parameters are passed as a single hyphen-delimited `argv[2]` string: `ip-port-serverID-gameInstanceID-borders` (parsed in `ServerStarter.cpp`).
-3. **Distributed Game Server** (`DistributedGameServerManager` + `ServerWorldManager`) — simulates physics for objects inside its assigned border region. When an object leaves the region it performs a transition handshake (`StartSimulatingObjectInServer` / ...`Received`) to hand the object off to the neighbouring server. Each game server also runs a `DistributedPacketSenderServer` that broadcasts world snapshots (delta/full state) to game clients on a sender thread.
-4. **Game Client** — the `CSC8503` app connects to the manager to discover instance data, then connects to the relevant physics server(s) to receive snapshots and send input.
+3. **Distributed Game Server** (`DistributedGameServerManager` + `ServerWorldManager`) — simulates physics for objects inside its assigned border region. When an object leaves the region it performs a transition handshake (`StartSimulatingObjectInServer` / ...`Received`) to hand the object off to the neighbouring server. Each game server also runs a `DistributedPacketSenderServer` that broadcasts world snapshots (delta/full state) to game clients inline in its update loop (the dedicated sender thread is currently commented out).
+4. **Thin Client** (`DistributedMultiplayerGameScene`, hosted by `RunDistributedClient` in `CSC8503/DistributedClientStart.cpp`) — connects to the manager to discover instance data, then connects to the relevant physics server(s) to receive snapshots. It is a slim `PacketReceiver` (not part of any scene/level hierarchy).
 
 The interesting domain logic lives in `ServerWorldManager` (border checks, object handoff, `CalculateIncomingObjectOffsetedPosition`) and `SystemManager`/`GameInstance` (border calculation, instance lifecycle).
 
@@ -66,11 +66,13 @@ Key networking classes (all in `CSC8503CoreClasses/`): `GameServer`/`GameClient`
 ## Module layout
 
 - `NCLCoreClasses/` — engine foundation: window, input, maths, timer, file loaders.
-- `CSC8503CoreClasses/` — game objects, physics (`PhysicsSystem`, collision detection/volumes), networking (above), AI (behaviour trees), navigation. Most code Claude touches for distributed work is here.
-- `CSC8503/` — the original gameplay client app: renderers' glue, scene/state machines, and gameplay systems (`InventoryBuffSystem`, `SuspicionSystem`, sound, minimap). Largely the pre-existing team game; the distributed system reuses its world/object code.
+- `CSC8503CoreClasses/` — game objects, physics (`PhysicsSystem`, collision detection/volumes), networking (above), and the `Distributed*` classes. The team-game gameplay classes (guards, CCTV, doors, level/room loading, `PlayerObject`, animation system, FMOD `SoundObject`) were removed during cleanup; behaviour-tree/pushdown/navigation engine helpers remain.
+- `CSC8503/` — now only the thin distributed client: `DistributedMultiplayerGameScene.*` and its host `DistributedClientStart.cpp`. (Previously the team "heist" game app — scenes, UI, inventory/suspicion systems — all removed.)
 - `DistributedPhysicsManager/`, `PhysicsServerMidware/`, `DistributedGameServer/` — the three distributed roles (manager + their `ProgramStart`/`ServerStarter`).
-- `OpenGLRendering/` (x64) and `VulkanRendering/` — renderer backends.
+- `OpenGLRendering/` — the renderer backend (x64). The Vulkan renderer and PS5/Prospero path were removed.
 - `Recast/`, `Detour/`, `DetourTileCache/`, `DebugUtils/` — vendored RecastNavigation nav-mesh library.
 - `EntryPoint/` — the shared `main.cpp` and per-role `CMake*.cmake` include files.
 
-Each module owns a `CMakeLists.txt` plus `CMakePC.cmake` (and sometimes `CMakePS5.cmake`) listing its sources; add new files to the relevant `CMake*.cmake`, not just to disk.
+Each module owns a `CMakeLists.txt` plus `CMakePC.cmake` listing its sources; add new files to the relevant `CMake*.cmake`, not just to disk.
+
+> **Name lookup note:** `CSC8503CoreClasses/NetworkObject.h` carries a global `using namespace NCL::CSC8503;` that several distributed headers rely on (it was previously pulled in transitively via the now-removed team-game include chain). Several distributed `.cpp` files also add `using namespace NCL;` for the same reason.

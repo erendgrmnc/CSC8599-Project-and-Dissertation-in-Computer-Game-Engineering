@@ -6,15 +6,14 @@ The system simulates a single shared physics world by **splitting it across mult
 
 ## Repository context
 
-This is a large monorepo that contains three overlapping bodies of work:
+This repo began as a Newcastle MSc monorepo that also held a team coursework "heist" game (inventory, suspicion, guards, etc.) built on the same engine. **That team-game code and its assets have been removed** — the repo is now focused on the distributed physics system plus the shared engine it reuses:
 
 | Category | What it is | Where |
 |---|---|---|
-| **(B) Distributed Physics Simulation** | The dissertation work — the subject of these docs. | `DistributedPhysicsManager/`, `PhysicsServerMidware/`, `DistributedGameServer/`, the `Distributed*` files in `CSC8503CoreClasses/`, and `CSC8503/DistributedMultiplayerGameScene.*` |
-| **(A) CSC8503 team game** | A pre-existing team coursework "heist" game (inventory, suspicion, guards, etc.). | Most of `CSC8503/`, `CSC8503/InventoryBuffSystem/`, `CSC8503/SuspicionSystem/` |
-| **(Shared) Engine** | Foundation reused by both: maths, windowing, physics, collision, AI, networking primitives, renderers, nav-mesh. | `NCLCoreClasses/`, most of `CSC8503CoreClasses/`, `OpenGLRendering/`, `VulkanRendering/`, `Recast/`, `Detour/` |
+| **(B) Distributed Physics Simulation** | The dissertation work — the subject of these docs. | `DistributedPhysicsManager/`, `PhysicsServerMidware/`, `DistributedGameServer/`, the `Distributed*` files in `CSC8503CoreClasses/`, and `CSC8503/` (now only the thin client `DistributedMultiplayerGameScene.*` + its host `DistributedClientStart.cpp`) |
+| **(Shared) Engine** | Foundation reused by the four roles: maths, windowing, physics, collision, networking primitives, OpenGL rendering, nav-mesh. | `NCLCoreClasses/`, most of `CSC8503CoreClasses/`, `OpenGLRendering/`, `Recast/`, `Detour/` |
 
-A single entry point, `EntryPoint/main.cpp`, compiles into **one of four executables** depending on three CMake toggles. Which executable you get (Manager, Midware, Game Server, or the standalone team game) is chosen at build time. See the [toggle matrix in SETUP.md](docs/SETUP.md#the-build-mode-toggle).
+A single entry point, `EntryPoint/main.cpp`, compiles into **one of four executables** depending on three CMake toggles. Which executable you get (Manager, Midware, Game Server, or the thin Client) is chosen at build time. See the [toggle matrix in SETUP.md](docs/SETUP.md#the-build-mode-toggle).
 
 ## Quick start (single machine)
 
@@ -28,7 +27,7 @@ The distributed system is several differently-configured builds of the *same* so
 4. **Run the Manager.** Enter the number of physics servers, max clients, and objects per player at the prompts. It listens on port **1234**.
 5. **Run the Midware.** Enter the manager IP (`127.0.0.1`) and port (`1234`). It connects and waits.
 6. **Press `S` in the Manager window** to create a game instance. The manager computes per-server borders and tells the midware to spawn the game-server process(es).
-7. **Run a client** (the `DistributedMultiplayerGameScene` from the standalone build) to connect to the manager, get routed to its physics server, and start receiving snapshots.
+7. **Build and run the Client** — set all three toggles `"false"` (`CMAKE_DISTRIBUTED_SYSTEM_ACTIVE "false"`), regenerate, build, run. Its host (`RunDistributedClient` in `CSC8503/DistributedClientStart.cpp`) prompts for the manager IP/port, then connects, gets routed to its physics server, and receives snapshots.
 
 ## Documentation
 

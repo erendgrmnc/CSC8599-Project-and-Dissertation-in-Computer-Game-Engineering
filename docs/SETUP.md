@@ -35,7 +35,7 @@ They expand to the compile defs `DISTRIBUTEDSYSTEMACTIVE`, `BUILDFORDISTRIBUTEDM
     #include "../DistributedGameServer/ServerStarter.cpp"      // Game Server
   #endif
 #else
-  #include "../CSC8503/GameStart.cpp"                          // Standalone team game
+  #include "../CSC8503/DistributedClientStart.cpp"             // Thin distributed client
 #endif
 ```
 
@@ -46,7 +46,7 @@ They expand to the compile defs `DISTRIBUTEDSYSTEMACTIVE`, `BUILDFORDISTRIBUTEDM
 | **Distributed Manager** | `true` | `true` | `false` | `DISTRIBUTEDSYSTEMACTIVE`, `BUILDFORDISTRIBUTEDMANAGER` | `StartProgram()` |
 | **Physics Server Midware** | `true` | `false` | `true` | `DISTRIBUTEDSYSTEMACTIVE`, `BUILDFORPHYSICSMIDWARE` | `StartMidware()` |
 | **Distributed Game Server** | `true` | `false` | `false` | `DISTRIBUTEDSYSTEMACTIVE` | `StartGameServer(argc, argv)` |
-| **Standalone team game** | `false` | (ignored) | (ignored) | *(none of the above)* | `RunGame()` |
+| **Thin Client** | `false` | (ignored) | (ignored) | *(none of the above)* | `RunDistributedClient()` |
 
 > When `..._DISTRIBUTED_MANAGER` is `true`, the midware toggle is ignored (the manager branch is checked first). When both are `false` but the system is active, you get the Game Server.
 
@@ -82,9 +82,11 @@ build-out/
 
 The midware launches the game server by an exact relative path: **`./DistributedPhysicsServer/EntryPoint.exe`** (`PhysicsServerMidware/ServerMidwareManager.cpp:9`, used at `:93`/`:115`). The Game Server build must be copied to that path *relative to the midware's working directory*, or the spawn will fail with a `CreateProcess failed` message (`ServerMidwareManager.cpp:127`).
 
-## Standalone team game
+## Thin client (non-distributed build)
 
-Set `CMAKE_DISTRIBUTED_SYSTEM_ACTIVE "false"` and rebuild to get the original CSC8503 heist game (`RunGame()` via `CSC8503/GameStart.cpp`). This build also enables the FMOD audio path, which is compiled out of the distributed roles. It is not part of the distributed system and is documented here only so the toggle behaviour is unambiguous.
+Set `CMAKE_DISTRIBUTED_SYSTEM_ACTIVE "false"` and rebuild to get the **thin distributed client** (`RunDistributedClient()` via `CSC8503/DistributedClientStart.cpp`). This is the player-facing process: it opens a window + profiler, prompts for the manager IP/port, connects, and receives world snapshots. (Historically this toggle built the now-removed CSC8503 heist game; the branch was repurposed for the client when the team-game code was deleted.)
+
+> The FMOD audio engine, the Vulkan renderer, and the PS5/Prospero path were removed during cleanup. All four roles build against the OpenGL renderer only.
 
 ## Next
 
