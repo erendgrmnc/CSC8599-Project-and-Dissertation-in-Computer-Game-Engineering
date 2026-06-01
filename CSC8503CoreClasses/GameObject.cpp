@@ -1,16 +1,9 @@
 #include "GameObject.h"
 
-#include "AnimationSystem.h"
-#include "../CSC8503/LevelManager.h"
 #include "CollisionDetection.h"
 #include "PhysicsObject.h"
 #include "RenderObject.h"
 #include "NetworkObject.h"
-#include "../CSC8503/LevelManager.h"
-#include "../CSC8503/MultiplayerGameScene.h"
-#if !defined(DISTRIBUTEDSYSTEMACTIVE)
-#include "../CSC8503/SceneManager.h"
-#endif
 
 #include "Debug.h"
 
@@ -122,31 +115,6 @@ void GameObject::SetObjectState(GameObjectState state) {
 	}
 
 	mObjectState = state;
-	if (mRenderObject->GetAnimationObject() != nullptr) {
-
-#if !defined(DISTRIBUTEDSYSTEMACTIVE)
-		AnimationSystem* animSystem = LevelManager::GetLevelManager()->GetAnimationSystem();
-		animSystem->SetAnimationState(this, mObjectState);
-#else
-
-#endif
-	}
-
-#ifdef USEGL
-	if (mNetworkObject) {
-#if !defined(DISTRIBUTEDSYSTEMACTIVE)
-		SceneManager* sceneManager = SceneManager::GetSceneManager();
-		bool isServer = sceneManager->IsServer();
-		if (isServer) {
-			MultiplayerGameScene* scene = static_cast<MultiplayerGameScene*>(sceneManager->GetCurrentScene());
-			scene->SendObjectStatePacket(mNetworkObject->GetnetworkID(), mObjectState);
-		}
-#else
-
-#endif
-
-	}
-#endif
 }
 
 void GameObject::DrawCollisionVolume() {

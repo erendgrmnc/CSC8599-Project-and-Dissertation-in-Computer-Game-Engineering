@@ -3,7 +3,6 @@
 #include "GameClient.h"
 
 #include "NetworkObject.h"
-#include "../CSC8503/NetworkPlayer.h"
 #include "./enet/enet.h"
 using namespace NCL;
 using namespace CSC8503;

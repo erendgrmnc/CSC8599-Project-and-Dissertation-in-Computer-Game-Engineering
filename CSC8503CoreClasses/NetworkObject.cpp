@@ -203,7 +203,7 @@ ClientInitPacket::ClientInitPacket(const std::string& playerName) {
 	this->playerName = playerName;
 }
 
-SyncPlayerIdNameMapPacket::SyncPlayerIdNameMapPacket(const std::map<int, string>& playerIdNameMap) {
+SyncPlayerIdNameMapPacket::SyncPlayerIdNameMapPacket(const std::map<int, std::string>& playerIdNameMap) {
 	type = SyncPlayerIdNameMap;
 	size = sizeof(SyncPlayerIdNameMapPacket);
 

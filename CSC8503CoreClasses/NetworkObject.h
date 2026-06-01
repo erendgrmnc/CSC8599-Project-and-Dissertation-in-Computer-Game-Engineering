@@ -4,7 +4,7 @@
 #include "GameObject.h"
 #include "NetworkBase.h"
 #include "NetworkState.h"
-#include "../CSC8503/NetworkPlayer.h"
+#include "GameClient.h"
 
 namespace NCL::CSC8503 {
 	class GameObject;
@@ -177,7 +177,7 @@ namespace NCL::CSC8503 {
 		int playerIds[4] = { -1 , -1, -1,-1 };
 		std::string playerNames[4];
 
-		SyncPlayerIdNameMapPacket(const std::map<int, string>& playerIdNameMap);
+		SyncPlayerIdNameMapPacket(const std::map<int, std::string>& playerIdNameMap);
 	};
 
 	struct GuardSpotSoundPacket : public GamePacket {
