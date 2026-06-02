@@ -73,6 +73,7 @@ Key networking classes (all in `CSC8503CoreClasses/`): `GameServer`/`GameClient`
 - `OpenGLRendering/` — the renderer backend (x64). The Vulkan renderer and PS5/Prospero path were removed.
 - `Recast/`, `Detour/`, `DetourTileCache/`, `DebugUtils/` — vendored RecastNavigation nav-mesh library.
 - `EntryPoint/` — the shared `main.cpp` and per-role `CMake*.cmake` include files.
+- `tools/` — deployment tooling (outside CMake). `build-deploy.ps1` builds all four roles into `deploy/<Role>/EntryPoint.exe`; `DistributedLauncher/` is a .NET WPF launcher that configures a run (server/client counts, objects-per-player, world bounds, manager IP/port) and spawns the roles, with a headless `--agent` mode for remote midware machines. See `tools/README.md`.
 
 Each module owns a `CMakeLists.txt` plus `CMakePC.cmake` listing its sources; add new files to the relevant `CMake*.cmake`, not just to disk.
 
