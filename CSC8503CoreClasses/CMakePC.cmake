@@ -125,6 +125,7 @@ function(Create_CSC8503CoreClasses_Files_PC)
         "RenderObject.h"
         "Transform.h"
         "AnimationObject.h"
+        "AnimationSystem.h"
         "SoundObject.h"
         "TestObject.h"
     )
@@ -137,6 +138,7 @@ function(Create_CSC8503CoreClasses_Files_PC)
         "RenderObject.cpp"
         "Transform.cpp"
         "AnimationObject.cpp"
+        "AnimationSystem.cpp"
         "SoundObject.cpp"
         "TestObject.cpp"
     )
