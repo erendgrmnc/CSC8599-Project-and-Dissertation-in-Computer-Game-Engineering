@@ -77,6 +77,8 @@ function(Create_CSC8503CoreClasses_Files_PC)
     source_group("Level\\Level Creation" FILES ${Level_Creation})
 
     set(NavMesh
+        "RecastBuilder.h"
+        "RecastBuilder.cpp"
     )
     source_group("Level\\NavMesh" FILES ${NavMesh})
 
