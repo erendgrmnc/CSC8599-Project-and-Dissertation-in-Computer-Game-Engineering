@@ -49,7 +49,7 @@ namespace NCL {
 			std::vector<GameInstance*> mCreatedGameInstances;
 			std::vector<DistributedPhysicsServerData*> mDistributedPhysicsServers;
 
-			std::map<int, int> mPhysicsServerMiddlwareRunningInstanceMap;
+			std::map<int, int> mPhysicsServerMiddlewareRunningInstanceMap;
 
 			void SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int serverID, const int port) const;
 			void SendStartDataToPhysicsServer(int gameInstanceID, int physicsServerID) const;

@@ -20,7 +20,7 @@ namespace NCL::CSC8503 {
 }
 
 namespace NCL::DistributedGameServer {
-	struct PhyscisServerBorderData;
+	struct PhysicsServerBorderData;
 	class ServerWorldManager;
 }
 
@@ -84,7 +84,7 @@ namespace NCL {
 			std::vector<CSC8503::NetworkObject*>* mNetworkObjects;
 
 			std::map<int, int> mStateIDs;
-			std::map<const int, PhyscisServerBorderData*> mPhysicsServerBorderMap;
+			std::map<const int, PhysicsServerBorderData*> mPhysicsServerBorderMap;
 
 			NCL::Networking::DistributedPhysicsServerClient* mThisDistributedPhysicsServer = nullptr;
 			NCL::Networking::DistributedPacketSenderServer* mDistributedPacketSenderServer = nullptr;
@@ -94,7 +94,7 @@ namespace NCL {
 
 			std::vector<char> IpToCharArray(const std::string& ipAddress);
 
-			PhyscisServerBorderData* CreatePhysicsServerBorders(const std::string& borderString);
+			PhysicsServerBorderData* CreatePhysicsServerBorders(const std::string& borderString);
 
 			void HandleStartGameServerPacketReceived(StartDistributedGameServerPacket* packet);
 			void HandleObjectTransitions() const;

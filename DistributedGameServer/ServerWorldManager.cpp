@@ -18,7 +18,7 @@ namespace {
 	constexpr float PREDICTION_STEP = 1.0f;
 }
 
-NCL::DistributedGameServer::ServerWorldManager::ServerWorldManager(int serverID, PhyscisServerBorderData& physcisServerBorderData, std::map<const int, PhyscisServerBorderData*>& borderMap) {
+NCL::DistributedGameServer::ServerWorldManager::ServerWorldManager(int serverID, PhysicsServerBorderData& physcisServerBorderData, std::map<const int, PhysicsServerBorderData*>& borderMap) {
 	mServerID = serverID;
 
 	mGameWorld = new NCL::CSC8503::GameWorld();
@@ -38,14 +38,14 @@ NCL::DistributedGameServer::ServerWorldManager::ServerWorldManager(int serverID,
 	offsetKey.SetPosition(Vector3(95, 50, 0));
 	/*auto* sphere = AddDistributedControllableObject(offsetKey, 1);
 	AddNetworkObject(*sphere);
-	mCreatedObjectPool.insert(std::make_pair(sphere->GetNetworkObject()->GetnetworkID(), sphere));
+	mCreatedObjectPool.insert(std::make_pair(sphere->GetNetworkObject()->GetNetworkID(), sphere));
 
 	if (IsObjectInBorder(offsetKey.GetPosition())) {
 		std::cout << "Adding object to world.\n";
 		mTestObjects.push_back(dynamic_cast<TestObject*>(sphere));
 	}
 	else {
-		std::cout << "Deactivating object because it is not in server borders. ID: " << sphere->GetNetworkObject()->GetnetworkID() << "\n";
+		std::cout << "Deactivating object because it is not in server borders. ID: " << sphere->GetNetworkObject()->GetNetworkID() << "\n";
 		sphere->SetActive(false);
 	}
 	mGameWorld->AddGameObject(sphere);
@@ -53,14 +53,14 @@ NCL::DistributedGameServer::ServerWorldManager::ServerWorldManager(int serverID,
 	offsetKey.SetPosition(Vector3(-20, 50, 20));
 	auto* sphereTwo = AddDistributedControllableObject(offsetKey, 2);
 	AddNetworkObject(*sphereTwo);
-	mCreatedObjectPool.insert(std::make_pair(sphereTwo->GetNetworkObject()->GetnetworkID(), sphereTwo));
+	mCreatedObjectPool.insert(std::make_pair(sphereTwo->GetNetworkObject()->GetNetworkID(), sphereTwo));
 
 	if (IsObjectInBorder(offsetKey.GetPosition())) {
 		std::cout << "Adding object to world.\n";
 		mTestObjects.push_back(dynamic_cast<TestObject*>(sphereTwo));
 	}
 	else {
-		std::cout << "Deactivating object because it is not in server borders. ID: " << sphereTwo->GetNetworkObject()->GetnetworkID() << "\n";
+		std::cout << "Deactivating object because it is not in server borders. ID: " << sphereTwo->GetNetworkObject()->GetNetworkID() << "\n";
 		sphereTwo->SetActive(false);
 	}
 	mGameWorld->AddGameObject(sphereTwo);*/
@@ -110,7 +110,7 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	timeTaken = end - start;
 	Profiler::SetPhysicsTime(timeTaken.count());
 
-	CheckPositionOutOfServerBoundries();
+	CheckPositionOutOfServerBoundaries();
 }
 
 void NCL::DistributedGameServer::ServerWorldManager::AddNetworkObject(CSC8503::GameObject& objToAdd) {
@@ -145,7 +145,7 @@ void NCL::DistributedGameServer::ServerWorldManager::AddNetworkObjectToNetworkOb
 }
 
 
-void DistributedGameServer::ServerWorldManager::CheckPositionOutOfServerBoundries() {
+void DistributedGameServer::ServerWorldManager::CheckPositionOutOfServerBoundaries() {
 	for (const auto& gameObj : mGameWorld->GetGameObjects()) {
 		if (gameObj->HasPhysics() && gameObj->IsNetworkActive()) {
 			if (auto* networkComp = gameObj->GetNetworkObject()) {
@@ -211,7 +211,7 @@ void DistributedGameServer::ServerWorldManager::HandleTransitionHandshakeReceive
 
 void DistributedGameServer::ServerWorldManager::HandleOutgoingObject(int networkObjectID) {
 	if (auto* gameObj = mCreatedObjectPool.at(networkObjectID)) {
-		std::cout << "Removing object from server with network ID" << gameObj->GetNetworkObject()->GetnetworkID() << "\n";
+		std::cout << "Removing object from server with network ID" << gameObj->GetNetworkObject()->GetNetworkID() << "\n";
 		gameObj->SetActive(false);
 		if (TestObject* testComp = dynamic_cast<TestObject*>(gameObj)) {
 			std::erase(mTestObjects, testComp);
@@ -243,7 +243,7 @@ void DistributedGameServer::ServerWorldManager::CreateObjectGrid(int rowCount, i
 			}
 
 			AddNetworkObject(*obj);
-			auto networkId = obj->GetNetworkObject()->GetnetworkID();
+			auto networkId = obj->GetNetworkObject()->GetNetworkID();
 			mCreatedObjectPool[networkId] = obj;
 
 			if (IsObjectInBorder(transform.GetPosition())) {
@@ -284,7 +284,7 @@ bool DistributedGameServer::ServerWorldManager::IsObjectInBorder(const Maths::Ve
 int DistributedGameServer::ServerWorldManager::GetObjectServer(const Maths::Vector3& position) const {
 	for (const auto& entry : *mServerBorderMap) {
 		int serverNumber = entry.first;
-		PhyscisServerBorderData* borderData = entry.second;
+		PhysicsServerBorderData* borderData = entry.second;
 
 		if (position.x >= borderData->minXVal && position.x <= borderData->maxXVal &&
 			position.z >= borderData->minZVal && position.z <= borderData->maxZVal) {
@@ -295,7 +295,7 @@ int DistributedGameServer::ServerWorldManager::GetObjectServer(const Maths::Vect
 	return -1;
 }
 
-const Maths::Vector3& DistributedGameServer::ServerWorldManager::CalculateIncomingObjectOffsetedPosition(const Maths::Vector3& position) {
+const Maths::Vector3& DistributedGameServer::ServerWorldManager::CalculateIncomingObjectOffsetPosition(const Maths::Vector3& position) {
 	Vector3 offsetPos = position;
 
 	if (position.x > mServerBorderData->maxXVal) {

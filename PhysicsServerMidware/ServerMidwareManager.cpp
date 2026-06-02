@@ -10,7 +10,7 @@ using namespace NCL;
 using namespace NCL::CSC8503;
 
 namespace {
-	const std::string PHYSIC_SERVER_PATH = "./DistributedPhysicsServer/EntryPoint.exe";
+	const std::string PHYSICS_SERVER_PATH = "./DistributedPhysicsServer/EntryPoint.exe";
 }
 
 NCL::ServerMidwareManager::ServerMidwareManager() : mDistributedManagerClient(nullptr) {
@@ -27,7 +27,7 @@ void NCL::ServerMidwareManager::ConnectToDistributedManager(std::string& ipAddre
 	distributedManagerPort = port;
 	serverManagerIpAddress = ipAddress;
 
-	const std::vector<char> ipOctests = NCL::DistributedUtils::ConvertIpStrToCharArr(ipAddress);
+	const std::vector<char> ipOctets = NCL::DistributedUtils::ConvertIpStrToCharArr(ipAddress);
 	auto* client = new NCL::CSC8503::GameClient();
 
 	std::function<void()> callback = [this, client] {
@@ -37,7 +37,7 @@ void NCL::ServerMidwareManager::ConnectToDistributedManager(std::string& ipAddre
 
 	client->AddOnClientConnected(callback);
 
-	bool isConnected = client->Connect(ipOctests[0], ipOctests[1], ipOctests[2], ipOctests[3], port, "");
+	bool isConnected = client->Connect(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], port, "");
 	mDistributedManagerClient = client;
 	if (isConnected) {
 		RegisterDistributedManagerClientPackets();
@@ -94,7 +94,7 @@ void ServerMidwareManager::StartPhysicsServerInstance(int distributedManagerPort
 
 	std::cout << arguments << std::endl;
 	std::thread programThread([this, physicsServerId, arguments]() {
-		ServerMidwareManager::ExecutePhysicsServerProgram(PHYSIC_SERVER_PATH, arguments, physicsServerId);
+		ServerMidwareManager::ExecutePhysicsServerProgram(PHYSICS_SERVER_PATH, arguments, physicsServerId);
 		});
 
 	programThread.detach();

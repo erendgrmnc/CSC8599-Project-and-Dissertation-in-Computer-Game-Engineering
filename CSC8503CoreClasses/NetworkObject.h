@@ -212,7 +212,7 @@ namespace NCL::CSC8503 {
 
 	struct DistributedPhysicsClientConnectedToManagerPacket : public GamePacket {
 		int physicsServerID;
-		int phyiscsPacketDistributerPort;
+		int physicsPacketDistributorPort;
 		int gameInstanceID;
 		std::string ipAddress;
 
@@ -220,7 +220,7 @@ namespace NCL::CSC8503 {
 	};
 
 	struct DistributedClientConnectToPhysicsServerPacket : public GamePacket {
-		int physicsPacketDistributerPort;
+		int physicsPacketDistributorPort;
 		int physicsServerID;
 		std::string ipAddress;
 		DistributedClientConnectToPhysicsServerPacket(int port, int physicsServerID, const std::string& ipAddress);
@@ -280,7 +280,7 @@ namespace NCL::CSC8503 {
 		Vector3 mAngularVelocity;
 		Vector3 mTorque;
 		Vector3 mInverseInertia;
-		Matrix3 mInverseInteriaTensor;
+		Matrix3 mInverseInertiaTensor;
 
 		StartSimulatingObjectPacket(int objectID, int newServerID, int senderServerID, NetworkState lastFullState, PhysicsObject& physicsObj);
 	};
@@ -330,7 +330,7 @@ namespace NCL::CSC8503 {
 
 		void SetGameObject(GameObject& obj) const { object = obj; }
 
-		int GetnetworkID() { return networkID; }
+		int GetNetworkID() { return networkID; }
 		int GetNewServerID() const;
 
 		void UpdateStateHistory(int minID);

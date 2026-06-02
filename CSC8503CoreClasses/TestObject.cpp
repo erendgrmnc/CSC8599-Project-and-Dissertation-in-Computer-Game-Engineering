@@ -11,7 +11,7 @@
 using namespace NCL;
 using namespace CSC8503;
 
-NCL::CSC8503::TestObject::TestObject(DistributedGameServer::PhyscisServerBorderData& data, int playerID) {
+NCL::CSC8503::TestObject::TestObject(DistributedGameServer::PhysicsServerBorderData& data, int playerID) {
 	mBorderData = data;
 	this->mPlayerID = playerID;
 }

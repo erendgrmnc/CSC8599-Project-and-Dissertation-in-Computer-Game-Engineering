@@ -144,8 +144,8 @@ void DistributedManager::SystemManager::HandleDistributedPhysicsClientConnectedP
 	AddServerData(*serverData);
 
 	std::string serverIpAddress = mDistributedPhysicsManagerServer->GetIPAddress();
-	std::cout << "Distributed Physics Server Info Packet Sent! IP: " << serverIpAddress << "| port: " << packet->phyiscsPacketDistributerPort << std::endl;
-	int portForClientsToConnect = packet->phyiscsPacketDistributerPort;
+	std::cout << "Distributed Physics Server Info Packet Sent! IP: " << serverIpAddress << "| port: " << packet->physicsPacketDistributorPort << std::endl;
+	int portForClientsToConnect = packet->physicsPacketDistributorPort;
 	serverData->SetDataSenderPort(portForClientsToConnect);
 
 
@@ -182,7 +182,7 @@ void DistributedManager::SystemManager::HandlePhysicsServerMiddlewareConnected(i
 	int newMidwareID = PHYSICS_MIDDLEWARE_ID_BUFFER++;
 	std::pair<int, int> newPair = std::make_pair(newMidwareID, 0);
 	std::cout << "Adding physics middleware with ID: " << newMidwareID << "\n";
-	mPhysicsServerMiddlwareRunningInstanceMap.insert(newPair);
+	mPhysicsServerMiddlewareRunningInstanceMap.insert(newPair);
 
 	Profiler::SetConnectedPhysicsServerMiddlewares(Profiler::GetConnectedPhysicsServerMiddlewares() + 1);
 
@@ -235,16 +235,16 @@ std::vector<DistributedPhysicsServerData*>& DistributedManager::SystemManager::G
 }
 
 int DistributedManager::SystemManager::GetAvailablePhysicsMidware() {
-	const auto& firstMidware = mPhysicsServerMiddlwareRunningInstanceMap.begin();
+	const auto& firstMidware = mPhysicsServerMiddlewareRunningInstanceMap.begin();
 	int minInstanceCount = firstMidware->second;
 	int midwareID = firstMidware->first;
-	for (const auto& midware : mPhysicsServerMiddlwareRunningInstanceMap) {
+	for (const auto& midware : mPhysicsServerMiddlewareRunningInstanceMap) {
 		if (midware.second < minInstanceCount) {
 			minInstanceCount = midware.second;
 			midwareID = midware.first;
 		}
 	}
-	mPhysicsServerMiddlwareRunningInstanceMap[midwareID] = ++minInstanceCount;
+	mPhysicsServerMiddlewareRunningInstanceMap[midwareID] = ++minInstanceCount;
 	return midwareID;
 }
 

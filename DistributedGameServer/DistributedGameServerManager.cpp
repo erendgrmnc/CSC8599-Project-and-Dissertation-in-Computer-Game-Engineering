@@ -32,7 +32,7 @@ DistributedGameServer::DistributedGameServerManager::DistributedGameServerManage
 	mGameInstanceID = gameInstanceID;
 
 	NetworkBase::Initialise();
-	PhyscisServerBorderData* serverBorderData = CreatePhysicsServerBorders(serverBordersStr);
+	PhysicsServerBorderData* serverBorderData = CreatePhysicsServerBorders(serverBordersStr);
 	mServerWorldManager = new ServerWorldManager(mGameServerID, *serverBorderData, mPhysicsServerBorderMap);
 	mNetworkObjects = mServerWorldManager->GetNetworkObjects();
 
@@ -312,8 +312,8 @@ void DistributedGameServer::DistributedGameServerManager::SendPacketSenderServer
 void DistributedGameServer::DistributedGameServerManager::HandleTransitionHandshakePacketReceived(
 	StartSimulatingObjectReceivedPacket* packet) {
 	for (auto& networkObj : *mNetworkObjects) {
-		if (networkObj->GetnetworkID() == packet->objectID) {
-			//mServerWorldManager->HandleOutgoingObject(networkObj->GetnetworkID());
+		if (networkObj->GetNetworkID() == packet->objectID) {
+			//mServerWorldManager->HandleOutgoingObject(networkObj->GetNetworkID());
 		}
 
 	}
@@ -345,10 +345,10 @@ std::vector<char> DistributedGameServer::DistributedGameServerManager::IpToCharA
 	return ip_packed;
 }
 
-DistributedGameServer::PhyscisServerBorderData* DistributedGameServer::DistributedGameServerManager::
+DistributedGameServer::PhysicsServerBorderData* DistributedGameServer::DistributedGameServerManager::
 CreatePhysicsServerBorders(const std::string& borderString) {
-	// Create a new PhyscisServerBorderData object
-	PhyscisServerBorderData* borderData = new PhyscisServerBorderData();
+	// Create a new PhysicsServerBorderData object
+	PhysicsServerBorderData* borderData = new PhysicsServerBorderData();
 
 	// Find the position of the '|' separator
 	size_t separatorPos = borderString.find('|');
@@ -404,8 +404,8 @@ void DistributedGameServer::DistributedGameServerManager::HandleStartGameServerP
 			if (!mPhysicsServerBorderMap.contains(i)) {
 				std::string borderStr(packet->borders[i]);
 				std::cout << "Received Border for server " << i << " " << borderStr << "\n";
-				PhyscisServerBorderData* serverBorderData = CreatePhysicsServerBorders(borderStr);
-				std::pair<int, PhyscisServerBorderData*> pair = std::make_pair(packet->serverIDs[i], serverBorderData);
+				PhysicsServerBorderData* serverBorderData = CreatePhysicsServerBorders(borderStr);
+				std::pair<int, PhysicsServerBorderData*> pair = std::make_pair(packet->serverIDs[i], serverBorderData);
 				mPhysicsServerBorderMap.insert(pair);
 			}
 		}
@@ -449,7 +449,7 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectTransition
 			std::cout << "Sending Finish Transition Packet to server: " << networkObj->GetNewServerID() << "\n";
 			SendFinishTransactionPacket(*networkObj);
 			networkObj->HandleTransitionComplete();
-			mServerWorldManager->HandleOutgoingObject(networkObj->GetnetworkID());
+			mServerWorldManager->HandleOutgoingObject(networkObj->GetNetworkID());
 		}
 	}
 }
@@ -462,7 +462,7 @@ void DistributedGameServer::DistributedGameServerManager::SendFinishTransactionP
 	lastFullState.orientation = gameObjectComp.GetTransform().GetOrientation();
 	auto* testComp = dynamic_cast<TestObject*>(&gameObjectComp);
 
-	StartSimulatingObjectPacket packet(obj.GetnetworkID(), obj.GetNewServerID(), mGameServerID, lastFullState, *gameObjectComp.GetPhysicsObject());
+	StartSimulatingObjectPacket packet(obj.GetNetworkID(), obj.GetNewServerID(), mGameServerID, lastFullState, *gameObjectComp.GetPhysicsObject());
 	mDistributedPacketSenderServer->SendGlobalReliablePacket(packet);
 }
 

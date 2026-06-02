@@ -261,7 +261,7 @@ DistributedPhysicsClientConnectedToManagerPacket::DistributedPhysicsClientConnec
 	type = BasicNetworkMessages::DistributedPhysicsClientConnectedToManager;
 	size = sizeof(DistributedPhysicsClientConnectedToManagerPacket);
 
-	this->phyiscsPacketDistributerPort = port;
+	this->physicsPacketDistributorPort = port;
 	this->physicsServerID = physicsServerID;
 	this->gameInstanceID = gameInstanceID;
 	this->ipAddress = ipAddress.c_str();
@@ -271,7 +271,7 @@ DistributedClientConnectToPhysicsServerPacket::DistributedClientConnectToPhysics
 	type = BasicNetworkMessages::DistributedClientConnectToPhysicsServer;
 	size = sizeof(DistributedClientConnectToPhysicsServerPacket);
 
-	this->physicsPacketDistributerPort = port;
+	this->physicsPacketDistributorPort = port;
 	this->physicsServerID = physicsServerID;
 	this->ipAddress = ipAddress;
 }
@@ -345,7 +345,7 @@ StartSimulatingObjectPacket::StartSimulatingObjectPacket(int objectID, int newSe
 	this->objectID = objectID;
 
 	this->mAngularVelocity = physicsObj.GetAngularVelocity();
-	this->mInverseInteriaTensor = physicsObj.GetInverseInertiaTensor();
+	this->mInverseInertiaTensor = physicsObj.GetInverseInertiaTensor();
 	this->mInverseInertia = physicsObj.GetInverseInertia();
 	this->mTorque = physicsObj.GetTorque();
 

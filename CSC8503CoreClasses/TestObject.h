@@ -16,7 +16,7 @@ namespace NCL {
         class StateTransition;
         class TestObject : public GameObject {
         public:
-            TestObject(DistributedGameServer::PhyscisServerBorderData& data, int playerID);
+            TestObject(DistributedGameServer::PhysicsServerBorderData& data, int playerID);
             ~TestObject();
 
             virtual void Update(float dt);
@@ -34,7 +34,7 @@ namespace NCL {
             void MoveUp(float dt);
             void MoveDown(float dt);
 
-            DistributedGameServer::PhyscisServerBorderData mBorderData;
+            DistributedGameServer::PhysicsServerBorderData mBorderData;
         };
     }
 }

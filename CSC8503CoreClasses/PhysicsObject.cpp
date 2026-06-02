@@ -24,7 +24,7 @@ PhysicsObject::~PhysicsObject()	{
 }
 
 void PhysicsObject::ApplyAngularImpulse(const Vector3& force) {
-	mAngularVelocity += mInverseInteriaTensor * force;
+	mAngularVelocity += mInverseInertiaTensor * force;
 }
 
 void PhysicsObject::ApplyLinearImpulse(const Vector3& force) {
@@ -80,7 +80,7 @@ void PhysicsObject::UpdateInertiaTensor() {
 	Matrix3 invOrientation	= Matrix3(q.Conjugate());
 	Matrix3 orientation		= Matrix3(q);
 
-	mInverseInteriaTensor = orientation * Matrix3::Scale(mInverseInertia) *invOrientation;
+	mInverseInertiaTensor = orientation * Matrix3::Scale(mInverseInertia) *invOrientation;
 }
 
 Transform* PhysicsObject::GetTransform() const {

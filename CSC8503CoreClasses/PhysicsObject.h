@@ -71,7 +71,7 @@ namespace NCL {
 			void UpdateInertiaTensor();
 
 			Matrix3 GetInverseInertiaTensor() const {
-				return mInverseInteriaTensor;
+				return mInverseInertiaTensor;
 			}
 
 			float GetStaticFriction() { return mStaticFriction; }
@@ -100,7 +100,7 @@ namespace NCL {
 			Vector3 mAngularVelocity;
 			Vector3 mTorque;
 			Vector3 mInverseInertia;
-			Matrix3 mInverseInteriaTensor;
+			Matrix3 mInverseInertiaTensor;
 		};
 	}
 }

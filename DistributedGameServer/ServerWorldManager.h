@@ -15,7 +15,7 @@ namespace NCL::CSC8503 {
 namespace NCL {
 	namespace DistributedGameServer {
 
-		struct PhyscisServerBorderData {
+		struct PhysicsServerBorderData {
 			int maxZVal;
 			int minZVal;
 
@@ -25,7 +25,7 @@ namespace NCL {
 
 		class ServerWorldManager {
 		public:
-			ServerWorldManager(int serverID, PhyscisServerBorderData& physcisServerBorderData, std::map<const int, PhyscisServerBorderData*>& map);
+			ServerWorldManager(int serverID, PhysicsServerBorderData& physcisServerBorderData, std::map<const int, PhysicsServerBorderData*>& map);
 			NCL::CSC8503::GameWorld* GetGameWorld() const;
 
 			CSC8503::GameObject* AddDistributedControllableObject(const CSC8503::Transform& transform,int playerID) const;
@@ -55,19 +55,19 @@ namespace NCL {
 
 			NCL::CSC8503::GameWorld* mGameWorld;
 			NCL::CSC8503::PhysicsSystem* mPhysics;
-			NCL::DistributedGameServer::PhyscisServerBorderData* mServerBorderData;
+			NCL::DistributedGameServer::PhysicsServerBorderData* mServerBorderData;
 
 			std::map<int, NCL::CSC8503::GameObject*> mCreatedObjectPool;
-			std::map<const int, PhyscisServerBorderData*>* mServerBorderMap;
+			std::map<const int, PhysicsServerBorderData*>* mServerBorderMap;
 
 			void AddNetworkObjectToNetworkObjects(NCL::CSC8503::NetworkObject* networkObj);
-			void CheckPositionOutOfServerBoundries();
+			void CheckPositionOutOfServerBoundaries();
 
 			bool IsObjectInBorder(const Maths::Vector3& objectPosition) const;
 
 			int GetObjectServer(const Maths::Vector3& position) const;
 
-			const Maths::Vector3& CalculateIncomingObjectOffsetedPosition(const Maths::Vector3& position);
+			const Maths::Vector3& CalculateIncomingObjectOffsetPosition(const Maths::Vector3& position);
 		};
 	}
 }

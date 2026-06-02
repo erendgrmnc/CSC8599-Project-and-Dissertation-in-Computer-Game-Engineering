@@ -85,9 +85,9 @@ void DistributedMultiplayerGameScene::HandleOnConnectToDistributedPhysicsServerP
 	DistributedClientConnectToPhysicsServerPacket* packet) {
 
 	std::vector<char> ipOctets = IpToCharArray(packet->ipAddress);
-	std::cout << "Connecting to connecting physics server on: " << packet->ipAddress << " | " << packet->physicsPacketDistributerPort << "\n";
+	std::cout << "Connecting to connecting physics server on: " << packet->ipAddress << " | " << packet->physicsPacketDistributorPort << "\n";
 
-	ConnectClientToDistributedGameServer(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], packet->physicsPacketDistributerPort, "");
+	ConnectClientToDistributedGameServer(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], packet->physicsPacketDistributorPort, "");
 }
 
 void DistributedMultiplayerGameScene::HandleGameStartPacketReceived(GameStartStatePacket* packet) {
