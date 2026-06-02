@@ -34,6 +34,9 @@ GameObject::GameObject(CollisionLayer collisionLayer, const std::string& objectN
 	mPhysicsObject = nullptr;
 	mRenderObject = nullptr;
 	mNetworkObject = nullptr;
+#ifndef DISTRIBUTEDSYSTEMACTIVE
+	mSoundObject = nullptr;
+#endif
 	mCollisionLayer = collisionLayer;
 
 	mObjectState = Idle;
@@ -47,6 +50,9 @@ GameObject::~GameObject() {
 	delete mRenderObject;
 #ifdef USEGL
 	delete mNetworkObject;
+#endif
+#ifndef DISTRIBUTEDSYSTEMACTIVE
+	delete mSoundObject;
 #endif
 
 }

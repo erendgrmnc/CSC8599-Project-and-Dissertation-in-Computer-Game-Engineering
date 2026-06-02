@@ -8,6 +8,9 @@ namespace NCL::CSC8503 {
 	class NetworkObject;
 	class PhysicsObject;
 	class RenderObject;
+#ifndef DISTRIBUTEDSYSTEMACTIVE
+	class SoundObject;
+#endif
 
 	enum CollisionLayer {
 		StaticObj = 1,
@@ -97,6 +100,16 @@ namespace NCL::CSC8503 {
 			return mNetworkObject;
 		}
 
+#ifndef DISTRIBUTEDSYSTEMACTIVE
+		SoundObject* GetSoundObject() const {
+			return mSoundObject;
+		}
+
+		void SetSoundObject(SoundObject* newObject) {
+			mSoundObject = newObject;
+		}
+#endif
+
 
 #ifdef USEGL
 		void SetIsSensed(bool sensed);
@@ -176,6 +189,9 @@ namespace NCL::CSC8503 {
 		PhysicsObject* mPhysicsObject;
 		RenderObject* mRenderObject;
 		NetworkObject* mNetworkObject;
+#ifndef DISTRIBUTEDSYSTEMACTIVE
+		SoundObject* mSoundObject;
+#endif
 
 		bool		mIsSensed;
 		bool		mHasPhysics;
