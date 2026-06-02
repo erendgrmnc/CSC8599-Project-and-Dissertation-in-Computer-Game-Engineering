@@ -20,15 +20,15 @@ size_t sceLibcHeapSize = 257 * 1024 * 1024;
 int main(int argc, char* argv[]) {
 #ifdef DISTRIBUTEDSYSTEMACTIVE
 	#ifdef BUILDFORDISTRIBUTEDMANAGER
-	StartProgram();
+	StartProgram(argc, argv);
 	#elif BUILDFORPHYSICSMIDWARE
-	StartMidware();
+	StartMidware(argc, argv);
 	#else
 	StartGameServer(argc, argv);
 #endif
 
 #else
-	RunDistributedClient();
+	RunDistributedClient(argc, argv);
 #endif
 
 }

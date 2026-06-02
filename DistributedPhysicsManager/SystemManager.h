@@ -37,7 +37,13 @@ namespace NCL {
 			void SendStartGameStatusPacket(int gameInstanceID);
 			void AddServerData(DistributedPhysicsServerData& data);
 
-			NCL::GameInstance* CreateNewGameInstance(int maxServer, int clientCount, int objectsPerPlayer);
+			NCL::GameInstance* CreateNewGameInstance(int maxServer, int clientCount, int objectsPerPlayer,
+				double worldMinX = -150.0, double worldMaxX = 150.0, double worldMinZ = -150.0, double worldMaxZ = 150.0);
+
+			// Number of physics-server middlewares currently connected. The launcher's
+			// --autostart path waits on this before creating the game instance so the
+			// run-server packets have a recipient.
+			int GetConnectedMidwareCount() const;
 		protected:
 			bool mIsGameStarted = false;
 			int mMaxPhysicsServerCount = 0;

@@ -6,6 +6,7 @@
 #include "Profiler.h"
 #include "ProfilerRenderer.h"
 #include "DistributedSystemCommonFiles/DistributedUtils.h"
+#include "DistributedSystemCommonFiles/LaunchConfig.h"
 
 using namespace NCL;
 
@@ -16,21 +17,31 @@ namespace {
 // Minimal host for the thin distributed-physics client. Mirrors the server
 // roles' ProgramStart.cpp pattern: a window + profiler + an update loop that
 // pumps the network clients. No SceneManager / LevelManager / renderer.
-int RunDistributedClient() {
+int RunDistributedClient(int argc, char* argv[]) {
+
+	const NCL::LaunchConfig config(argc, argv);
 
 	std::cout << "-------------- DISTRIBUTED PHYSICS CLIENT -----------------\n";
-	std::cout << "Please enter distributed manager ip address in format: 127.0.0.1\n";
 
 	std::string managerIpAddress = "127.0.0.1";
-	std::string input;
-	std::cin >> input;
-	if (input != "e") {
-		managerIpAddress = input;
-	}
-
-	std::cout << "Please enter distributed manager port (default " << DEFAULT_MANAGER_PORT << "): ";
 	int managerPort = DEFAULT_MANAGER_PORT;
-	std::cin >> managerPort;
+
+	if (config.HasAnyFlags()) {
+		managerIpAddress = config.GetString("--manager-ip", managerIpAddress);
+		managerPort = config.GetInt("--manager-port", managerPort);
+		std::cout << "Launch config: manager-ip=" << managerIpAddress << " manager-port=" << managerPort << "\n";
+	}
+	else {
+		std::cout << "Please enter distributed manager ip address in format: 127.0.0.1\n";
+		std::string input;
+		std::cin >> input;
+		if (input != "e") {
+			managerIpAddress = input;
+		}
+
+		std::cout << "Please enter distributed manager port (default " << DEFAULT_MANAGER_PORT << "): ";
+		std::cin >> managerPort;
+	}
 
 	float winWidth = 400;
 	float winHeight = 700;

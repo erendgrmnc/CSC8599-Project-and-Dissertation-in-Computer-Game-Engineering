@@ -2,22 +2,20 @@
 
 #include <sstream>
 
-namespace  {
-	constexpr int GAME_AREA_MIN_X = -150;
-	constexpr int GAME_AREA_MAX_X = 150;
-
-	constexpr int GAME_AREA_MIN_Z = -150;
-	constexpr int GAME_AREA_MAX_Z = 150;
-}
-
 NCL::GameInstance::GameInstance() = default;
 
-NCL::GameInstance::GameInstance(int id, int serverCount, int serverIDBuffer, int playerCountToStartServers, int objectsPerPlayer) {
+NCL::GameInstance::GameInstance(int id, int serverCount, int serverIDBuffer, int playerCountToStartServers, int objectsPerPlayer,
+	double worldMinX, double worldMaxX, double worldMinZ, double worldMaxZ) {
 	this->mGameID = id;
 	this->mServerCount = serverCount;
 	mPlayerIDBuffer = -1;
 	mPlayerCountToStartGame = playerCountToStartServers;
 	mObjectsToInstantiatePerPlayer = objectsPerPlayer;
+
+	mWorldMinX = worldMinX;
+	mWorldMaxX = worldMaxX;
+	mWorldMinZ = worldMinZ;
+	mWorldMaxZ = worldMaxZ;
 
 	CalculatePhysicsServerBorders(serverIDBuffer);
 }
@@ -109,25 +107,25 @@ NCL::GameBorder& NCL::GameInstance::CalculateServerBorders(int serverNum) {
 	}
 
 	// Calculate the width and height of each region
-	int rectWidth = (GAME_AREA_MAX_X - GAME_AREA_MIN_X) / numCols;
-	int rectHeight = (GAME_AREA_MAX_Z - GAME_AREA_MIN_Z) / numRows;
+	double rectWidth = (mWorldMaxX - mWorldMinX) / numCols;
+	double rectHeight = (mWorldMaxZ - mWorldMinZ) / numRows;
 
 	// Determine which row and column this server is responsible for
 	int row = serverNum / numCols;
 	int col = serverNum % numCols;
 
 	// Set the borders
-	border->minX = GAME_AREA_MIN_X + col * rectWidth;
-	border->minZ = GAME_AREA_MIN_Z + row * rectHeight;
-	border->maxX = (col == numCols - 1) ? GAME_AREA_MAX_X : (border->minX + rectWidth);
-	border->maxZ = (row == numRows - 1) ? GAME_AREA_MAX_Z : (border->minZ + rectHeight);
+	border->minX = mWorldMinX + col * rectWidth;
+	border->minZ = mWorldMinZ + row * rectHeight;
+	border->maxX = (col == numCols - 1) ? mWorldMaxX : (border->minX + rectWidth);
+	border->maxZ = (row == numRows - 1) ? mWorldMaxZ : (border->minZ + rectHeight);
 
 	// Adjustments for the special 3-server layout
 	if (mServerCount == 3) {
 		if (serverNum == 2) {
 			// The bottom row server spans the full width
-			border->minX = GAME_AREA_MIN_X;
-			border->maxX = GAME_AREA_MAX_X;
+			border->minX = mWorldMinX;
+			border->maxX = mWorldMaxX;
 		}
 	}
 

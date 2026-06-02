@@ -16,7 +16,14 @@ namespace {
 NCL::ServerMidwareManager::ServerMidwareManager() : mDistributedManagerClient(nullptr) {
 	distributedManagerPort = -1;
 	int mMidwareID = -1;
+	mServerExePath = PHYSICS_SERVER_PATH;
 	NetworkBase::Initialise();
+}
+
+void NCL::ServerMidwareManager::SetServerExePath(const std::string& path) {
+	if (!path.empty()) {
+		mServerExePath = path;
+	}
 }
 
 NCL::ServerMidwareManager::~ServerMidwareManager() {
@@ -93,8 +100,9 @@ void ServerMidwareManager::StartPhysicsServerInstance(int distributedManagerPort
 	std::string arguments = "--arg1 " + serverManagerIpAddress + "-" + std::to_string(distributedManagerPort) + "-" + std::to_string(physicsServerId) +"-" + std::to_string(gameInstanceID) +"-" + serverBordersStr;
 
 	std::cout << arguments << std::endl;
-	std::thread programThread([this, physicsServerId, arguments]() {
-		ServerMidwareManager::ExecutePhysicsServerProgram(PHYSICS_SERVER_PATH, arguments, physicsServerId);
+	const std::string serverExePath = mServerExePath;
+	std::thread programThread([this, physicsServerId, arguments, serverExePath]() {
+		ServerMidwareManager::ExecutePhysicsServerProgram(serverExePath, arguments, physicsServerId);
 		});
 
 	programThread.detach();

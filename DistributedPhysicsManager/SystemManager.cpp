@@ -249,12 +249,18 @@ int DistributedManager::SystemManager::GetAvailablePhysicsMidware() {
 }
 
 
-NCL::GameInstance* DistributedManager::SystemManager::CreateNewGameInstance(int maxServer, int clientCount, int objectsPerPlayer) {
-	GameInstance* newGame = new GameInstance(++GAME_INSTANCE_ID_BUFFER, maxServer, PHYSICS_SERVER_ID_BUFFER, clientCount, objectsPerPlayer);
+NCL::GameInstance* DistributedManager::SystemManager::CreateNewGameInstance(int maxServer, int clientCount, int objectsPerPlayer,
+	double worldMinX, double worldMaxX, double worldMinZ, double worldMaxZ) {
+	GameInstance* newGame = new GameInstance(++GAME_INSTANCE_ID_BUFFER, maxServer, PHYSICS_SERVER_ID_BUFFER, clientCount, objectsPerPlayer,
+		worldMinX, worldMaxX, worldMinZ, worldMaxZ);
 	mDistributedPhysicsManagerServer->AddGameInstance(newGame);
 
 
 	return newGame;
+}
+
+int DistributedManager::SystemManager::GetConnectedMidwareCount() const {
+	return static_cast<int>(mPhysicsServerMiddlewareRunningInstanceMap.size());
 }
 
 void DistributedManager::SystemManager::AddServerData(DistributedPhysicsServerData& data) {

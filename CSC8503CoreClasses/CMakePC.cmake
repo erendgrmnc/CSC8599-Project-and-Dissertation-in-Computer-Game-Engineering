@@ -202,6 +202,8 @@ function(Create_CSC8503CoreClasses_Files_PC)
         "./DistributedSystemCommonFiles/DistributedPhysicsServerDto.cpp"
         "./DistributedSystemCommonFiles/DistributedUtils.h"
         "./DistributedSystemCommonFiles/DistributedUtils.cpp"
+        "./DistributedSystemCommonFiles/LaunchConfig.h"
+        "./DistributedSystemCommonFiles/LaunchConfig.cpp"
     )
     source_group("DistributedSystemCommonFiles" FILES ${distributed_system_common_files})
 

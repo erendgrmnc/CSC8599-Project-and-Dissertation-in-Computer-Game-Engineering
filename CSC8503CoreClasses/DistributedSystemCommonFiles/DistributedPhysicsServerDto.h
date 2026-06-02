@@ -22,7 +22,10 @@ namespace NCL {
 	class GameInstance {
 	public:
 		GameInstance();
-		GameInstance(int id, int serverCount, int serverIDBuffer, int playerCountToStartServers = 1, int objectsToInstantiatePerPlayer = 1);
+		// World bounds default to the legacy hardcoded -150..150 area so existing
+		// callers keep their behaviour; the GUI launcher passes a configurable area.
+		GameInstance(int id, int serverCount, int serverIDBuffer, int playerCountToStartServers = 1, int objectsToInstantiatePerPlayer = 1,
+			double worldMinX = -150.0, double worldMaxX = 150.0, double worldMinZ = -150.0, double worldMaxZ = 150.0);
 
 		int GetGameID();
 		int GetServerCount();
@@ -38,6 +41,12 @@ namespace NCL {
 		int mServerCount;
 		int mPlayerCountToStartGame;
 		int mObjectsToInstantiatePerPlayer;
+
+		// Configurable world area the server regions are carved out of.
+		double mWorldMinX = -150.0;
+		double mWorldMaxX = 150.0;
+		double mWorldMinZ = -150.0;
+		double mWorldMaxZ = 150.0;
 
 		int mPlayerIDBuffer;
 

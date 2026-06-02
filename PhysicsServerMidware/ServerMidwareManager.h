@@ -19,10 +19,16 @@ namespace NCL {
 		void ConnectToDistributedManager(std::string& ipAddress, int port);
 		void ReceivePacket(int type, GamePacket* payload, int source) override;
 		void Update(float dt);
+
+		// Override the path of the physics-server executable this midware spawns.
+		// Defaults to the legacy "./DistributedPhysicsServer/EntryPoint.exe"; the
+		// GUI launcher points it at the deployed game-server exe.
+		void SetServerExePath(const std::string& path);
 	protected:
 		std::string serverManagerIpAddress;
 		int distributedManagerPort;
 		int mMidwareID;
+		std::string mServerExePath;
 		CSC8503::GameClient* mDistributedManagerClient;
 
 		void RegisterDistributedManagerClientPackets();
