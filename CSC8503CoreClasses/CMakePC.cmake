@@ -65,6 +65,14 @@ function(Create_CSC8503CoreClasses_Files_PC)
     source_group("Collision Detection" FILES ${Collision_Detection})
 
     set(Level_Creation
+        "JsonParser.h"
+        "JsonParser.cpp"
+        "Level.h"
+        "Level.cpp"
+        "LevelEnums.h"
+        "LevelEnums.cpp"
+        "Room.h"
+        "Room.cpp"
     )
     source_group("Level\\Level Creation" FILES ${Level_Creation})
 
