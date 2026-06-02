@@ -102,6 +102,24 @@ foreach ($role in $Roles) {
     $results += "$role : OK -> deploy\$($info.Out)\EntryPoint.exe"
 }
 
+# Publish the .NET launcher into deploy/Launcher so a remote machine's deploy/
+# folder is self-contained (controller GUI + agent mode), and drop a run-agent.bat.
+$launcherProj = Join-Path $repo "tools\DistributedLauncher\DistributedLauncher.csproj"
+if (Test-Path $launcherProj) {
+    Write-Host "==================== PUBLISH: Launcher ====================" -ForegroundColor Cyan
+    $launcherOut = Join-Path $deploy "Launcher"
+    & dotnet publish $launcherProj -c Release -o $launcherOut --nologo | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        $batPath = Join-Path $deploy "run-agent.bat"
+        $batBody = "@echo off`r`nREM Starts the launcher in headless agent mode for remote midware machines.`r`n`"%~dp0Launcher\DistributedLauncher.exe`" --agent --port 5099`r`n"
+        [System.IO.File]::WriteAllText($batPath, $batBody, (New-Object System.Text.UTF8Encoding($false)))
+        $results += "Launcher : OK -> deploy\Launcher\ (+ run-agent.bat)"
+    }
+    else {
+        $results += "Launcher : PUBLISH FAILED"
+    }
+}
+
 # Restore the original (midware) toggle so the working tree is unchanged.
 Set-Toggle "true" "false" "true"
 Remove-Item (Join-Path $repo "CMakeCache.txt") -ErrorAction SilentlyContinue

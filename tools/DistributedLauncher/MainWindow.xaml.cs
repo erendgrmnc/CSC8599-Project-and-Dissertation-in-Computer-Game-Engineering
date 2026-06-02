@@ -9,6 +9,7 @@ namespace DistributedLauncher;
 public partial class MainWindow : Window
 {
     private readonly ObservableCollection<RoleProcess> _processes = new();
+    private readonly List<RemoteAgentClient> _agents = new();
 
     // Spawn ordering delays: the manager must be listening before the midware
     // connects, and the midware connected before clients try to join.
@@ -88,11 +89,14 @@ public partial class MainWindow : Window
         // 2) Local midware (spawns the game-server processes).
         StartRole("Midware (local)", profile.MidwareExe, profile.BuildMidwareArgs());
 
-        // 2b) Remote midware agents are driven in Milestone 4.
-        if (profile.RemoteMidwareAgents.Count > 0)
+        // 2b) Remote midware agents: connect to each and ask it to start its
+        //     local midware pointed at this manager.
+        foreach (var endpoint in profile.RemoteMidwareAgents)
         {
-            Log($"[Launcher] {profile.RemoteMidwareAgents.Count} remote agent(s) configured " +
-                "— remote start is handled by Milestone 4 (agent mode).");
+            var agent = new RemoteAgentClient(endpoint);
+            agent.LogLine += line => Dispatcher.Invoke(() => Log(line));
+            _agents.Add(agent);
+            agent.StartMidware(profile.ManagerIp, profile.ManagerPort);
         }
 
         await Task.Delay(MidwareToClientDelayMs);
@@ -120,6 +124,12 @@ public partial class MainWindow : Window
 
     private void StopAllProcesses()
     {
+        foreach (var agent in _agents)
+        {
+            agent.Stop();
+        }
+        _agents.Clear();
+
         foreach (var p in _processes)
         {
             p.Stop();
