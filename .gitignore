@@ -108,3 +108,9 @@ Generate.bat
 
 *ags
 *png.gnf
+
+# Launcher deploy output (produced by tools/build-deploy.ps1)
+/deploy/
+# .NET build output for the launcher tool
+tools/DistributedLauncher/bin/
+tools/DistributedLauncher/obj/
