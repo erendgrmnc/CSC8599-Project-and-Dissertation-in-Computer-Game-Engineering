@@ -6,7 +6,7 @@ The system simulates a single shared physics world by **splitting it across mult
 
 ## Repository context
 
-This repo began as a Newcastle MSc monorepo that also held a team coursework "heist" game (inventory, suspicion, guards, etc.) built on the same engine. **That team-game code and its assets have been removed** — the repo is now focused on the distributed physics system plus the shared engine it reuses:
+This repo began as a Newcastle MSc monorepo that also held a team coursework "heist" game (inventory, suspicion, guards, etc.) built on the same engine. **That team-game gameplay and its assets have been removed** — the repo is now focused on the distributed physics system plus the shared engine it reuses. The generic engine systems the game once drove (level loading, animation, FMOD audio, the imgui renderer, nav-mesh generation) were kept by **re-integrating them decoupled from the gameplay**, guarded so they only build into the non-distributed demo-assessment configuration and stay out of the lean servers:
 
 | Category | What it is | Where |
 |---|---|---|

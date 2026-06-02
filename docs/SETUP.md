@@ -86,7 +86,9 @@ The midware launches the game server by an exact relative path: **`./Distributed
 
 Set `CMAKE_DISTRIBUTED_SYSTEM_ACTIVE "false"` and rebuild to get the **thin distributed client** (`RunDistributedClient()` via `CSC8503/DistributedClientStart.cpp`). This is the player-facing process: it opens a window + profiler, prompts for the manager IP/port, connects, and receives world snapshots. (Historically this toggle built the now-removed CSC8503 heist game; the branch was repurposed for the client when the team-game code was deleted.)
 
-> The FMOD audio engine, the Vulkan renderer, and the PS5/Prospero path were removed during cleanup. All four roles build against the OpenGL renderer only.
+> The Vulkan renderer and the PS5/Prospero path were removed during cleanup. All four roles build against the OpenGL renderer only.
+>
+> The generic engine systems that the team game once drove — level/room loading (`Level`, `Room`, `JsonParser`), `AnimationSystem`, FMOD `SoundObject`, `GameTechRenderer` + imgui UI, and the `RecastBuilder` nav-mesh generator — were later **restored, decoupled from the deleted gameplay**, for future demo-assessment use. The renderer/animation/sound pieces are guarded with `#ifndef DISTRIBUTEDSYSTEMACTIVE`, so they compile only into this non-distributed build and stay out of the lean server roles.
 
 ## Next
 
