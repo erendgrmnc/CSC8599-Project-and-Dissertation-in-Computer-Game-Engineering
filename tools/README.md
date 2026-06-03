@@ -52,8 +52,9 @@ Profiles can be saved/loaded as JSON.
 
 ### Single pane of glass
 
-In headless mode the role processes open **no windows** — the launcher is the only
-window. It shows:
+In headless mode the **infrastructure** roles (Manager, Midware, Game Servers) open
+**no windows** — they stream everything to the launcher. **Clients always run windowed**
+so you can see them. The launcher shows:
 
 - a **Live status** dashboard with one row per entity (Manager, Midware, each Game
   Server, each Client) updated from the roles' telemetry — e.g. connected
@@ -76,7 +77,7 @@ exe by hand; with no flags, the roles fall back to the original console prompts.
 |---|---|
 | Manager | `--servers N --clients N --objects N --port P --world minX,maxX,minZ,maxZ --midwares N --autostart [--headless]` |
 | Midware | `--manager-ip A.B.C.D --manager-port P --server-exe <path> [--headless]` |
-| Client | `--manager-ip A.B.C.D --manager-port P [--game-instance N] [--headless]` |
+| Client | `--manager-ip A.B.C.D --manager-port P [--game-instance N]` (launcher always runs clients windowed) |
 
 `--headless` runs a role windowless (a `GameTimer` loop instead of the OpenGL profiler
 window). Every role also prints one `@@STAT role=... key=val ...` telemetry line to

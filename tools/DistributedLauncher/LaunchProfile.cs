@@ -51,8 +51,11 @@ public sealed class LaunchProfile
     public string BuildMidwareArgs() =>
         $"--manager-ip {ManagerIp} --manager-port {ManagerPort} --server-exe \"{GameServerExe}\"{HeadlessFlag}";
 
+    // Clients always run windowed (with a head) so the operator can see them;
+    // only the infrastructure roles (manager / midware / game servers) honour the
+    // headless toggle.
     public string BuildClientArgs() =>
-        $"--manager-ip {ManagerIp} --manager-port {ManagerPort}{HeadlessFlag}";
+        $"--manager-ip {ManagerIp} --manager-port {ManagerPort}";
 
     private static string Fmt(double d) =>
         d.ToString(System.Globalization.CultureInfo.InvariantCulture);
