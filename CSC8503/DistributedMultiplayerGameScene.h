@@ -24,6 +24,7 @@ public:
 	void SetGameInstanceId(int id) { mGameInstanceId = id; }
 
 	bool IsGameStarted() const { return mIsGameStarted; }
+	size_t GetReplicaCount() const { return mNetworkObjects.size(); }
 
 	// Supplies the world + primitive render resources used to spawn one visible
 	// replica per networked object. Set by the client host before connecting.

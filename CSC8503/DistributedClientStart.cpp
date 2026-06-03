@@ -111,6 +111,7 @@ int RunDistributedClient(int argc, char* argv[]) {
 	cam.SetYaw(0.0f);
 	cam.SetPosition(Vector3(0, 220, 260));
 
+	int tracedFrames = 0; // step-trace the first few frames that have a replica, to localise crashes
 	w->GetTimer().GetTimeDeltaSeconds(); //Clear the timer so we don't get a larger first dt!
 	while (w->UpdateWindow()) {
 		const float dt = w->GetTimer().GetTimeDeltaSeconds();
@@ -127,12 +128,22 @@ int RunDistributedClient(int argc, char* argv[]) {
 
 		try {
 			scene->UpdateGame(dt);   // pump network clients -> snapshots applied to object transforms
+
+			const bool trace = scene->GetReplicaCount() > 0 && tracedFrames < 6;
+			if (trace) { ++tracedFrames; std::cout << "[trace] post-updategame, replicas=" << scene->GetReplicaCount() << std::endl; }
+
 			world->UpdateWorld(dt);  // refresh world bookkeeping
+			if (trace) std::cout << "[trace] post-updateworld" << std::endl;
+
 			cam.UpdateCamera(dt);    // free-look
+			if (trace) std::cout << "[trace] post-camupdate" << std::endl;
 
 			Profiler::Update();
 			reporter.MaybeEmit(scene->IsGameStarted());
+			if (trace) std::cout << "[trace] pre-render" << std::endl;
+
 			renderer->Render();
+			if (trace) std::cout << "[trace] post-render" << std::endl;
 		}
 		catch (const std::exception& e) {
 			std::cerr << "Client frame exception: " << e.what() << std::endl;
