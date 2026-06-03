@@ -80,6 +80,33 @@ int RunDistributedClient(int argc, char* argv[]) {
 #ifndef DISTRIBUTEDSYSTEMACTIVE
 	using namespace NCL::CSC8503;
 
+	// World rendering is OPT-IN (--render-world) and EXPERIMENTAL. The engine's
+	// deferred + bindless-texture GameTechRenderer, driven here without its usual
+	// LevelManager setup, can issue invalid GPU work that hangs the display
+	// (black screen / forced restart). The launcher never passes this flag, so the
+	// default client is a safe profiler-only window with no 3D GPU rendering.
+	const bool renderWorld = config.Has("--render-world");
+
+	if (!renderWorld) {
+		Window* sw = Window::CreateGameWindow("Distributed Physics Client", 400, 700, false);
+		sw->ShowOSPointer(true);
+		sw->LockMouseToWindow(false);
+		ProfilerRenderer* profilerRenderer = new ProfilerRenderer(*sw, ProfilerType::DistributedClient);
+
+		sw->GetTimer().GetTimeDeltaSeconds();
+		while (sw->UpdateWindow()) {
+			if (Window::GetKeyboard()->KeyPressed(KeyCodes::PRIOR)) sw->ShowConsole(true);
+			if (Window::GetKeyboard()->KeyPressed(KeyCodes::NEXT)) sw->ShowConsole(false);
+			tick(sw->GetTimer().GetTimeDeltaSeconds());
+			profilerRenderer->Render();
+		}
+		delete scene;
+		Window::DestroyGameWindow();
+		return 0;
+	}
+
+	std::cout << "WARNING: --render-world enables the EXPERIMENTAL GameTech renderer; it may hang the GPU.\n";
+
 	Window* w = Window::CreateGameWindow("Distributed Physics Client", 1280, 720, false);
 	w->ShowOSPointer(false);
 	w->LockMouseToWindow(true);
