@@ -1,6 +1,8 @@
 #include "ServerMidwareManager.h"
 
 #include <Windows.h>
+#include <mutex>
+#include <vector>
 
 #include "GameClient.h"
 #include "NetworkObject.h"
@@ -8,6 +10,12 @@
 
 using namespace NCL;
 using namespace NCL::CSC8503;
+
+namespace {
+	// Serializes stdout writes from the per-server reader threads so forwarded
+	// lines don't interleave mid-line.
+	std::mutex gStdOutMutex;
+}
 
 namespace {
 	const std::string PHYSICS_SERVER_PATH = "./DistributedPhysicsServer/EntryPoint.exe";
@@ -24,6 +32,10 @@ void NCL::ServerMidwareManager::SetServerExePath(const std::string& path) {
 	if (!path.empty()) {
 		mServerExePath = path;
 	}
+}
+
+void NCL::ServerMidwareManager::SetHeadless(bool headless) {
+	mHeadless = headless;
 }
 
 NCL::ServerMidwareManager::~ServerMidwareManager() {
@@ -99,6 +111,12 @@ void ServerMidwareManager::StartPhysicsServerInstance(int distributedManagerPort
 	const std::string& serverBordersStr = borderStr;
 	std::string arguments = "--arg1 " + serverManagerIpAddress + "-" + std::to_string(distributedManagerPort) + "-" + std::to_string(physicsServerId) +"-" + std::to_string(gameInstanceID) +"-" + serverBordersStr;
 
+	// Run spawned servers in the same mode as this midware. Headless servers are
+	// windowless and their stdout is forwarded to the launcher via this midware.
+	if (mHeadless) {
+		arguments += " --headless";
+	}
+
 	std::cout << arguments << std::endl;
 	const std::string serverExePath = mServerExePath;
 	std::thread programThread([this, physicsServerId, arguments, serverExePath]() {
@@ -111,33 +129,88 @@ void ServerMidwareManager::StartPhysicsServerInstance(int distributedManagerPort
 void ServerMidwareManager::ExecutePhysicsServerProgram(const std::string& programPath, const std::string& arguments,
 	int serverId) {
 
+	const std::string tag = "[server " + std::to_string(serverId) + "] ";
+
+	// Pipe the child's stdout/stderr back so the launcher (which captures THIS
+	// midware's stdout, locally or forwarded via the agent) sees the game-server
+	// logs and @@STAT telemetry without a separate console window per server.
+	SECURITY_ATTRIBUTES sa;
+	sa.nLength = sizeof(sa);
+	sa.bInheritHandle = TRUE;
+	sa.lpSecurityDescriptor = nullptr;
+
+	HANDLE childStdOutRead = nullptr;
+	HANDLE childStdOutWrite = nullptr;
+	if (!CreatePipe(&childStdOutRead, &childStdOutWrite, &sa, 0)) {
+		std::cerr << tag << "CreatePipe failed (" << GetLastError() << ")" << std::endl;
+		return;
+	}
+	// The read end must stay with the parent only.
+	SetHandleInformation(childStdOutRead, HANDLE_FLAG_INHERIT, 0);
+
 	STARTUPINFOA si;
 	PROCESS_INFORMATION pi;
-
 	ZeroMemory(&si, sizeof(si));
 	si.cb = sizeof(si);
+	si.dwFlags = STARTF_USESTDHANDLES;
+	si.hStdOutput = childStdOutWrite;
+	si.hStdError = childStdOutWrite;
+	si.hStdInput = nullptr;
 	ZeroMemory(&pi, sizeof(pi));
 
 	std::string commandLine = programPath + " " + arguments;
+	std::vector<char> cmdBuf(commandLine.begin(), commandLine.end());
+	cmdBuf.push_back('\0');
 
-	char* commandLineCStr = const_cast<char*>(commandLine.c_str());
-
-	std::cout << "Command Line arguments: " << commandLineCStr << '\n';
-
-	if (!CreateProcessA(
+	const BOOL created = CreateProcessA(
 		programPath.c_str(),   // Program path
-		commandLineCStr,       // Command line
-		NULL,                  // Process handle not inheritable
-		NULL,                  // Thread handle not inheritable
-		FALSE,                 // Set handle inheritance to FALSE
-		CREATE_NEW_CONSOLE,    // Creation flags: CREATE_NEW_CONSOLE to create a new console window
-		NULL,                  // Use parent's environment block
-		NULL,                  // Use parent's starting directory 
-		&si,                   // Pointer to STARTUPINFO structure
-		&pi)                   // Pointer to PROCESS_INFORMATION structure
-		) {
-		std::cerr << "CreateProcess failed (" << GetLastError() << ")" << std::endl;
+		cmdBuf.data(),         // Command line (mutable buffer)
+		nullptr,               // Process handle not inheritable
+		nullptr,               // Thread handle not inheritable
+		TRUE,                  // Inherit handles (needed for the stdout pipe)
+		CREATE_NO_WINDOW,      // No console window; the role opens its own GUI if windowed
+		nullptr,               // Parent's environment block
+		nullptr,               // Parent's starting directory
+		&si,
+		&pi);
+
+	// Close the parent's copy of the write end so ReadFile unblocks on child exit.
+	CloseHandle(childStdOutWrite);
+
+	if (!created) {
+		std::cerr << tag << "CreateProcess failed (" << GetLastError() << ")" << std::endl;
+		CloseHandle(childStdOutRead);
+		return;
 	}
+	CloseHandle(pi.hThread);
+
+	// Forward child output line-by-line, tagged so the launcher can route it.
+	// @@STAT lines pass through intact (the launcher strips the leading tag).
+	char buffer[4096];
+	std::string pending;
+	DWORD bytesRead = 0;
+	while (ReadFile(childStdOutRead, buffer, sizeof(buffer) - 1, &bytesRead, nullptr) && bytesRead > 0) {
+		pending.append(buffer, bytesRead);
+		size_t nl;
+		while ((nl = pending.find('\n')) != std::string::npos) {
+			std::string line = pending.substr(0, nl);
+			if (!line.empty() && line.back() == '\r') {
+				line.pop_back();
+			}
+			std::lock_guard<std::mutex> lock(gStdOutMutex);
+			std::cout << tag << line << "\n";
+			std::cout.flush();
+			pending.erase(0, nl + 1);
+		}
+	}
+	if (!pending.empty()) {
+		std::lock_guard<std::mutex> lock(gStdOutMutex);
+		std::cout << tag << pending << "\n";
+		std::cout.flush();
+	}
+
+	CloseHandle(childStdOutRead);
+	CloseHandle(pi.hProcess);
 }
 
 void ServerMidwareManager::HandleMidwareDataPacket(CSC8503::PhysicsServerMiddlewareDataPacket* packet) {

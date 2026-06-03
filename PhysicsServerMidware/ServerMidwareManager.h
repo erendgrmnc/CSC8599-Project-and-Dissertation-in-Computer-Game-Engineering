@@ -24,11 +24,17 @@ namespace NCL {
 		// Defaults to the legacy "./DistributedPhysicsServer/EntryPoint.exe"; the
 		// GUI launcher points it at the deployed game-server exe.
 		void SetServerExePath(const std::string& path);
+
+		// When headless, spawned game servers are launched windowless with --headless
+		// and their stdout is forwarded to this midware's stdout (so the launcher sees
+		// it). Mirrors the midware's own run mode.
+		void SetHeadless(bool headless);
 	protected:
 		std::string serverManagerIpAddress;
 		int distributedManagerPort;
 		int mMidwareID;
 		std::string mServerExePath;
+		bool mHeadless = false;
 		CSC8503::GameClient* mDistributedManagerClient;
 
 		void RegisterDistributedManagerClientPackets();

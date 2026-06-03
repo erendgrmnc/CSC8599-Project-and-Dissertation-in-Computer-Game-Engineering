@@ -38,11 +38,13 @@ int StartMidware(int argc, char* argv[]) {
 		std::cin >> distributedManagerPort;
 	}
 
+	const bool headless = config.Has("--headless");
+
 	ServerMidwareManager* midwareManager = new ServerMidwareManager();
 	midwareManager->SetServerExePath(serverExePath);
+	midwareManager->SetHeadless(headless);
 	midwareManager->ConnectToDistributedManager(distributedManagerIpAddress, distributedManagerPort);
 
-	const bool headless = config.Has("--headless");
 	NCL::TelemetryReporter reporter(NCL::TelemetryRole::Midware);
 	auto tick = [&](float dt) {
 		midwareManager->Update(dt);
