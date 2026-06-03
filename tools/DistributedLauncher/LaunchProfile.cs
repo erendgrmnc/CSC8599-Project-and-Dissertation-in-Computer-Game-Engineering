@@ -20,6 +20,11 @@ public sealed class LaunchProfile
     public string ManagerIp { get; set; } = "127.0.0.1";
     public int ManagerPort { get; set; } = 1234;
 
+    // Headless = roles run windowless and stream telemetry/logs to this launcher
+    // (the single pane of glass). Uncheck for the per-role OpenGL profiler windows
+    // used in dissertation evaluation screenshots.
+    public bool Headless { get; set; } = true;
+
     public string DeployFolder { get; set; } = "";
 
     // Remote midware agent endpoints ("host:port"). Empty => local-only (one midware).
@@ -35,17 +40,19 @@ public sealed class LaunchProfile
     [JsonIgnore] public string ClientExe => Path.Combine(DeployFolder, "Client", "EntryPoint.exe");
     [JsonIgnore] public string GameServerExe => Path.Combine(DeployFolder, "DistributedPhysicsServer", "EntryPoint.exe");
 
+    private string HeadlessFlag => Headless ? " --headless" : "";
+
     // --- Command-line builders (match the C++ LaunchConfig flags) ------------
     public string BuildManagerArgs() =>
         $"--servers {Servers} --clients {Clients} --objects {ObjectsPerPlayer} " +
         $"--port {ManagerPort} --world {Fmt(WorldMinX)},{Fmt(WorldMaxX)},{Fmt(WorldMinZ)},{Fmt(WorldMaxZ)} " +
-        $"--midwares {TotalMidwareCount} --autostart";
+        $"--midwares {TotalMidwareCount} --autostart{HeadlessFlag}";
 
     public string BuildMidwareArgs() =>
-        $"--manager-ip {ManagerIp} --manager-port {ManagerPort} --server-exe \"{GameServerExe}\"";
+        $"--manager-ip {ManagerIp} --manager-port {ManagerPort} --server-exe \"{GameServerExe}\"{HeadlessFlag}";
 
     public string BuildClientArgs() =>
-        $"--manager-ip {ManagerIp} --manager-port {ManagerPort}";
+        $"--manager-ip {ManagerIp} --manager-port {ManagerPort}{HeadlessFlag}";
 
     private static string Fmt(double d) =>
         d.ToString(System.Globalization.CultureInfo.InvariantCulture);
