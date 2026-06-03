@@ -21,6 +21,15 @@ DistributedMultiplayerGameScene::~DistributedMultiplayerGameScene() {
 
 bool DistributedMultiplayerGameScene::ConnectClientToDistributedManager(char a, char b, char c, char d, int port) {
 	mDistributedManagerClient = new NCL::CSC8503::GameClient();
+
+	// Announce ourselves to the manager once the connection is established, so it
+	// adds us to the game instance and - once the expected client count is reached -
+	// starts the physics servers. This join step previously lived in the removed
+	// team-game scene; without it the manager never spawns the game servers.
+	mDistributedManagerClient->AddOnClientConnected([this] {
+		SendGameClientConnectedPacket(mGameInstanceId);
+	});
+
 	const bool isConnected = mDistributedManagerClient->Connect(a, b, c, d, port, "");
 
 	if (isConnected) {
@@ -29,6 +38,12 @@ bool DistributedMultiplayerGameScene::ConnectClientToDistributedManager(char a, 
 	}
 
 	return isConnected;
+}
+
+void DistributedMultiplayerGameScene::SendGameClientConnectedPacket(int gameInstanceID) {
+	std::cout << "Sending game client connect packet for game instance: " << gameInstanceID << "\n";
+	DistributedClientConnectedToSystemPacket packet(gameInstanceID, DistributedSystemClientType::DistributedGameClient);
+	mDistributedManagerClient->SendPacket(packet);
 }
 
 bool DistributedMultiplayerGameScene::ConnectClientToDistributedGameServer(char a, char b, char c, char d, int port,

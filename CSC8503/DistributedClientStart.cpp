@@ -25,11 +25,14 @@ int RunDistributedClient(int argc, char* argv[]) {
 
 	std::string managerIpAddress = "127.0.0.1";
 	int managerPort = DEFAULT_MANAGER_PORT;
+	int gameInstanceId = 1;
 
 	if (config.HasAnyFlags()) {
 		managerIpAddress = config.GetString("--manager-ip", managerIpAddress);
 		managerPort = config.GetInt("--manager-port", managerPort);
-		std::cout << "Launch config: manager-ip=" << managerIpAddress << " manager-port=" << managerPort << "\n";
+		gameInstanceId = config.GetInt("--game-instance", gameInstanceId);
+		std::cout << "Launch config: manager-ip=" << managerIpAddress << " manager-port=" << managerPort
+			<< " game-instance=" << gameInstanceId << "\n";
 	}
 	else {
 		std::cout << "Please enter distributed manager ip address in format: 127.0.0.1\n";
@@ -53,6 +56,7 @@ int RunDistributedClient(int argc, char* argv[]) {
 	ProfilerRenderer* profilerRenderer = new ProfilerRenderer(*w, ProfilerType::DistributedClient);
 
 	auto* scene = new DistributedMultiplayerGameScene();
+	scene->SetGameInstanceId(gameInstanceId);
 
 	const std::vector<char> ipOctets = NCL::DistributedUtils::ConvertIpStrToCharArr(managerIpAddress);
 	std::cout << "Connecting to distributed manager on " << managerIpAddress << ":" << managerPort << "\n";

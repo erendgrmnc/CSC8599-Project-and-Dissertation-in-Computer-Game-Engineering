@@ -14,12 +14,17 @@ public:
 	bool ConnectClientToDistributedManager(char a, char b, char c, char d, int port);
 	bool ConnectClientToDistributedGameServer(char a, char b, char c, char d, int port, const std::string& playerName);
 
+	// The game instance this client should join (the manager assigns id 1 to the
+	// first/autostarted instance). Set before connecting.
+	void SetGameInstanceId(int id) { mGameInstanceId = id; }
+
 	void UpdateGame(float dt);
 	void UpdateDistributedManagerClient(float dt);
 	void ReceivePacket(int type, GamePacket* payload, int source) override;
 	void UpdatePhysicsClients(float dt) const;
 protected:
 	bool mIsGameStarted = false;
+	int mGameInstanceId = 1;
 
 	int mClientSideLastFullID;
 	int mServerSideLastFullID;
@@ -29,6 +34,7 @@ protected:
 	NCL::CSC8503::GameClient* mDistributedManagerClient = nullptr;
 	std::vector<NCL::CSC8503::GameClient*> mDistributedPhysicsClients;
 
+	void SendGameClientConnectedPacket(int gameInstanceID);
 	void HandleOnConnectToDistributedPhysicsServerPacketReceived(NCL::CSC8503::DistributedClientConnectToPhysicsServerPacket* packet);
 	void HandleGameStartPacketReceived(NCL::CSC8503::GameStartStatePacket* packet);
 	std::vector<char> IpToCharArray(const std::string& ipAddress);
