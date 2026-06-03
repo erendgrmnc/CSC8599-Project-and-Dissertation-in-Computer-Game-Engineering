@@ -2,6 +2,11 @@
 #include "NetworkBase.h"
 #include "NetworkObject.h"
 
+namespace NCL {
+	namespace Rendering { class Mesh; class Texture; class Shader; }
+	namespace CSC8503 { class GameWorld; }
+}
+
 // Thin distributed-physics client: connects to the manager, is routed to a
 // physics server, and receives world-state snapshots. Intentionally NOT part of
 // the (removed) team-game Scene/LevelManager hierarchy - it is hosted by
@@ -20,6 +25,13 @@ public:
 
 	bool IsGameStarted() const { return mIsGameStarted; }
 
+	// Supplies the world + primitive render resources used to spawn one visible
+	// replica per networked object. Set by the client host before connecting.
+	// When the world is null (e.g. headless), snapshots are still received but no
+	// replicas are built.
+	void SetRenderResources(NCL::CSC8503::GameWorld* world, NCL::Rendering::Mesh* mesh,
+		NCL::Rendering::Texture* albedo, NCL::Rendering::Texture* normal, NCL::Rendering::Shader* shader);
+
 	void UpdateGame(float dt);
 	void UpdateDistributedManagerClient(float dt);
 	void ReceivePacket(int type, GamePacket* payload, int source) override;
@@ -35,6 +47,19 @@ protected:
 
 	NCL::CSC8503::GameClient* mDistributedManagerClient = nullptr;
 	std::vector<NCL::CSC8503::GameClient*> mDistributedPhysicsClients;
+
+	// Client-side world + render resources for the visible replicas.
+	NCL::CSC8503::GameWorld* mWorld = nullptr;
+	NCL::Rendering::Mesh* mObjMesh = nullptr;
+	NCL::Rendering::Texture* mObjAlbedo = nullptr;
+	NCL::Rendering::Texture* mObjNormal = nullptr;
+	NCL::Rendering::Shader* mObjShader = nullptr;
+	std::vector<NCL::CSC8503::NetworkObject*> mNetworkObjects;
+
+	void HandleFullPacket(NCL::CSC8503::FullPacket* packet);
+	void HandleDeltaPacket(NCL::CSC8503::DeltaPacket* packet);
+	NCL::CSC8503::NetworkObject* FindNetworkObject(int objectID);
+	NCL::CSC8503::NetworkObject* SpawnReplica(int objectID);
 
 	void SendGameClientConnectedPacket(int gameInstanceID);
 	void HandleOnConnectToDistributedPhysicsServerPacketReceived(NCL::CSC8503::DistributedClientConnectToPhysicsServerPacket* packet);

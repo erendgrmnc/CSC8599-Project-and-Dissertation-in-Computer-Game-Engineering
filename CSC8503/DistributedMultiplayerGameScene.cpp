@@ -1,8 +1,11 @@
 #include "DistributedMultiplayerGameScene.h"
 
 #include "GameClient.h"
+#include "GameWorld.h"
+#include "RenderObject.h"
 
 using namespace NCL::CSC8503;
+using namespace NCL::Maths;
 
 DistributedMultiplayerGameScene::DistributedMultiplayerGameScene() {
 	mClientSideLastFullID = 0;
@@ -81,12 +84,80 @@ void DistributedMultiplayerGameScene::ReceivePacket(int type, GamePacket* payloa
 		break;
 	}
 	case BasicNetworkMessages::GameStartState: {
-
+		HandleGameStartPacketReceived(static_cast<GameStartStatePacket*>(payload));
+		break;
+	}
+	case BasicNetworkMessages::Full_State: {
+		HandleFullPacket(static_cast<FullPacket*>(payload));
+		break;
+	}
+	case BasicNetworkMessages::Delta_State: {
+		HandleDeltaPacket(static_cast<DeltaPacket*>(payload));
 		break;
 	}
 	default:
 		std::cout << "Received unknown packet. Type: " << payload->type << std::endl;
 		break;
+	}
+}
+
+void DistributedMultiplayerGameScene::SetRenderResources(NCL::CSC8503::GameWorld* world, NCL::Rendering::Mesh* mesh,
+	NCL::Rendering::Texture* albedo, NCL::Rendering::Texture* normal, NCL::Rendering::Shader* shader) {
+	mWorld = world;
+	mObjMesh = mesh;
+	mObjAlbedo = albedo;
+	mObjNormal = normal;
+	mObjShader = shader;
+}
+
+NetworkObject* DistributedMultiplayerGameScene::FindNetworkObject(int objectID) {
+	for (auto* netObj : mNetworkObjects) {
+		if (netObj->GetNetworkID() == objectID) {
+			return netObj;
+		}
+	}
+	return nullptr;
+}
+
+// Creates one visible cube replica for a network object the client hasn't seen
+// before. The transform is set by the incoming snapshot (ReadPacket); we only
+// pick a visible scale + colour here.
+NetworkObject* DistributedMultiplayerGameScene::SpawnReplica(int objectID) {
+	if (!mWorld || !mObjMesh || !mObjShader) {
+		return nullptr; // headless / no render resources - receive only.
+	}
+
+	auto* obj = new GameObject(NoSpecialFeatures, "NetObject " + std::to_string(objectID));
+	const float scale = 4.0f;
+	obj->GetTransform().SetScale(Vector3(scale, scale, scale));
+
+	const float cullRadius = scale * 1.75f;
+	obj->SetRenderObject(new RenderObject(&obj->GetTransform(), mObjMesh, mObjAlbedo, mObjNormal, mObjShader, cullRadius));
+	obj->GetRenderObject()->SetColour(Vector4(0.30f, 0.70f, 1.00f, 1.0f));
+
+	auto* netObj = new NetworkObject(*obj, objectID);
+	obj->SetNetworkObject(netObj);
+	mNetworkObjects.push_back(netObj);
+	mWorld->AddGameObject(obj);
+
+	std::cout << "Spawned client replica for network object " << objectID << "\n";
+	return netObj;
+}
+
+void DistributedMultiplayerGameScene::HandleFullPacket(FullPacket* packet) {
+	NetworkObject* netObj = FindNetworkObject(packet->objectID);
+	if (!netObj) {
+		netObj = SpawnReplica(packet->objectID);
+	}
+	if (netObj) {
+		netObj->ReadPacket(*packet);
+	}
+}
+
+void DistributedMultiplayerGameScene::HandleDeltaPacket(DeltaPacket* packet) {
+	NetworkObject* netObj = FindNetworkObject(packet->objectID);
+	if (netObj) {
+		netObj->ReadPacket(*packet);
 	}
 }
 

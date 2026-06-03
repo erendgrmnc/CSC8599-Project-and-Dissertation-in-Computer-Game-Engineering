@@ -10,7 +10,14 @@
 #include "DistributedSystemCommonFiles/HeadlessRunner.h"
 #include "DistributedSystemCommonFiles/TelemetryReporter.h"
 
+#ifndef DISTRIBUTEDSYSTEMACTIVE
+#include "GameTechRenderer.h"
+#include "GameWorld.h"
+#include "DirectionalLight.h"
+#endif
+
 using namespace NCL;
+using namespace NCL::Maths;
 
 namespace {
 	constexpr int DEFAULT_MANAGER_PORT = 1234;
@@ -70,32 +77,68 @@ int RunDistributedClient(int argc, char* argv[]) {
 		return 0;
 	}
 
-	Window* w = Window::CreateGameWindow("Distributed Physics Client", 400, 700, false);
-	w->ShowOSPointer(true);
-	w->LockMouseToWindow(false);
+#ifndef DISTRIBUTEDSYSTEMACTIVE
+	using namespace NCL::CSC8503;
 
-	ProfilerRenderer* profilerRenderer = new ProfilerRenderer(*w, ProfilerType::DistributedClient);
+	Window* w = Window::CreateGameWindow("Distributed Physics Client", 1280, 720, false);
+	w->ShowOSPointer(false);
+	w->LockMouseToWindow(true);
+
+	// Render the received world with the engine renderer: one cube per networked
+	// object, positioned by the snapshots the scene applies each tick.
+	GameWorld* world = new GameWorld();
+	GameTechRenderer* renderer = new GameTechRenderer(*world);
+
+	auto* cubeMesh = renderer->LoadMesh("Cube.msh");
+	auto* albedoTex = renderer->LoadTexture("Default.png");
+	auto* normalTex = renderer->LoadTexture("Default.png");
+	auto* objShader = renderer->LoadShader("scene.vert", "scene.frag");
+	scene->SetRenderResources(world, cubeMesh, albedoTex, normalTex, objShader);
+
+	// A directional light so the deferred renderer isn't pitch black.
+	renderer->AddLight(new DirectionLight(Vector3(-0.5f, -1.0f, -0.5f), Vector4(1, 1, 1, 1), 2000.0f, Vector3(0, 0, 0)));
+
+	// Overview camera; free-look with the usual WASD + mouse.
+	auto& cam = world->GetMainCamera();
+	cam.SetNearPlane(0.1f);
+	cam.SetFarPlane(2000.0f);
+	cam.SetPitch(-35.0f);
+	cam.SetYaw(0.0f);
+	cam.SetPosition(Vector3(0, 220, 260));
 
 	w->GetTimer().GetTimeDeltaSeconds(); //Clear the timer so we don't get a larger first dt!
 	while (w->UpdateWindow()) {
+		const float dt = w->GetTimer().GetTimeDeltaSeconds();
 
+		if (Window::GetKeyboard()->KeyPressed(KeyCodes::ESCAPE)) {
+			break;
+		}
 		if (Window::GetKeyboard()->KeyPressed(KeyCodes::PRIOR)) {
 			w->ShowConsole(true);
 		}
 		if (Window::GetKeyboard()->KeyPressed(KeyCodes::NEXT)) {
 			w->ShowConsole(false);
 		}
-		if (Window::GetKeyboard()->KeyPressed(KeyCodes::T)) {
-			w->SetWindowPosition(0, 0);
-		}
 
-		tick(w->GetTimer().GetTimeDeltaSeconds());
+		scene->UpdateGame(dt);   // pump network clients -> snapshots applied to object transforms
+		world->UpdateWorld(dt);  // refresh world bookkeeping
+		cam.UpdateCamera(dt);    // free-look
 
-		profilerRenderer->Render();
+		Profiler::Update();
+		reporter.MaybeEmit(scene->IsGameStarted());
+		renderer->Render();
 	}
 
+	delete renderer;
+	delete world;
 	delete scene;
 	Window::DestroyGameWindow();
-
 	return 0;
+#else
+	// RunDistributedClient is only invoked in the non-distributed build; this
+	// branch just keeps the file compilable for the lean server configs.
+	(void)reporter;
+	delete scene;
+	return 0;
+#endif
 }
