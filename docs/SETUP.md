@@ -90,6 +90,19 @@ Set `CMAKE_DISTRIBUTED_SYSTEM_ACTIVE "false"` and rebuild to get the **thin dist
 >
 > The generic engine systems that the team game once drove — level/room loading (`Level`, `Room`, `JsonParser`), `AnimationSystem`, FMOD `SoundObject`, `GameTechRenderer` + imgui UI, and the `RecastBuilder` nav-mesh generator — were later **restored, decoupled from the deleted gameplay**, for future demo-assessment use. The renderer/animation/sound pieces are guarded with `#ifndef DISTRIBUTEDSYSTEMACTIVE`, so they compile only into this non-distributed build and stay out of the lean server roles.
 
+## Headless run mode + the launcher (recommended)
+
+Bringing the roles up by hand opens a window per role plus a console per game server,
+which is hard to track. Instead, use the **GUI launcher** in [`tools/`](../tools/README.md):
+it spawns every role **headless** (each role accepts `--headless` to run a `GameTimer`
+loop with no OpenGL window) and shows a single window with a **live status dashboard** and
+**per-role log tabs**. Every role prints a `@@STAT role=... key=val ...` telemetry line to
+stdout that the launcher parses; a headless midware spawns its game servers windowless and
+forwards their output. This is the same flow for single-device and multi-device runs.
+
+Untick **Headless** in the launcher to restore the per-role profiler windows for
+`docs/DissertationEvaluationVisuals` screenshots.
+
 ## Next
 
 - [DEPLOY.md](DEPLOY.md) — ports, the launch string, and how to bring the processes up in order.

@@ -74,6 +74,7 @@ Key networking classes (all in `CSC8503CoreClasses/`): `GameServer`/`GameClient`
 - `Recast/`, `Detour/`, `DetourTileCache/`, `DebugUtils/` — vendored RecastNavigation nav-mesh library.
 - `EntryPoint/` — the shared `main.cpp` and per-role `CMake*.cmake` include files.
 - `tools/` — deployment tooling (outside CMake). `build-deploy.ps1` builds all four roles into `deploy/<Role>/EntryPoint.exe`; `DistributedLauncher/` is a .NET WPF launcher that configures a run (server/client counts, objects-per-player, world bounds, manager IP/port) and spawns the roles, with a headless `--agent` mode for remote midware machines. See `tools/README.md`.
+  - **Run model:** every role accepts `--headless` (parsed by `LaunchConfig`) to run windowless — a `GameTimer` loop (`DistributedSystemCommonFiles/HeadlessRunner`) instead of the OpenGL `ProfilerRenderer` window. Each role also emits a `@@STAT role=... key=val ...` telemetry line to stdout (`DistributedSystemCommonFiles/TelemetryReporter`); a headless midware spawns its game servers windowless (pipe-redirected, no `CREATE_NEW_CONSOLE`) and forwards their stdout tagged `[server N]`. The launcher parses these into a live dashboard + per-entity log tabs, so a headless run shows **one window** (the launcher). Untick **Headless** to restore the per-role profiler windows for evaluation visuals.
 
 Each module owns a `CMakeLists.txt` plus `CMakePC.cmake` listing its sources; add new files to the relevant `CMake*.cmake`, not just to disk.
 
