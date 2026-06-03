@@ -9,6 +9,7 @@
 #include "../CSC8503CoreClasses/DistributedSystemCommonFiles/DistributedUtils.h"
 #include "../CSC8503CoreClasses/DistributedSystemCommonFiles/LaunchConfig.h"
 #include "../CSC8503CoreClasses/DistributedSystemCommonFiles/HeadlessRunner.h"
+#include "../CSC8503CoreClasses/DistributedSystemCommonFiles/TelemetryReporter.h"
 #include "GameServer.h"
 #include "../CSC8503CoreClasses/NavigationGrid.h"
 
@@ -106,6 +107,7 @@ int StartProgram(int argc, char* argv[]) {
 	systemManager->StartManagerServer(managerPort, maxPhysicsServer + maxClients + 20);
 
 	bool instanceCreated = false;
+	NCL::TelemetryReporter reporter(NCL::TelemetryRole::Manager);
 
 	// Per-tick work shared by headless and windowed modes: pump the manager server
 	// and, with --autostart, create the game instance once the midwares are connected.
@@ -117,6 +119,7 @@ int StartProgram(int argc, char* argv[]) {
 		}
 		systemManager->GetServer()->UpdateServer();
 		Profiler::Update();
+		reporter.MaybeEmit();
 	};
 
 	if (headless) {

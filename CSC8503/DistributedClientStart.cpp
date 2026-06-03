@@ -8,6 +8,7 @@
 #include "DistributedSystemCommonFiles/DistributedUtils.h"
 #include "DistributedSystemCommonFiles/LaunchConfig.h"
 #include "DistributedSystemCommonFiles/HeadlessRunner.h"
+#include "DistributedSystemCommonFiles/TelemetryReporter.h"
 
 using namespace NCL;
 
@@ -55,9 +56,11 @@ int RunDistributedClient(int argc, char* argv[]) {
 	scene->ConnectClientToDistributedManager(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], managerPort);
 
 	const bool headless = config.Has("--headless");
+	NCL::TelemetryReporter reporter(NCL::TelemetryRole::Client);
 	auto tick = [&](float dt) {
 		scene->UpdateGame(dt);
 		Profiler::Update();
+		reporter.MaybeEmit(scene->IsGameStarted());
 	};
 
 	if (headless) {

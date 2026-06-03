@@ -18,6 +18,8 @@ public:
 	// first/autostarted instance). Set before connecting.
 	void SetGameInstanceId(int id) { mGameInstanceId = id; }
 
+	bool IsGameStarted() const { return mIsGameStarted; }
+
 	void UpdateGame(float dt);
 	void UpdateDistributedManagerClient(float dt);
 	void ReceivePacket(int type, GamePacket* payload, int source) override;

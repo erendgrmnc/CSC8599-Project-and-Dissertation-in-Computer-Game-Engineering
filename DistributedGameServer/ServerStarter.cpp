@@ -8,6 +8,7 @@
 #include "ServerWorldManager.h"
 #include "DistributedSystemCommonFiles/LaunchConfig.h"
 #include "DistributedSystemCommonFiles/HeadlessRunner.h"
+#include "DistributedSystemCommonFiles/TelemetryReporter.h"
 
 int ParsePortNumber(std::string& portStr) {
 	int port;
@@ -98,6 +99,8 @@ int StartGameServer(int argc, char* argv[]) {
 	const NCL::LaunchConfig config(argc, argv);
 	const bool headless = config.Has("--headless");
 
+	NCL::TelemetryReporter reporter(NCL::TelemetryRole::GameServer, serverId);
+
 	// The per-tick work is identical in headless and windowed modes; only the loop
 	// host (a GameTimer loop vs a Window) and the profiler overlay differ.
 	auto tick = [&](float dt) {
@@ -106,6 +109,7 @@ int StartGameServer(int argc, char* argv[]) {
 		}
 		serverManager->UpdateGameServerManager(dt);
 		Profiler::Update();
+		reporter.MaybeEmit(serverManager->GetGameStarted());
 	};
 
 	if (headless) {

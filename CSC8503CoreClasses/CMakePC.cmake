@@ -206,6 +206,8 @@ function(Create_CSC8503CoreClasses_Files_PC)
         "./DistributedSystemCommonFiles/LaunchConfig.cpp"
         "./DistributedSystemCommonFiles/HeadlessRunner.h"
         "./DistributedSystemCommonFiles/HeadlessRunner.cpp"
+        "./DistributedSystemCommonFiles/TelemetryReporter.h"
+        "./DistributedSystemCommonFiles/TelemetryReporter.cpp"
     )
     source_group("DistributedSystemCommonFiles" FILES ${distributed_system_common_files})
 

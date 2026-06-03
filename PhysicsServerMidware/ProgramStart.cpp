@@ -4,6 +4,7 @@
 #include "ProfilerRenderer.h"
 #include "../CSC8503CoreClasses/DistributedSystemCommonFiles/LaunchConfig.h"
 #include "../CSC8503CoreClasses/DistributedSystemCommonFiles/HeadlessRunner.h"
+#include "../CSC8503CoreClasses/DistributedSystemCommonFiles/TelemetryReporter.h"
 
 #include "Window.h"
 
@@ -42,9 +43,11 @@ int StartMidware(int argc, char* argv[]) {
 	midwareManager->ConnectToDistributedManager(distributedManagerIpAddress, distributedManagerPort);
 
 	const bool headless = config.Has("--headless");
+	NCL::TelemetryReporter reporter(NCL::TelemetryRole::Midware);
 	auto tick = [&](float dt) {
 		midwareManager->Update(dt);
 		Profiler::Update();
+		reporter.MaybeEmit();
 	};
 
 	if (headless) {
