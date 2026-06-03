@@ -226,7 +226,7 @@ namespace NCL {
 
 			Frustum mFrameFrustum;
 
-			UISystem* mUi;
+			UISystem* mUi = nullptr;
 			std::unordered_map<std::string, GLuint> mLoadedTextures;
 			//TODO(erendgrmnc): added after integrating Imgui lib. Refactor UISystem into this logic.
 			std::function<void()> mImguiCanvasFuncToRender = nullptr;

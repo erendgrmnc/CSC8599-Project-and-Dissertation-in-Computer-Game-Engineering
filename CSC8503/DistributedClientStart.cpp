@@ -120,13 +120,18 @@ int RunDistributedClient(int argc, char* argv[]) {
 			w->ShowConsole(false);
 		}
 
-		scene->UpdateGame(dt);   // pump network clients -> snapshots applied to object transforms
-		world->UpdateWorld(dt);  // refresh world bookkeeping
-		cam.UpdateCamera(dt);    // free-look
+		try {
+			scene->UpdateGame(dt);   // pump network clients -> snapshots applied to object transforms
+			world->UpdateWorld(dt);  // refresh world bookkeeping
+			cam.UpdateCamera(dt);    // free-look
 
-		Profiler::Update();
-		reporter.MaybeEmit(scene->IsGameStarted());
-		renderer->Render();
+			Profiler::Update();
+			reporter.MaybeEmit(scene->IsGameStarted());
+			renderer->Render();
+		}
+		catch (const std::exception& e) {
+			std::cerr << "Client frame exception: " << e.what() << std::endl;
+		}
 	}
 
 	delete renderer;

@@ -383,7 +383,7 @@ void GameTechRenderer::RenderFrame() {
 
 	NewRenderLines();
 	NewRenderText();
-	if (mIsGameStarted) {
+	if (mIsGameStarted && mUi) {
 		const std::vector<UISystem::Icon*>& icons = mUi->GetIcons();
 		if (mUi) {
 			for (auto& i : icons) {

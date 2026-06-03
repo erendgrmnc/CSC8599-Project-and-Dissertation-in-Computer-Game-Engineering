@@ -127,6 +127,7 @@ NetworkObject* DistributedMultiplayerGameScene::SpawnReplica(int objectID) {
 		return nullptr; // headless / no render resources - receive only.
 	}
 
+	std::cout << "Spawning replica for network object " << objectID << "..." << std::endl;
 	auto* obj = new GameObject(NoSpecialFeatures, "NetObject " + std::to_string(objectID));
 	const float scale = 4.0f;
 	obj->GetTransform().SetScale(Vector3(scale, scale, scale));
@@ -140,7 +141,7 @@ NetworkObject* DistributedMultiplayerGameScene::SpawnReplica(int objectID) {
 	mNetworkObjects.push_back(netObj);
 	mWorld->AddGameObject(obj);
 
-	std::cout << "Spawned client replica for network object " << objectID << "\n";
+	std::cout << "Spawned client replica for network object " << objectID << std::endl;
 	return netObj;
 }
 
@@ -170,10 +171,20 @@ void DistributedMultiplayerGameScene::UpdatePhysicsClients(float dt) const {
 void DistributedMultiplayerGameScene::HandleOnConnectToDistributedPhysicsServerPacketReceived(
 	DistributedClientConnectToPhysicsServerPacket* packet) {
 
-	std::vector<char> ipOctets = IpToCharArray(packet->ipAddress);
-	std::cout << "Connecting to connecting physics server on: " << packet->ipAddress << " | " << packet->physicsPacketDistributorPort << "\n";
+	std::cout << "Routing to physics server: '" << packet->ipAddress << "' port "
+		<< packet->physicsPacketDistributorPort << std::endl;
+
+	std::vector<char> ipOctets;
+	try {
+		ipOctets = IpToCharArray(packet->ipAddress);
+	}
+	catch (const std::exception& e) {
+		std::cout << "  invalid physics-server IP, skipping connect: " << e.what() << std::endl;
+		return;
+	}
 
 	ConnectClientToDistributedGameServer(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], packet->physicsPacketDistributorPort, "");
+	std::cout << "  connected to physics server." << std::endl;
 }
 
 void DistributedMultiplayerGameScene::HandleGameStartPacketReceived(GameStartStatePacket* packet) {
