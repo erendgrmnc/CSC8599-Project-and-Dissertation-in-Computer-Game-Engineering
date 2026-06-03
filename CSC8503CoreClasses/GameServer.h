@@ -37,7 +37,7 @@ namespace NCL {
 			int mIncomingDataRate;
 			int mOutgoingDataRate;
 
-			char ipString[16];
+			char ipAddress[16];
 		};
 	}
 }

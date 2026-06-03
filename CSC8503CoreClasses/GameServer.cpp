@@ -88,7 +88,7 @@ bool GameServer::GetPeer(int peerNumber, int& peerId) const
 }
 
 std::string GameServer::GetIpAddress() const {
-	return ipString;
+	return ipAddress;
 }
 
 void GameServer::UpdateServer() {
