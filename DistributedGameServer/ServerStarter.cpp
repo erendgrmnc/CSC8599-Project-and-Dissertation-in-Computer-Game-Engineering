@@ -6,6 +6,8 @@
 #include "Profiler.h"
 #include "ProfilerRenderer.h"
 #include "ServerWorldManager.h"
+#include "DistributedSystemCommonFiles/LaunchConfig.h"
+#include "DistributedSystemCommonFiles/HeadlessRunner.h"
 
 int ParsePortNumber(std::string& portStr) {
 	int port;
@@ -92,22 +94,35 @@ int StartGameServer(int argc, char* argv[]) {
 
 	NCL::DistributedGameServer::DistributedGameServerManager* serverManager = new NCL::DistributedGameServer::DistributedGameServerManager(serverId, gameInstanceID, serverBorders);
 	serverManager->StartDistributedGameServer(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], port);
-	NCL::GameTimer timer;
 
-	bool isServerRunning = true;
+	const NCL::LaunchConfig config(argc, argv);
+	const bool headless = config.Has("--headless");
 
-	float winWidth = 400;
-	float winHeight = 700;
+	// The per-tick work is identical in headless and windowed modes; only the loop
+	// host (a GameTimer loop vs a Window) and the profiler overlay differ.
+	auto tick = [&](float dt) {
+		if (serverManager->GetGameStarted()) {
+			serverManager->GetServerWorldManager()->Update(dt);
+		}
+		serverManager->UpdateGameServerManager(dt);
+		Profiler::Update();
+	};
+
+	if (headless) {
+		std::cout << "Running headless (server " << serverId << ").\n";
+		NCL::RunHeadlessLoop(tick);
+		return 0;
+	}
 
 	//PROFILER
-	Window* w = nullptr;
-	w = Window::CreateGameWindow("Profiler", winWidth, winHeight, false);
+	Window* w = Window::CreateGameWindow("Profiler", 400, 700, false);
 	w->ShowOSPointer(true);
 	w->LockMouseToWindow(false);
 	auto* profilerRenderer = new ProfilerRenderer(*w, NCL::ProfilerType::DistributedPhysicsServer);
 
+	NCL::GameTimer timer;
 	timer.GetTimeDeltaSeconds(); //Clear the timer so we don't get a larget first dt!
-	while (isServerRunning &&(w->UpdateWindow())) {
+	while (w->UpdateWindow()) {
 		timer.Tick();
 		float dt = timer.GetTimeDeltaSeconds();
 		if (dt > 0.1f) {
@@ -115,20 +130,7 @@ int StartGameServer(int argc, char* argv[]) {
 			continue; //must have hit a breakpoint or something to have a 1 second frame time!
 		}
 
-		if (serverManager->GetGameStarted()) {
-			serverManager->GetServerWorldManager()->Update(dt);
-		}
-
-		std::chrono::steady_clock::time_point start;
-		std::chrono::steady_clock::time_point end;
-		std::chrono::duration<double, std::milli> timeTaken;
-
-		start = std::chrono::high_resolution_clock::now();
-		serverManager->UpdateGameServerManager(dt);
-		end = std::chrono::high_resolution_clock::now();
-		timeTaken = end - start;
-
-		Profiler::Update();
+		tick(dt);
 		profilerRenderer->Render();
 	}
 

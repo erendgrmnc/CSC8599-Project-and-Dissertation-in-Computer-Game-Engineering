@@ -3,6 +3,7 @@
 #include "Profiler.h"
 #include "ProfilerRenderer.h"
 #include "../CSC8503CoreClasses/DistributedSystemCommonFiles/LaunchConfig.h"
+#include "../CSC8503CoreClasses/DistributedSystemCommonFiles/HeadlessRunner.h"
 
 #include "Window.h"
 
@@ -36,19 +37,27 @@ int StartMidware(int argc, char* argv[]) {
 		std::cin >> distributedManagerPort;
 	}
 
-	float winWidth = 400;
-	float winHeight = 700;
+	ServerMidwareManager* midwareManager = new ServerMidwareManager();
+	midwareManager->SetServerExePath(serverExePath);
+	midwareManager->ConnectToDistributedManager(distributedManagerIpAddress, distributedManagerPort);
 
-	NCL::Window* w = nullptr;
-	w = NCL::Window::CreateGameWindow("Physics Server Middleware", winWidth, winHeight, false);
+	const bool headless = config.Has("--headless");
+	auto tick = [&](float dt) {
+		midwareManager->Update(dt);
+		Profiler::Update();
+	};
+
+	if (headless) {
+		std::cout << "Running headless (midware).\n";
+		NCL::RunHeadlessLoop(tick);
+		return 0;
+	}
+
+	NCL::Window* w = NCL::Window::CreateGameWindow("Physics Server Middleware", 400, 700, false);
 	w->ShowOSPointer(true);
 	w->LockMouseToWindow(false);
 
 	ProfilerRenderer* profilerRenderer = new ProfilerRenderer(*w, ProfilerType::DistributedPhysicsMidware);
-
-	ServerMidwareManager* midwareManager = new ServerMidwareManager();
-	midwareManager->SetServerExePath(serverExePath);
-	midwareManager->ConnectToDistributedManager(distributedManagerIpAddress, distributedManagerPort);
 
 	w->GetTimer().GetTimeDeltaSeconds(); //Clear the timer so we don't get a larget first dt!
 	while (w->UpdateWindow()) {
@@ -63,9 +72,8 @@ int StartMidware(int argc, char* argv[]) {
 			w->SetWindowPosition(0, 0);
 		}
 
-		midwareManager->Update(w->GetTimer().GetTimeDeltaSeconds());
+		tick(w->GetTimer().GetTimeDeltaSeconds());
 
-		Profiler::Update();
 		profilerRenderer->Render();
 	}
 

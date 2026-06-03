@@ -7,6 +7,7 @@
 #include "ProfilerRenderer.h"
 #include "DistributedSystemCommonFiles/DistributedUtils.h"
 #include "DistributedSystemCommonFiles/LaunchConfig.h"
+#include "DistributedSystemCommonFiles/HeadlessRunner.h"
 
 using namespace NCL;
 
@@ -46,21 +47,31 @@ int RunDistributedClient(int argc, char* argv[]) {
 		std::cin >> managerPort;
 	}
 
-	float winWidth = 400;
-	float winHeight = 700;
-
-	Window* w = Window::CreateGameWindow("Distributed Physics Client", winWidth, winHeight, false);
-	w->ShowOSPointer(true);
-	w->LockMouseToWindow(false);
-
-	ProfilerRenderer* profilerRenderer = new ProfilerRenderer(*w, ProfilerType::DistributedClient);
-
 	auto* scene = new DistributedMultiplayerGameScene();
 	scene->SetGameInstanceId(gameInstanceId);
 
 	const std::vector<char> ipOctets = NCL::DistributedUtils::ConvertIpStrToCharArr(managerIpAddress);
 	std::cout << "Connecting to distributed manager on " << managerIpAddress << ":" << managerPort << "\n";
 	scene->ConnectClientToDistributedManager(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], managerPort);
+
+	const bool headless = config.Has("--headless");
+	auto tick = [&](float dt) {
+		scene->UpdateGame(dt);
+		Profiler::Update();
+	};
+
+	if (headless) {
+		std::cout << "Running headless (client).\n";
+		NCL::RunHeadlessLoop(tick);
+		delete scene;
+		return 0;
+	}
+
+	Window* w = Window::CreateGameWindow("Distributed Physics Client", 400, 700, false);
+	w->ShowOSPointer(true);
+	w->LockMouseToWindow(false);
+
+	ProfilerRenderer* profilerRenderer = new ProfilerRenderer(*w, ProfilerType::DistributedClient);
 
 	w->GetTimer().GetTimeDeltaSeconds(); //Clear the timer so we don't get a larger first dt!
 	while (w->UpdateWindow()) {
@@ -75,9 +86,8 @@ int RunDistributedClient(int argc, char* argv[]) {
 			w->SetWindowPosition(0, 0);
 		}
 
-		scene->UpdateGame(w->GetTimer().GetTimeDeltaSeconds());
+		tick(w->GetTimer().GetTimeDeltaSeconds());
 
-		Profiler::Update();
 		profilerRenderer->Render();
 	}
 

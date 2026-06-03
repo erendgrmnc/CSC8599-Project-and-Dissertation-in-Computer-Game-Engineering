@@ -8,6 +8,7 @@
 #include "DistributedPhysicsManagerServer.h"
 #include "../CSC8503CoreClasses/DistributedSystemCommonFiles/DistributedUtils.h"
 #include "../CSC8503CoreClasses/DistributedSystemCommonFiles/LaunchConfig.h"
+#include "../CSC8503CoreClasses/DistributedSystemCommonFiles/HeadlessRunner.h"
 #include "GameServer.h"
 #include "../CSC8503CoreClasses/NavigationGrid.h"
 
@@ -60,15 +61,7 @@ int StartProgram(int argc, char* argv[]) {
 
 	const NCL::LaunchConfig config(argc, argv);
 	const bool useFlags = config.HasAnyFlags();
-
-	float winWidth = 400;
-	float winHeight = 700;
-
-	Window* w = Window::CreateGameWindow("Distributed Game Server Manager", winWidth, winHeight, false);
-	w->ShowOSPointer(true);
-	w->LockMouseToWindow(false);
-
-	ProfilerRenderer* profilerRenderer = new ProfilerRenderer(*w, ProfilerType::DistributedPhysicsServerManager);
+	const bool headless = config.Has("--headless");
 
 	std::cout << "-------------------------- Distributed Manager --------------------------\n";
 
@@ -114,6 +107,30 @@ int StartProgram(int argc, char* argv[]) {
 
 	bool instanceCreated = false;
 
+	// Per-tick work shared by headless and windowed modes: pump the manager server
+	// and, with --autostart, create the game instance once the midwares are connected.
+	auto tick = [&](float dt) {
+		if (autoStart && !instanceCreated && systemManager->GetConnectedMidwareCount() >= expectedMidwares) {
+			std::cout << "Autostart: " << expectedMidwares << " midware(s) connected, creating game instance.\n";
+			systemManager->CreateNewGameInstance(maxPhysicsServer, maxClients, objectsPerPlayer, worldMinX, worldMaxX, worldMinZ, worldMaxZ);
+			instanceCreated = true;
+		}
+		systemManager->GetServer()->UpdateServer();
+		Profiler::Update();
+	};
+
+	if (headless) {
+		std::cout << "Running headless (manager). Game start relies on --autostart.\n";
+		NCL::RunHeadlessLoop(tick);
+		delete systemManager;
+		return 0;
+	}
+
+	Window* w = Window::CreateGameWindow("Distributed Game Server Manager", 400, 700, false);
+	w->ShowOSPointer(true);
+	w->LockMouseToWindow(false);
+
+	ProfilerRenderer* profilerRenderer = new ProfilerRenderer(*w, ProfilerType::DistributedPhysicsServerManager);
 
 	w->GetTimer().GetTimeDeltaSeconds(); //Clear the timer so we don't get a larget first dt!
 	while (w->UpdateWindow()) {
@@ -129,16 +146,8 @@ int StartProgram(int argc, char* argv[]) {
 			w->SetWindowPosition(0, 0);
 		}
 
+		// Manual game-start trigger (windowed mode only); --autostart covers headless.
 		if (Window::GetKeyboard()->KeyPressed(KeyCodes::S)) {
-			//Start a game instance
-			systemManager->CreateNewGameInstance(maxPhysicsServer, maxClients, objectsPerPlayer, worldMinX, worldMaxX, worldMinZ, worldMaxZ);
-			instanceCreated = true;
-		}
-
-		// --autostart: create the instance automatically once the expected number
-		// of midwares have connected, so the launcher needs no key press.
-		if (autoStart && !instanceCreated && systemManager->GetConnectedMidwareCount() >= expectedMidwares) {
-			std::cout << "Autostart: " << expectedMidwares << " midware(s) connected, creating game instance.\n";
 			systemManager->CreateNewGameInstance(maxPhysicsServer, maxClients, objectsPerPlayer, worldMinX, worldMaxX, worldMinZ, worldMaxZ);
 			instanceCreated = true;
 		}
@@ -149,9 +158,8 @@ int StartProgram(int argc, char* argv[]) {
 			std::cout << "Packet Sent from Server Manager..." << "\n";
 		}
 
-		systemManager->GetServer()->UpdateServer();
+		tick(w->GetTimer().GetTimeDeltaSeconds());
 
-		Profiler::Update();
 		profilerRenderer->Render();
 	}
 
