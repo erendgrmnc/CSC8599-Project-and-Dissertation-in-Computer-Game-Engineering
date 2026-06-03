@@ -73,6 +73,13 @@ Set-Location $repo
 New-Item -ItemType Directory -Force -Path $deploy | Out-Null
 $results = @()
 
+# Free any deployed role exes still running (e.g. a previous launch), otherwise
+# the copy below fails with a file lock.
+Get-Process -Name EntryPoint -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and $_.Path.StartsWith($deploy, [System.StringComparison]::OrdinalIgnoreCase) } |
+    ForEach-Object { Write-Host "Stopping running role: $($_.Path)" -ForegroundColor Yellow; Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
+Start-Sleep -Milliseconds 600
+
 foreach ($role in $Roles) {
     $info = $matrix[$role]
     $t = $info.Toggle
@@ -89,14 +96,20 @@ foreach ($role in $Roles) {
 
     $outDir = Join-Path $deploy $info.Out
     New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-    Copy-Item $builtExe (Join-Path $outDir "EntryPoint.exe") -Force
+    try {
+        Copy-Item $builtExe (Join-Path $outDir "EntryPoint.exe") -Force -ErrorAction Stop
+    }
+    catch {
+        $results += "$role : COPY FAILED (exe in use? close running role windows)"
+        continue
+    }
 
     # Carry any DLLs (FMOD etc.) that CMake copied next to the exe; place them
     # both next to the role exe and at the deploy root for convenience.
     $dlls = Get-ChildItem $builtDir -Filter "*.dll" -ErrorAction SilentlyContinue
     foreach ($dll in $dlls) {
-        Copy-Item $dll.FullName (Join-Path $outDir $dll.Name) -Force
-        Copy-Item $dll.FullName (Join-Path $deploy $dll.Name) -Force
+        Copy-Item $dll.FullName (Join-Path $outDir $dll.Name) -Force -ErrorAction SilentlyContinue
+        Copy-Item $dll.FullName (Join-Path $deploy $dll.Name) -Force -ErrorAction SilentlyContinue
     }
 
     $results += "$role : OK -> deploy\$($info.Out)\EntryPoint.exe"
