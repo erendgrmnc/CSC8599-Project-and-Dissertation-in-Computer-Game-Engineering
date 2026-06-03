@@ -95,6 +95,11 @@ int RunDistributedClient(int argc, char* argv[]) {
 	auto* objShader = renderer->LoadShader("scene.vert", "scene.frag");
 	scene->SetRenderResources(world, cubeMesh, albedoTex, normalTex, objShader);
 
+	// Refresh the bindless-texture-handle UBO now that the object textures are
+	// loaded: the renderer only fills it in its constructor, so textures loaded
+	// afterwards would otherwise resolve to a garbage handle and fault the GPU.
+	renderer->FillTextureDataUBO();
+
 	// A directional light so the deferred renderer isn't pitch black.
 	renderer->AddLight(new DirectionLight(Vector3(-0.5f, -1.0f, -0.5f), Vector4(1, 1, 1, 1), 2000.0f, Vector3(0, 0, 0)));
 
