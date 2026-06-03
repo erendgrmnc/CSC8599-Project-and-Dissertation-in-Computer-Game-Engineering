@@ -7,6 +7,7 @@ function(Create_PC_CSC8503_Files)
     ################################################################################
     set(Header_Files
         "DistributedMultiplayerGameScene.h"
+        "DistributedClientRenderer.h"
         "GameTechRenderer.h"
         "BaseUI.h"
         "WindowsUI.h"
@@ -24,6 +25,7 @@ function(Create_PC_CSC8503_Files)
     set(Source_Files
         "DistributedMultiplayerGameScene.cpp"
         "DistributedClientStart.cpp"
+        "DistributedClientRenderer.cpp"
         "GameTechRenderer.cpp"
         "BaseUI.cpp"
         "WindowsUI.cpp"

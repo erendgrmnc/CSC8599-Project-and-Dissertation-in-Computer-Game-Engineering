@@ -11,6 +11,7 @@
 #include "DistributedSystemCommonFiles/TelemetryReporter.h"
 
 #ifndef DISTRIBUTEDSYSTEMACTIVE
+#include "DistributedClientRenderer.h"
 #include "GameTechRenderer.h"
 #include "GameWorld.h"
 #include "DirectionalLight.h"
@@ -79,58 +80,15 @@ int RunDistributedClient(int argc, char* argv[]) {
 
 #ifndef DISTRIBUTEDSYSTEMACTIVE
 	using namespace NCL::CSC8503;
-
-	// World rendering is OPT-IN (--render-world) and EXPERIMENTAL. The engine's
-	// deferred + bindless-texture GameTechRenderer, driven here without its usual
-	// LevelManager setup, can issue invalid GPU work that hangs the display
-	// (black screen / forced restart). The launcher never passes this flag, so the
-	// default client is a safe profiler-only window with no 3D GPU rendering.
-	const bool renderWorld = config.Has("--render-world");
-
-	if (!renderWorld) {
-		Window* sw = Window::CreateGameWindow("Distributed Physics Client", 400, 700, false);
-		sw->ShowOSPointer(true);
-		sw->LockMouseToWindow(false);
-		ProfilerRenderer* profilerRenderer = new ProfilerRenderer(*sw, ProfilerType::DistributedClient);
-
-		sw->GetTimer().GetTimeDeltaSeconds();
-		while (sw->UpdateWindow()) {
-			if (Window::GetKeyboard()->KeyPressed(KeyCodes::PRIOR)) sw->ShowConsole(true);
-			if (Window::GetKeyboard()->KeyPressed(KeyCodes::NEXT)) sw->ShowConsole(false);
-			tick(sw->GetTimer().GetTimeDeltaSeconds());
-			profilerRenderer->Render();
-		}
-		delete scene;
-		Window::DestroyGameWindow();
-		return 0;
-	}
-
-	std::cout << "WARNING: --render-world enables the EXPERIMENTAL GameTech renderer; it may hang the GPU.\n";
+	using namespace NCL::Rendering;
 
 	Window* w = Window::CreateGameWindow("Distributed Physics Client", 1280, 720, false);
 	w->ShowOSPointer(false);
 	w->LockMouseToWindow(true);
 
-	// Render the received world with the engine renderer: one cube per networked
-	// object, positioned by the snapshots the scene applies each tick.
 	GameWorld* world = new GameWorld();
-	GameTechRenderer* renderer = new GameTechRenderer(*world);
 
-	auto* cubeMesh = renderer->LoadMesh("Cube.msh");
-	auto* albedoTex = renderer->LoadTexture("Default.png");
-	auto* normalTex = renderer->LoadTexture("Default.png");
-	auto* objShader = renderer->LoadShader("scene.vert", "scene.frag");
-	scene->SetRenderResources(world, cubeMesh, albedoTex, normalTex, objShader);
-
-	// Refresh the bindless-texture-handle UBO now that the object textures are
-	// loaded: the renderer only fills it in its constructor, so textures loaded
-	// afterwards would otherwise resolve to a garbage handle and fault the GPU.
-	renderer->FillTextureDataUBO();
-
-	// A directional light so the deferred renderer isn't pitch black.
-	renderer->AddLight(new DirectionLight(Vector3(-0.5f, -1.0f, -0.5f), Vector4(1, 1, 1, 1), 2000.0f, Vector3(0, 0, 0)));
-
-	// Overview camera; free-look with the usual WASD + mouse.
+	// Overview camera looking at the shared world; free-look with WASD + mouse.
 	auto& cam = world->GetMainCamera();
 	cam.SetNearPlane(0.1f);
 	cam.SetFarPlane(2000.0f);
@@ -138,46 +96,52 @@ int RunDistributedClient(int argc, char* argv[]) {
 	cam.SetYaw(0.0f);
 	cam.SetPosition(Vector3(0, 220, 260));
 
-	int tracedFrames = 0; // step-trace the first few frames that have a replica, to localise crashes
-	w->GetTimer().GetTimeDeltaSeconds(); //Clear the timer so we don't get a larger first dt!
-	while (w->UpdateWindow()) {
-		const float dt = w->GetTimer().GetTimeDeltaSeconds();
+	// Default: a minimal, safe forward renderer (flat-shaded cubes). The full
+	// deferred GameTechRenderer is EXPERIMENTAL and opt-in via --render-deferred:
+	// driven without a level it can issue invalid GPU work that hangs the display.
+	const bool useDeferred = config.Has("--render-deferred");
 
-		if (Window::GetKeyboard()->KeyPressed(KeyCodes::ESCAPE)) {
-			break;
+	auto runLoop = [&](OGLRenderer* renderer) {
+		w->GetTimer().GetTimeDeltaSeconds(); //Clear the timer so we don't get a larger first dt!
+		while (w->UpdateWindow()) {
+			const float dt = w->GetTimer().GetTimeDeltaSeconds();
+			if (Window::GetKeyboard()->KeyPressed(KeyCodes::ESCAPE)) {
+				break;
+			}
+			try {
+				scene->UpdateGame(dt);   // pump network clients -> snapshots applied to object transforms
+				world->UpdateWorld(dt);
+				cam.UpdateCamera(dt);
+				Profiler::Update();
+				reporter.MaybeEmit(scene->IsGameStarted());
+				renderer->Render();
+			}
+			catch (const std::exception& e) {
+				std::cerr << "Client frame exception: " << e.what() << std::endl;
+			}
 		}
-		if (Window::GetKeyboard()->KeyPressed(KeyCodes::PRIOR)) {
-			w->ShowConsole(true);
-		}
-		if (Window::GetKeyboard()->KeyPressed(KeyCodes::NEXT)) {
-			w->ShowConsole(false);
-		}
+	};
 
-		try {
-			scene->UpdateGame(dt);   // pump network clients -> snapshots applied to object transforms
-
-			const bool trace = scene->GetReplicaCount() > 0 && tracedFrames < 6;
-			if (trace) { ++tracedFrames; std::cout << "[trace] post-updategame, replicas=" << scene->GetReplicaCount() << std::endl; }
-
-			world->UpdateWorld(dt);  // refresh world bookkeeping
-			if (trace) std::cout << "[trace] post-updateworld" << std::endl;
-
-			cam.UpdateCamera(dt);    // free-look
-			if (trace) std::cout << "[trace] post-camupdate" << std::endl;
-
-			Profiler::Update();
-			reporter.MaybeEmit(scene->IsGameStarted());
-			if (trace) std::cout << "[trace] pre-render" << std::endl;
-
-			renderer->Render();
-			if (trace) std::cout << "[trace] post-render" << std::endl;
-		}
-		catch (const std::exception& e) {
-			std::cerr << "Client frame exception: " << e.what() << std::endl;
-		}
+	if (useDeferred) {
+		std::cout << "WARNING: --render-deferred uses the EXPERIMENTAL GameTech renderer; it may hang the GPU.\n";
+		GameTechRenderer* renderer = new GameTechRenderer(*world);
+		auto* cubeMesh = renderer->LoadMesh("Cube.msh");
+		auto* albedoTex = renderer->LoadTexture("Default.png");
+		auto* normalTex = renderer->LoadTexture("Default.png");
+		auto* objShader = renderer->LoadShader("scene.vert", "scene.frag");
+		scene->SetRenderResources(world, cubeMesh, albedoTex, normalTex, objShader);
+		renderer->FillTextureDataUBO();
+		renderer->AddLight(new DirectionLight(Vector3(-0.5f, -1.0f, -0.5f), Vector4(1, 1, 1, 1), 2000.0f, Vector3(0, 0, 0)));
+		runLoop(renderer);
+		delete renderer;
+	}
+	else {
+		DistributedClientRenderer* renderer = new DistributedClientRenderer(*w, *world);
+		scene->SetRenderResources(world, renderer->GetObjectMesh(), nullptr, nullptr, renderer->GetObjectShader());
+		runLoop(renderer);
+		delete renderer;
 	}
 
-	delete renderer;
 	delete world;
 	delete scene;
 	Window::DestroyGameWindow();
