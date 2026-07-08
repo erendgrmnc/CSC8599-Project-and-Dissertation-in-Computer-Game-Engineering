@@ -267,13 +267,16 @@ DistributedPhysicsClientConnectedToManagerPacket::DistributedPhysicsClientConnec
 	this->ipAddress = ipAddress.c_str();
 }
 
-DistributedClientConnectToPhysicsServerPacket::DistributedClientConnectToPhysicsServerPacket(int port, int physicsServerID, const std::string& ipAddress) {
+DistributedClientConnectToPhysicsServerPacket::DistributedClientConnectToPhysicsServerPacket(int port, int physicsServerID, const std::string& ipAddress, const std::string& borderStr) {
 	type = BasicNetworkMessages::DistributedClientConnectToPhysicsServer;
 	size = sizeof(DistributedClientConnectToPhysicsServerPacket);
 
 	this->physicsPacketDistributorPort = port;
 	this->physicsServerID = physicsServerID;
 	this->ipAddress = ipAddress;
+
+	strncpy(this->borderStr, borderStr.c_str(), sizeof(this->borderStr) - 1);
+	this->borderStr[sizeof(this->borderStr) - 1] = '\0';
 }
 
 DistributedPhysicsServerAllClientsAreConnectedPacket::DistributedPhysicsServerAllClientsAreConnectedPacket(int gameInstanceID, int gameServerID, bool isGameServerReady) {

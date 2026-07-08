@@ -84,8 +84,8 @@ void NCL::DistributedManager::SystemManager::SendStartGameStatusPacket(int gameI
 }
 
 void DistributedManager::SystemManager::
-SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int serverID, const int port) const {
-	DistributedClientConnectToPhysicsServerPacket packet(port, serverID, ip);
+SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int serverID, const int port, const std::string& borderStr) const {
+	DistributedClientConnectToPhysicsServerPacket packet(port, serverID, ip, borderStr);
 	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
 }
 
@@ -143,16 +143,28 @@ void DistributedManager::SystemManager::HandleDistributedPhysicsClientConnectedP
 	auto* serverData = DistributedUtils::CreatePhysicsServerData(packet->ipAddress, packet->physicsServerID, packet->gameInstanceID);
 	AddServerData(*serverData);
 
-	std::string serverIpAddress = mDistributedPhysicsManagerServer->GetIPAddress();
-	std::cout << "Distributed Physics Server Info Packet Sent! IP: " << serverIpAddress << "| port: " << packet->physicsPacketDistributorPort << std::endl;
 	int portForClientsToConnect = packet->physicsPacketDistributorPort;
 	serverData->SetDataSenderPort(portForClientsToConnect);
 
+	// The region this server owns, so the client can draw the partition. Sourced from the
+	// instance's border map (empty string if the instance/server is somehow unknown - the
+	// client tolerates that by simply not drawing the region).
+	std::string borderStr;
+	if (auto* gameInstance = mDistributedPhysicsManagerServer->GetGameInstance(packet->gameInstanceID)) {
+		auto& borderMap = gameInstance->GetServerBorderStrMap();
+		auto it = borderMap.find(packet->physicsServerID);
+		if (it != borderMap.end()) {
+			borderStr = it->second;
+		}
+	}
+
+	std::cout << "Distributed Physics Server Info Packet Sent! IP: " << serverData->GetServerIPAddress()
+		<< "| port: " << portForClientsToConnect << "| border: " << borderStr << std::endl;
 
 	std::cout << "Sending physics server data packet to server: " << packet->physicsServerID << "\n";
 	SendStartDataToPhysicsServer(packet->gameInstanceID, packet->physicsServerID);
 
-	SendDistributedPhysicsServerInfoToClients(serverData->GetServerIPAddress(), packet->physicsServerID, portForClientsToConnect);
+	SendDistributedPhysicsServerInfoToClients(serverData->GetServerIPAddress(), packet->physicsServerID, portForClientsToConnect, borderStr);
 }
 
 void DistributedManager::SystemManager::HandleDistributedPhysicsServerAllClientsAreConnectedPacketReceived(

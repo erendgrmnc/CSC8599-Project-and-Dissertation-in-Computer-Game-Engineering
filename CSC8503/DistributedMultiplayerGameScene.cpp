@@ -2,8 +2,14 @@
 
 #include "GameClient.h"
 #include "GameWorld.h"
+#include "GameObject.h"
 #include "RenderObject.h"
+#include "DistributedSystemCommonFiles/DistributedUtils.h"
 
+#include <algorithm>
+#include <limits>
+
+using namespace NCL;
 using namespace NCL::CSC8503;
 using namespace NCL::Maths;
 
@@ -17,8 +23,8 @@ DistributedMultiplayerGameScene::DistributedMultiplayerGameScene() {
 DistributedMultiplayerGameScene::~DistributedMultiplayerGameScene() {
 	mDistributedManagerClient->Disconnect();
 
-	for (const auto& client : mDistributedPhysicsClients) {
-		client->Disconnect();
+	for (const auto& link : mDistributedPhysicsClients) {
+		link.client->Disconnect();
 	}
 }
 
@@ -50,7 +56,7 @@ void DistributedMultiplayerGameScene::SendGameClientConnectedPacket(int gameInst
 }
 
 bool DistributedMultiplayerGameScene::ConnectClientToDistributedGameServer(char a, char b, char c, char d, int port,
-	const std::string& playerName) {
+	const std::string& playerName, int serverId) {
 	auto* client = new NCL::CSC8503::GameClient();
 	const bool isConnected = client->Connect(a, b, c, d, port, playerName);
 
@@ -62,7 +68,7 @@ bool DistributedMultiplayerGameScene::ConnectClientToDistributedGameServer(char 
 		client->RegisterPacketHandler(String_Message, this);
 	}
 
-	mDistributedPhysicsClients.push_back(client);
+	mDistributedPhysicsClients.push_back({ client, serverId });
 
 	return isConnected;
 }
@@ -152,6 +158,7 @@ void DistributedMultiplayerGameScene::HandleFullPacket(FullPacket* packet) {
 	}
 	if (netObj) {
 		netObj->ReadPacket(*packet);
+		ApplyOwnerColour(netObj, mActiveServerId);
 	}
 }
 
@@ -159,20 +166,26 @@ void DistributedMultiplayerGameScene::HandleDeltaPacket(DeltaPacket* packet) {
 	NetworkObject* netObj = FindNetworkObject(packet->objectID);
 	if (netObj) {
 		netObj->ReadPacket(*packet);
+		ApplyOwnerColour(netObj, mActiveServerId);
 	}
 }
 
-void DistributedMultiplayerGameScene::UpdatePhysicsClients(float dt) const {
-	for (const auto& client : mDistributedPhysicsClients) {
-		client->UpdateClient();
+// Pumps each physics client, marking which server "owns" the current pump so the
+// packet handlers (which run synchronously inside UpdateClient) can attribute the
+// snapshot to it. mActiveServerId is -1 outside the loop.
+void DistributedMultiplayerGameScene::UpdatePhysicsClients(float dt) {
+	for (const auto& link : mDistributedPhysicsClients) {
+		mActiveServerId = link.serverId;
+		link.client->UpdateClient();
 	}
+	mActiveServerId = -1;
 }
 
 void DistributedMultiplayerGameScene::HandleOnConnectToDistributedPhysicsServerPacketReceived(
 	DistributedClientConnectToPhysicsServerPacket* packet) {
 
-	std::cout << "Routing to physics server: '" << packet->ipAddress << "' port "
-		<< packet->physicsPacketDistributorPort << std::endl;
+	std::cout << "Routing to physics server " << packet->physicsServerID << ": '" << packet->ipAddress << "' port "
+		<< packet->physicsPacketDistributorPort << " border '" << packet->borderStr << "'" << std::endl;
 
 	std::vector<char> ipOctets;
 	try {
@@ -183,7 +196,19 @@ void DistributedMultiplayerGameScene::HandleOnConnectToDistributedPhysicsServerP
 		return;
 	}
 
-	ConnectClientToDistributedGameServer(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], packet->physicsPacketDistributorPort, "");
+	// Record the server's region for the overlay. A malformed border is not fatal - the
+	// client still connects and receives snapshots, that region just isn't drawn.
+	ServerRegion region;
+	region.serverId = packet->physicsServerID;
+	if (DistributedUtils::ParseBorderString(packet->borderStr, region.minX, region.maxX, region.minZ, region.maxZ)) {
+		region.colour = ColourForServer(region.serverId);
+		mServerRegions.push_back(region);
+	}
+	else {
+		std::cout << "  malformed border string, region not drawn." << std::endl;
+	}
+
+	ConnectClientToDistributedGameServer(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], packet->physicsPacketDistributorPort, "", packet->physicsServerID);
 	std::cout << "  connected to physics server." << std::endl;
 }
 
@@ -214,4 +239,72 @@ std::vector<char> DistributedMultiplayerGameScene::IpToCharArray(const std::stri
 	}
 
 	return ip_packed;
+}
+
+// Fixed per-server palette, indexed serverId % 8. serverId < 0 (unknown owner) gets the
+// neutral blue that ungrouped replicas use.
+Vector4 DistributedMultiplayerGameScene::ColourForServer(int serverId) {
+	static const Vector4 palette[8] = {
+		Vector4(0.20f, 0.80f, 1.00f, 1.0f), // cyan
+		Vector4(1.00f, 0.55f, 0.15f, 1.0f), // orange
+		Vector4(0.40f, 0.90f, 0.35f, 1.0f), // green
+		Vector4(1.00f, 0.35f, 0.85f, 1.0f), // magenta
+		Vector4(1.00f, 0.90f, 0.25f, 1.0f), // yellow
+		Vector4(1.00f, 0.30f, 0.30f, 1.0f), // red
+		Vector4(0.65f, 0.45f, 1.00f, 1.0f), // violet
+		Vector4(0.20f, 0.85f, 0.75f, 1.0f), // teal
+	};
+	if (serverId < 0) {
+		return Vector4(0.30f, 0.70f, 1.00f, 1.0f); // default replica blue
+	}
+	return palette[serverId % 8];
+}
+
+void DistributedMultiplayerGameScene::ApplyOwnerColour(NetworkObject* netObj, int serverId) {
+	if (!netObj) {
+		return;
+	}
+	if (serverId >= 0) {
+		mObjectOwner[netObj->GetNetworkID()] = serverId;
+	}
+	RenderObject* ro = netObj->GetGameObject().GetRenderObject();
+	if (!ro) {
+		return;
+	}
+	ro->SetColour(ColourForServer(mOverlayEnabled ? serverId : -1));
+}
+
+void DistributedMultiplayerGameScene::SetOverlayEnabled(bool enabled) {
+	mOverlayEnabled = enabled;
+	std::cout << "Region overlay " << (enabled ? "ON" : "OFF") << std::endl;
+
+	// Recolour existing replicas from their remembered owner so the toggle takes effect
+	// immediately, not on the next snapshot.
+	for (NetworkObject* netObj : mNetworkObjects) {
+		RenderObject* ro = netObj->GetGameObject().GetRenderObject();
+		if (!ro) {
+			continue;
+		}
+		int owner = -1;
+		auto it = mObjectOwner.find(netObj->GetNetworkID());
+		if (it != mObjectOwner.end()) {
+			owner = it->second;
+		}
+		ro->SetColour(ColourForServer(enabled ? owner : -1));
+	}
+}
+
+bool DistributedMultiplayerGameScene::GetWorldBounds(float& minX, float& maxX, float& minZ, float& maxZ) const {
+	if (mServerRegions.empty()) {
+		return false;
+	}
+	minX = minZ = std::numeric_limits<float>::max();
+	maxX = maxZ = std::numeric_limits<float>::lowest();
+	for (const ServerRegion& r : mServerRegions) {
+		minX = std::min(minX, r.minX);
+		maxX = std::max(maxX, r.maxX);
+		minZ = std::min(minZ, r.minZ);
+		maxZ = std::max(maxZ, r.maxZ);
+	}
+	return true;
 }

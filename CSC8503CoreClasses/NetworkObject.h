@@ -223,7 +223,12 @@ namespace NCL::CSC8503 {
 		int physicsPacketDistributorPort;
 		int physicsServerID;
 		std::string ipAddress;
-		DistributedClientConnectToPhysicsServerPacket(int port, int physicsServerID, const std::string& ipAddress);
+		// The server's region as "minX/maxX|minZ/maxZ" (same format the manager ships to
+		// game servers in RunDistributedPhysicsServerInstancePacket). Lets the client draw
+		// which server owns which slice of the world. Fixed char array so it survives the
+		// raw memcpy the ENet wire path does on this struct.
+		char borderStr[256];
+		DistributedClientConnectToPhysicsServerPacket(int port, int physicsServerID, const std::string& ipAddress, const std::string& borderStr);
 	};
 
 	struct DistributedPhysicsServerAllClientsAreConnectedPacket : public GamePacket {

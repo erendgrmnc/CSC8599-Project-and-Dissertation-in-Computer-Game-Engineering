@@ -12,9 +12,12 @@
 
 #ifndef DISTRIBUTEDSYSTEMACTIVE
 #include "DistributedClientRenderer.h"
+#include "DistributedClientOverlay.h"
 #include "GameTechRenderer.h"
 #include "GameWorld.h"
 #include "DirectionalLight.h"
+#include "Debug.h"
+#include <algorithm>
 #endif
 
 using namespace NCL;
@@ -101,20 +104,55 @@ int RunDistributedClient(int argc, char* argv[]) {
 	// driven without a level it can issue invalid GPU work that hangs the display.
 	const bool useDeferred = config.Has("--render-deferred");
 
+	std::cout << "Press F3 to toggle the server-region overlay.\n";
+
 	auto runLoop = [&](OGLRenderer* renderer) {
 		w->GetTimer().GetTimeDeltaSeconds(); //Clear the timer so we don't get a larger first dt!
+		bool overlayOn = true;
+		size_t framedRegionCount = 0;
 		while (w->UpdateWindow()) {
 			const float dt = w->GetTimer().GetTimeDeltaSeconds();
 			if (Window::GetKeyboard()->KeyPressed(KeyCodes::ESCAPE)) {
 				break;
 			}
+			if (Window::GetKeyboard()->KeyPressed(KeyCodes::F3)) {
+				overlayOn = !overlayOn;
+				scene->SetOverlayEnabled(overlayOn);
+			}
 			try {
 				scene->UpdateGame(dt);   // pump network clients -> snapshots applied to object transforms
 				world->UpdateWorld(dt);
+
+				// Frame the camera to the whole partitioned world the first time regions
+				// arrive (and again if more servers appear), so the grid is on screen
+				// instead of a lone cube in an empty void.
+				const std::vector<ServerRegion>& regions = scene->GetServerRegions();
+				if (regions.size() != framedRegionCount) {
+					framedRegionCount = regions.size();
+					float mnX, mxX, mnZ, mxZ;
+					if (scene->GetWorldBounds(mnX, mxX, mnZ, mxZ)) {
+						const float cx = (mnX + mxX) * 0.5f;
+						const float cz = (mnZ + mxZ) * 0.5f;
+						const float extent = std::max(mxX - mnX, mxZ - mnZ);
+						cam.SetPosition(Vector3(cx, extent * 0.9f, cz + extent * 0.9f));
+						cam.SetPitch(-45.0f);
+						cam.SetYaw(0.0f);
+					}
+				}
+
 				cam.UpdateCamera(dt);
+
+				// Emit the overlay's Debug primitives for the renderer to consume this
+				// frame; UpdateRenderables clears them afterward (they are re-emitted each
+				// frame). The legend needs the debug font, which the renderer loads.
+				if (overlayOn) {
+					DistributedClientOverlay::Emit(regions, Debug::GetDebugFont() != nullptr);
+				}
+
 				Profiler::Update();
 				reporter.MaybeEmit(scene->IsGameStarted());
 				renderer->Render();
+				Debug::UpdateRenderables(dt);
 			}
 			catch (const std::exception& e) {
 				std::cerr << "Client frame exception: " << e.what() << std::endl;

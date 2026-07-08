@@ -1,7 +1,23 @@
 # Launcher server logs + client region overlay
 
 Date: 2026-07-08
-Status: approved, not yet implemented
+Status: implemented (pending on-device visual verification of the overlay)
+
+## Implementation notes (added post-build)
+
+- Work item 1 (launcher logs) landed in commit `404419e`; verified with a parser unit
+  test. The misleading `0.0.0.0` log line was fixed in the manager as part of work item 2.
+- Work item 0b diagnostics landed in `e0d887d`.
+- Work items 2-4 (border plumbing, ownership tint, F3 overlay) implemented. The overlay
+  legend renders through a bespoke `overlayText` shader using a **classic `sampler2D`**,
+  NOT the engine's bindless `DebugText` shader, so the safe renderer stays free of the
+  bindless path. The grid uses a bespoke `overlayLine` shader. Both are `#version 400`.
+- The legend's font size / position (0..100 ortho space, size 20) are copied from the
+  engine's own debug-text convention but have NOT been visually confirmed on device; they
+  are isolated constants at the top of `DistributedClientOverlay.cpp` for easy tweaking.
+- Work item 0 (the dangling-reference `Starting Game!` duplication) is NOT yet fixed; it
+  is real but non-fatal, and was de-prioritised behind the two features the user asked
+  for. Still worth doing.
 
 ## Problem
 

@@ -39,6 +39,35 @@ std::vector<char> NCL::DistributedUtils::ConvertIpStrToCharArr(std::string ipAdd
 	return ip_packed;
 }
 
+bool NCL::DistributedUtils::ParseBorderString(const std::string& borderStr, float& minX, float& maxX, float& minZ, float& maxZ) {
+	// Format: "minX/maxX|minZ/maxZ" (the manager's GameInstance::GetServerAreaString).
+	// Uses stof, unlike the game server's own stoi-based parse, so fractional world
+	// bounds survive.
+	const size_t bar = borderStr.find('|');
+	if (bar == std::string::npos) {
+		return false;
+	}
+	const std::string xPart = borderStr.substr(0, bar);
+	const std::string zPart = borderStr.substr(bar + 1);
+
+	const size_t xSlash = xPart.find('/');
+	const size_t zSlash = zPart.find('/');
+	if (xSlash == std::string::npos || zSlash == std::string::npos) {
+		return false;
+	}
+
+	try {
+		minX = std::stof(xPart.substr(0, xSlash));
+		maxX = std::stof(xPart.substr(xSlash + 1));
+		minZ = std::stof(zPart.substr(0, zSlash));
+		maxZ = std::stof(zPart.substr(zSlash + 1));
+	}
+	catch (const std::exception&) {
+		return false;
+	}
+	return true;
+}
+
 std::string NCL::DistributedUtils::GetMachineIPV4Address() {
     std::string ipAddress = "Unable to get IP Address";
     WSADATA wsaData;

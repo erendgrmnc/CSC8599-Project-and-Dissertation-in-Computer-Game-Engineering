@@ -57,7 +57,7 @@ namespace NCL {
 
 			std::map<int, int> mPhysicsServerMiddlewareRunningInstanceMap;
 
-			void SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int serverID, const int port) const;
+			void SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int serverID, const int port, const std::string& borderStr) const;
 			void SendStartDataToPhysicsServer(int gameInstanceID, int physicsServerID) const;
 			void SendPhysicsServerMiddlewareDataPacket(int peerID, int midwareID);
 
