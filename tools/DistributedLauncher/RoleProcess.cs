@@ -54,8 +54,18 @@ public sealed class RoleProcess : INotifyPropertyChanged
 
         _process = new Process { StartInfo = psi, EnableRaisingEvents = true };
         _process.OutputDataReceived += (_, e) => { if (e.Data != null) LogLine?.Invoke($"[{Label}] {e.Data}"); };
-        _process.ErrorDataReceived += (_, e) => { if (e.Data != null) LogLine?.Invoke($"[{Label}] {e.Data}"); };
-        _process.Exited += (_, _) => { Status = "exited"; LogLine?.Invoke($"[{Label}] process exited."); };
+        _process.ErrorDataReceived += (_, e) => { if (e.Data != null) LogLine?.Invoke($"[{Label}] STDERR: {e.Data}"); };
+
+        // Every role's main loop is `while (true)` (see DistributedSystemCommonFiles/
+        // HeadlessRunner), so ANY exit is abnormal. Report the code: 0xC0000005 is an
+        // access violation, 0xC0000409 a stack buffer overrun, 3 an unhandled C++
+        // exception. Without it a crash looks identical to a clean shutdown.
+        _process.Exited += (_, _) =>
+        {
+            int code = _process.ExitCode;
+            Status = "exited";
+            LogLine?.Invoke($"[{Label}] process exited (code {code} / 0x{code:X8}).");
+        };
 
         try
         {

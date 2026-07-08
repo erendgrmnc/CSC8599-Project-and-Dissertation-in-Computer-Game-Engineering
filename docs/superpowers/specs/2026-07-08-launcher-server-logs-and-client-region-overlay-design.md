@@ -19,9 +19,9 @@ found while diagnosing them.
    the entire point of the system — which server owns which region, or which server is
    simulating a given object.
 
-3. **The manager crashes and starts the game prematurely** (found while reading the
-   Manager log tab). This must be fixed first, since a dead manager makes the overlay
-   untestable.
+3. **The manager starts the game prematurely, and separately, exits unexpectedly under
+   the launcher.** These were initially assumed to be the same bug. They are not — see
+   below.
 
 ## Work item 0 — fix the dangling reference (separate, prior commit)
 
@@ -36,24 +36,62 @@ std::vector<DistributedPhysicsServerData*>& GetPhysicsServerDataList(int gameIns
 ```
 
 Its sole caller, `CheckIsGameStartable`, binds `auto& serverList` to the dangling
-reference and iterates it. Consequences observed in a live run:
+reference and iterates it.
 
-- `Starting Game!` prints on the *first* `DistributedPhysicsServerAllClientsAreConnected`
-  packet rather than after all servers report ready — the destroyed vector most likely
-  iterates zero times, so the "all servers started" check vacuously returns `true`.
-- The manager process then dies. `RunHeadlessLoop` is `while (true)` and never returns,
-  so `process exited.` in the launcher means a crash or an escaped exception.
+**Reproduced consequence:** `Starting Game!` prints on the *first*
+`DistributedPhysicsServerAllClientsAreConnected` packet and again on the second, rather
+than once after all servers report ready. The destroyed vector iterates zero times, so
+the "all servers started" check vacuously returns `true`. Confirmed in three separate
+runs of the deployed binaries.
 
 **Fix:** return the vector **by value**. The list is tiny (one entry per physics server)
-and built fresh on every call anyway, so there is nothing to optimise. Update the
-declaration at `SystemManager.h:75` and the `auto&` binding in `CheckIsGameStartable`
-to `const auto`.
+and rebuilt on every call anyway, so there is nothing to optimise. Update the declaration
+at `SystemManager.h:75` and the `auto&` binding in `CheckIsGameStartable` to `const auto`.
 
 **Verification:** run 2 servers headless; `Starting Game!` must appear exactly once,
-after both servers have sent their ready packet, and the Manager row must stay
-`running`.
+after both servers have sent their ready packet.
 
 This ships as its own commit, before any of the work below.
+
+### What this fix does NOT explain
+
+An earlier draft of this spec claimed the dangling reference also crashes the manager.
+**That claim was wrong and has been removed.** Evidence:
+
+- Running the deployed `Manager` + `Midware` + `Client` binaries directly, the manager
+  executes `CheckIsGameStartable` twice (printing `Starting Game!` twice) and then runs
+  for 62 s without exiting.
+- Re-running under a harness that replicates `RoleProcess.cs` exactly (`.NET Process`,
+  `UseShellExecute=false`, `CreateNoWindow=true`, `RedirectStandardOutput/Error`,
+  `BeginOutputReadLine`, `EnableRaisingEvents`): manager alive after 35 s.
+- A stale process holding port 1234 was also ruled out — the failing run prints
+  `Local IP Address: 0.0.0.0`, which `GameServer::Initialise` only reaches *after*
+  `enet_host_create` succeeds.
+
+The manager exit remains **unexplained**. It is tracked as work item 0b.
+
+## Work item 0b — instrument the unexplained manager exit
+
+Two diagnostics, both independently worth having:
+
+1. **`RoleProcess.cs`** — report the exit code (`process exited (code N / 0xNNNNNNNN).`)
+   and tag stderr lines distinctly. Today a crash is indistinguishable from a clean
+   shutdown. `RunHeadlessLoop` is `while (true)` and never returns, so **any** manager
+   exit is abnormal.
+2. **`EntryPoint/main.cpp`** — `std::cout << std::unitbuf;`. Only `TelemetryReporter`
+   uses `std::endl`; every other role log line is `std::cout << ... << "\n"` and sits in
+   the buffer. On a crash those lines are **lost**, so the launcher's last visible line is
+   the last `@@STAT` flush, not the last thing the process did. This is why the two
+   observed failures appeared to die in different places.
+
+Narrowing from the flush cadence (`@@STAT` every 500 ms, final one reading `clients=0`):
+the manager died **within ~500 ms of the game client connecting**.
+
+Expected signal from one instrumented run: `0xC0000005` = access violation,
+`0xC0000409` = stack buffer overrun, `3` = unhandled C++ exception, `0` = a clean
+`return` that should be impossible.
+
+No fix is proposed until that evidence exists.
 
 ## Work item 1 — launcher: physics-server logs
 
