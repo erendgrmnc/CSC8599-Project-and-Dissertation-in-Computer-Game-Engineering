@@ -1,10 +1,12 @@
+using System.Globalization;
+
 namespace DistributedLauncher;
 
 // One parsed stdout line from a role (or a forwarded game-server line).
 public sealed class ParsedLine
 {
-    public string? Tag;                // e.g. "server 0" from a "[server 0] " prefix, else null
-    public string Text = "";           // the line with any "[tag] " prefix stripped
+    public int? ServerId;              // N from a "[server N] " prefix (midware-forwarded), else null
+    public string Text = "";           // the line, minus a recognised "[server N] " prefix
     public bool IsStat;                // true when the (de-tagged) line is "@@STAT ..."
     public string Role = "";           // STAT role= field
     public string Id = "";             // STAT id= field
@@ -14,20 +16,28 @@ public sealed class ParsedLine
 public static class TelemetryParser
 {
     private const string StatMarker = "@@STAT ";
+    private const string ServerTagPrefix = "[server ";
 
     public static ParsedLine Parse(string raw)
     {
         var p = new ParsedLine();
         string s = raw;
 
-        // Strip an optional "[tag] " prefix (the midware tags forwarded server logs).
-        if (s.StartsWith("["))
+        // Strip ONLY a well-formed "[server N] " prefix, which the midware prepends to
+        // each game-server line it forwards. Any other bracketed text (e.g. a launcher
+        // "[Manager] " tag, or a log line that happens to start with '[') is left intact
+        // so it cannot be mistaken for a server tag and mis-routed.
+        if (s.StartsWith(ServerTagPrefix, StringComparison.Ordinal))
         {
-            int end = s.IndexOf("] ", StringComparison.Ordinal);
+            int end = s.IndexOf("] ", ServerTagPrefix.Length, StringComparison.Ordinal);
             if (end > 0)
             {
-                p.Tag = s.Substring(1, end - 1);
-                s = s[(end + 2)..];
+                string idStr = s.Substring(ServerTagPrefix.Length, end - ServerTagPrefix.Length);
+                if (int.TryParse(idStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out int id))
+                {
+                    p.ServerId = id;
+                    s = s[(end + 2)..];
+                }
             }
         }
         p.Text = s;

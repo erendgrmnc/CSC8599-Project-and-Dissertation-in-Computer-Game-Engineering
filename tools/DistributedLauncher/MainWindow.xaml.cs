@@ -199,11 +199,10 @@ public partial class MainWindow : Window
         var p = TelemetryParser.Parse(raw);
 
         string key, name;
-        if (p.Tag != null && p.Tag.StartsWith("server", StringComparison.OrdinalIgnoreCase))
+        if (p.ServerId is int sid)
         {
-            string id = p.Tag.Length > 6 ? p.Tag[6..].Trim() : "?";
-            key = "server:" + id;
-            name = "Server " + id;
+            key = "server:" + sid;
+            name = "Server " + sid;
         }
         else
         {
@@ -211,18 +210,23 @@ public partial class MainWindow : Window
             name = sourceName;
         }
 
+        // Create the tab/row up front so a server that only emits @@STAT still appears.
         var ev = GetOrCreateEntity(key, name);
-        ev.Log.AppendText(p.Text + Environment.NewLine);
-        ev.Log.ScrollToEnd();
 
         if (p.IsStat)
         {
+            // Telemetry drives the Live Status row only; echoing it into the log tab at
+            // 2 Hz buries the real diagnostic output. Update the row and stop here.
             ev.Status.Metrics = TelemetryParser.MetricsText(p);
             if (ev.Status.State is "starting" or "stopped")
             {
                 ev.Status.State = "running";
             }
+            return;
         }
+
+        ev.Log.AppendText(p.Text + Environment.NewLine);
+        ev.Log.ScrollToEnd();
     }
 
     private void ClearAllEntities()

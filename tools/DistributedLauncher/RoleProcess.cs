@@ -53,7 +53,11 @@ public sealed class RoleProcess : INotifyPropertyChanged
         };
 
         _process = new Process { StartInfo = psi, EnableRaisingEvents = true };
-        _process.OutputDataReceived += (_, e) => { if (e.Data != null) LogLine?.Invoke($"[{Label}] {e.Data}"); };
+        // Forward child stdout VERBATIM. Game-server lines the midware forwards already
+        // carry a "[server N] " prefix; adding "[Label] " on top hid that from the parser
+        // and dumped every server line into the Midware tab. The owning tab is chosen by
+        // the label passed to Ingest, not by any prefix in the text.
+        _process.OutputDataReceived += (_, e) => { if (e.Data != null) LogLine?.Invoke(e.Data); };
         _process.ErrorDataReceived += (_, e) => { if (e.Data != null) LogLine?.Invoke($"[{Label}] STDERR: {e.Data}"); };
 
         // Every role's main loop is `while (true)` (see DistributedSystemCommonFiles/
