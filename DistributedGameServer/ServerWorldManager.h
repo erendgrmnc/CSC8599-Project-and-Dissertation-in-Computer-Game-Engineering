@@ -141,7 +141,7 @@ namespace NCL {
 
 			int GetObjectServer(const Maths::Vector3& position) const;
 
-			Maths::Vector3 CalculateIncomingObjectOffsetPosition(const Maths::Vector3& position);
+			Maths::Vector3 CalculateIncomingObjectOffsetPosition(const Maths::Vector3& position) const;
 
 			void ApplyWorkloadInitialState(CSC8503::GameObject& obj, int playerID, int objectIndex) const;
 		};

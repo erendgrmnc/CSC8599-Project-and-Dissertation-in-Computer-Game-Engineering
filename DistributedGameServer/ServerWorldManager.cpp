@@ -434,25 +434,36 @@ int DistributedGameServer::ServerWorldManager::GetObjectServer(const Maths::Vect
 	return -1;
 }
 
-// NOTE: currently unreferenced. Kept because the incoming-object nudge it performs
-// is needed once ownership is decided by a single half-open rule, but it returned a
-// reference to this stack local (undefined behaviour) if it was ever called.
-Maths::Vector3 DistributedGameServer::ServerWorldManager::CalculateIncomingObjectOffsetPosition(const Maths::Vector3& position) {
+// Clamps a handed-over object's position strictly inside this server's region.
+//
+// An object arriving from a neighbour can land exactly on, or a hair past, the
+// shared edge: the sender decided the object had left its own region, but float
+// rounding can leave the position on a coordinate this server's border test also
+// rejects. Both servers then disown it. This nudge makes the receiver's test
+// agree with the handoff that just happened.
+//
+// The bounds mirror IsObjectInBorder exactly - half-open on X (>= min, < max),
+// closed on Z (>= min, <= max) - so a position this returns always satisfies it.
+// When the incoming position is already inside, every clamp is a no-op.
+//
+// NOTE: still unreferenced. Wiring it into StartHandlingObject moves incoming
+// objects and so changes measured handoff behaviour; that belongs with the
+// ownership unification (increment 2 of the interactions design), not here.
+Maths::Vector3 DistributedGameServer::ServerWorldManager::CalculateIncomingObjectOffsetPosition(const Maths::Vector3& position) const {
+	// One centimetre in world units - large enough to survive the float rounding
+	// that put the object on the edge, far below the 2-unit object spacing.
+	constexpr float INWARD_EPSILON = 0.01f;
+
 	Vector3 offsetPos = position;
 
-	if (position.x > mServerBorderData->maxXVal) {
-		//offsetPos.x = std::floorf(position.x - 0.5f);
-	}
-	else {
-		//offsetPos.x = std::ceilf(position.x + 0.5f);
-	}
+	// X's upper bound is exclusive, so max itself is not a legal position here.
+	// std::clamp is undefined when lo > hi, which a degenerate region would cause.
+	const float highX = std::max(mServerBorderData->minXVal, mServerBorderData->maxXVal - INWARD_EPSILON);
+	offsetPos.x = std::clamp(position.x, mServerBorderData->minXVal, highX);
 
-	if (position.z > mServerBorderData->maxZVal) {
-		offsetPos.z = std::floor(position.z);
-	}
-	else if (position.z <= mServerBorderData->minZVal) {
-		offsetPos.z = std::floor(position.z);
-	}
+	// Z's upper bound is inclusive, so max is legal and needs no epsilon.
+	const float highZ = std::max(mServerBorderData->minZVal, mServerBorderData->maxZVal);
+	offsetPos.z = std::clamp(position.z, mServerBorderData->minZVal, highZ);
 
 	return offsetPos;
 }
