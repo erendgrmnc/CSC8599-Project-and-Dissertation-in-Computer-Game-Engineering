@@ -101,6 +101,25 @@ namespace NCL::CSC8503 {
 	};
 	static_assert(std::is_trivially_copyable_v<DistributedServerCommandRelayPacket>);
 
+	// Owning game server -> peers (which build a DEACTIVATED pool entry, mirroring
+	// the pre-seed model) and clients (which build a replica). Reliable, broadcast on
+	// the packet-sender server, exactly as the handoff packet already is.
+	//
+	// Carries an archetype ID rather than a description: every role must build a
+	// byte-identical object, and a description would mean a variable-length string
+	// inside a struct that is memcpy'd onto the wire.
+	struct DistributedObjectSpawnedPacket : public GamePacket {
+		int objectID;                 // from NetworkIdSpace::MakeRuntimeId
+		int archetypeID;              // NCL::Interaction::ObjectArchetype
+		int ownerServerID;
+		int spawnerPlayerID;          // -1 for system spawns
+		Vector3 position;
+
+		DistributedObjectSpawnedPacket(int objectID, int archetypeID, int ownerServerID,
+			int spawnerPlayerID, const Vector3& position);
+	};
+	static_assert(std::is_trivially_copyable_v<DistributedObjectSpawnedPacket>);
+
 	struct ClientPacket : public GamePacket {
 		int		lastID;
 		char	buttonstates[8];

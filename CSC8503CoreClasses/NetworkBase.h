@@ -61,7 +61,8 @@ enum BasicNetworkMessages {
 	// APPEND ONLY, for the same reason as above.
 	DistributedClientCommand,        // Client      -> Game Server
 	DistributedCommandAck,           // Game Server -> Client
-	DistributedServerCommandRelay    // Game Server -> Game Server
+	DistributedServerCommandRelay,   // Game Server -> Game Server
+	DistributedObjectSpawned         // Game Server -> peers + clients
 };
 
 enum DistributedSystemClientType {

@@ -154,11 +154,51 @@ namespace NCL::Interaction {
 				return CommandResult::Applied;
 			}
 		};
+
+		// Creates an object at a point. Point-targeted, so the owner is whichever
+		// server's region contains the spawn point - spawn is NOT a special case in
+		// the routing layer, and a spawn exactly on a border is simply owned by
+		// whoever the half-open rule assigns it to.
+		class SpawnCommand : public IInteractionCommand {
+		public:
+			CommandType GetType() const override { return CommandType::Spawn; }
+
+			CommandScope GetScope(const CommandArgs&) const override {
+				CommandScope scope;
+				scope.targetsPoint = true;
+				return scope;
+			}
+
+			bool Validate(const CommandArgs& args) const override {
+				return args.archetypeID >= 0;
+			}
+
+			CommandResult Apply(ICommandContext& ctx, const CommandArgs& args) override {
+				if (!Validate(args)) {
+					return CommandResult::Rejected;
+				}
+
+				const int owner = ctx.GetOwningServer(args.worldPoint);
+				if (owner < 0) {
+					return CommandResult::Rejected;   // Outside the world entirely.
+				}
+				if (owner != ctx.GetServerID()) {
+					ctx.RelayToServer(owner, GetType(), args);
+					return CommandResult::Relayed;
+				}
+
+				const int spawnedID = ctx.SpawnObject(args.archetypeID, args.worldPoint, args.playerID);
+				// -1 means the partitioned id space is exhausted. Reporting it as
+				// rejected keeps the I4 tally honest instead of losing the command.
+				return (spawnedID >= 0) ? CommandResult::Applied : CommandResult::Rejected;
+			}
+		};
 	}
 
 	void CommandRegistry::RegisterDefaultsInto(CommandRegistry& registry) {
 		registry.Register(std::make_unique<ImpulseCommand>());
 		registry.Register(std::make_unique<MoveAxisCommand>());
+		registry.Register(std::make_unique<SpawnCommand>());
 	}
 
 	void CommandRegistry::RegisterDefaults() {

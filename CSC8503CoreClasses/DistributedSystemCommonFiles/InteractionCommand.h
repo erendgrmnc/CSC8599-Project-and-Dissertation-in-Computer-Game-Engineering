@@ -39,6 +39,16 @@ namespace NCL::Interaction {
 
 	enum class DespawnReason : int { Destroyed = 0, LeftWorld = 1 };
 
+	// Which prefab a spawn creates. Wire value - APPEND ONLY.
+	//
+	// An archetype id rather than a description, because every server must build a
+	// byte-identical object and a description would mean a variable-length string
+	// inside a memcpy'd packet.
+	enum class ObjectArchetype : int {
+		Cube = 0,
+		Sphere = 1
+	};
+
 	// Bit flags carried in CommandArgs::flags. Wire values - APPEND ONLY.
 	enum class CommandFlags : int {
 		None = 0,

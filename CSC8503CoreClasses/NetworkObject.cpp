@@ -726,4 +726,16 @@ DistributedServerCommandRelayPacket::DistributedServerCommandRelayPacket(int com
 	this->clientSequence = clientSequence;
 	this->args = args;
 }
+
+DistributedObjectSpawnedPacket::DistributedObjectSpawnedPacket(int objectID, int archetypeID,
+	int ownerServerID, int spawnerPlayerID, const Vector3& position) {
+	type = BasicNetworkMessages::DistributedObjectSpawned;
+	size = sizeof(DistributedObjectSpawnedPacket) - sizeof(GamePacket);
+
+	this->objectID = objectID;
+	this->archetypeID = archetypeID;
+	this->ownerServerID = ownerServerID;
+	this->spawnerPlayerID = spawnerPlayerID;
+	this->position = position;
+}
 #endif
