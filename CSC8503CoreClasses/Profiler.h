@@ -98,6 +98,11 @@ namespace NCL {
 		static int GetCommandsRejected();
 		static void SetCommandsRejected(int count);
 
+		// Client side of the same invariant: how many commands this client actually
+		// put on the wire.
+		static int GetCommandsSent();
+		static void SetCommandsSent(int count);
+
 		// Objects this server actually integrated on the last tick, versus the number
 		// it owns. These must match: a gap means the integrator is touching objects
 		// outside this server's region, which flattens the scaling curve.
@@ -155,6 +160,7 @@ namespace NCL {
 		static int sCommandsRelayed;
 		static int sCommandsDuplicate;
 		static int sCommandsRejected;
+		static int sCommandsSent;
 		static int sIntegratedObjects;
 		static int sDeltasApplied;
 		static int sDeltasRejected;

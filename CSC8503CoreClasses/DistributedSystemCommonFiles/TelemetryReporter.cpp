@@ -70,6 +70,7 @@ void TelemetryReporter::MaybeEmit(bool gameStarted) {
 		break;
 	case TelemetryRole::Client:
 		ss << "role=client id=" << mId
+			<< " cmdSent=" << Profiler::GetCommandsSent()
 			<< " fps=" << F2(Profiler::GetFramesPerSecond())
 			<< " net=" << F2(Profiler::GetNetworkTime())
 			// Snapshot accounting: dOK should climb steadily once a full snapshot has
