@@ -111,6 +111,7 @@ namespace NCL {
 			// once per overlapped region by design, so I4 only balances once these are
 			// subtracted from the applied total.
 			int mCommandsFannedOut = 0;
+			int mObjectsSpawned = 0;
 
 			std::map<const int, PhysicsServerBorderData*> mPhysicsServerBorderMap;
 
@@ -135,6 +136,8 @@ namespace NCL {
 			void DispatchCommand(NCL::Interaction::CommandType type,
 				const NCL::Interaction::CommandArgs& args, int playerID, int clientSequence);
 			void DrainPendingRelays(int playerID, int clientSequence);
+			void DrainPendingSpawns();
+			void HandleObjectSpawnedPacket(CSC8503::DistributedObjectSpawnedPacket* packet);
 			void SendCommandAck(int sequence, int playerID, int targetObjectID,
 				NCL::Interaction::CommandResult result, int correctedServerID);
 ;			GameServerConnection* ConnectServerToAnotherGameServer(char a, char b, char c, char d, int port, int gameServerID);

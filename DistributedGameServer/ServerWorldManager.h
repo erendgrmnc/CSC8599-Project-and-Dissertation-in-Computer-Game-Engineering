@@ -6,6 +6,7 @@
 #include "DistributedSystemCommonFiles/MetricSink.h"
 #include "DistributedSystemCommonFiles/InteractionCommand.h"
 #include "DistributedSystemCommonFiles/RegionOwnership.h"
+#include "DistributedSystemCommonFiles/NetworkIdSpace.h"
 
 namespace NCL::CSC8503 {
 	struct StartSimulatingObjectReceivedPacket;
@@ -104,6 +105,25 @@ namespace NCL {
 			};
 			bool PopPendingRelay(PendingRelay& out);
 
+			// Same queue-and-drain shape as relays: SpawnObject builds the object but
+			// cannot broadcast it, because the world manager has no network access.
+			struct PendingSpawn {
+				int objectID = -1;
+				int archetypeID = 0;
+				int ownerServerID = -1;
+				int spawnerPlayerID = -1;
+				Maths::Vector3 position;
+			};
+			bool PopPendingSpawn(PendingSpawn& out);
+
+			// Builds the DEACTIVATED twin of an object spawned on a peer. This is the
+			// whole reason spawn needs a broadcast: StartHandlingObject requires the
+			// target server to already hold a pool entry, so a runtime spawn has to
+			// reproduce the pre-seed model on every server rather than exist only on
+			// its owner. Returns false if the id is already known.
+			bool CreateReplicatedSpawn(int networkID, int archetypeID, int ownerServerID,
+				int spawnerPlayerID, const Maths::Vector3& position);
+
 			// Selects the initial-motion workload applied when the world is built.
 			//   ""        - none (default): objects fall and settle, never crossing a
 			//               region border, so the handoff path is never exercised
@@ -168,6 +188,17 @@ namespace NCL {
 
 			std::map<int, NCL::CSC8503::GameObject*> mCreatedObjectPool;
 			std::vector<PendingRelay> mPendingRelays;
+			std::vector<PendingSpawn> mPendingSpawns;
+
+			// Per-server counter feeding NetworkIdSpace::MakeRuntimeId. Static bit
+			// partitioning means no server can ever mint another's id, so no central
+			// allocator and no round trip per spawn.
+			int mRuntimeSpawnCounter = 0;
+
+			// Shared by the owner path and the peer-replica path so both build a
+			// byte-identical object; only their active state differs.
+			CSC8503::GameObject* CreateObjectFromArchetype(int archetypeID,
+				const Maths::Vector3& position, int networkID, int playerID);
 
 			// GetObjectServer runs once per object per tick, so the region list is
 			// cached rather than rebuilt per call. The border map is populated after

@@ -161,10 +161,109 @@ bool NCL::DistributedGameServer::ServerWorldManager::TryGetLastKnownPosition(int
 	return true;
 }
 
-int NCL::DistributedGameServer::ServerWorldManager::SpawnObject(int, const Maths::Vector3&, int) {
-	// Runtime spawn is a later increment. Returning -1 makes any premature caller
-	// fail loudly through the normal ID-exhaustion path rather than half-working.
-	return -1;
+NCL::CSC8503::GameObject* NCL::DistributedGameServer::ServerWorldManager::CreateObjectFromArchetype(
+	int archetypeID, const Maths::Vector3& position, int networkID, int playerID) {
+	Transform transform;
+	transform.SetPosition(position);
+
+	// The archetype is chosen explicitly rather than by a hash of the seed, so every
+	// server and every client builds the same shape for the same id.
+	GameObject* object = (archetypeID == static_cast<int>(NCL::Interaction::ObjectArchetype::Sphere))
+		? AddSphereToWorld(transform, networkID, playerID)
+		: AddCubeToWorld(transform, networkID, playerID);
+
+	// An explicit id, not the pre-seed counter: runtime ids come from the partitioned
+	// space and must be identical on every server.
+	auto* networkObject = new NetworkObject(*object, networkID);
+	object->SetNetworkObject(networkObject);
+	AddNetworkObjectToNetworkObjects(networkObject);
+
+	mCreatedObjectPool[networkID] = object;
+	mGameWorld->AddGameObject(object);
+
+	// Without this the object is invisible to the integrator AND to
+	// PredictFuturePositions, so it would neither fall nor ever be handed off.
+	mPhysics->RegisterObject(object);
+
+	return object;
+}
+
+int NCL::DistributedGameServer::ServerWorldManager::SpawnObject(int archetypeID,
+	const Maths::Vector3& at, int spawnerPlayerID) {
+	const int networkID = NCL::NetworkIdSpace::MakeRuntimeId(mServerID, mRuntimeSpawnCounter);
+	if (networkID < 0) {
+		std::cout << "ERROR: runtime id space exhausted on server " << mServerID
+			<< " after " << mRuntimeSpawnCounter << " spawns.\n";
+		return -1;
+	}
+	++mRuntimeSpawnCounter;
+
+	GameObject* object = CreateObjectFromArchetype(archetypeID, at, networkID, spawnerPlayerID);
+	if (object == nullptr) {
+		return -1;
+	}
+
+	// The owner activates; peers will hold a deactivated twin. This is the pre-seed
+	// model reproduced at runtime, which is what lets handoff work unchanged.
+	const bool ownedHere = (GetObjectServer(at) == mServerID);
+	object->SetActive(ownedHere);
+	if (ownedHere) {
+		if (auto* testObject = dynamic_cast<TestObject*>(object)) {
+			mTestObjects.push_back(testObject);
+		}
+
+		// Under the shuttle workload a spawned object gets the same lateral motion a
+		// pre-seeded one does. Without it a spawn just falls and settles where it
+		// landed, so it would never cross a border - and the whole point of giving
+		// peers a deactivated twin is that a runtime object CAN be handed off.
+		if (mWorkload == "shuttle" && object->GetPhysicsObject() != nullptr) {
+			const unsigned int hash = DeterministicHash(mWorldSeed, mServerID, mRuntimeSpawnCounter);
+			const float speed = SHUTTLE_MIN_SPEED +
+				static_cast<float>(hash % 1000u) * 0.001f * (SHUTTLE_MAX_SPEED - SHUTTLE_MIN_SPEED);
+			// Aim across the nearest border rather than outward, so the handoff path
+			// is exercised rather than the world edge.
+			const float direction = (at.x < 0.0f) ? 1.0f : -1.0f;
+			object->GetPhysicsObject()->SetLinearVelocity(Vector3(speed * direction, 0.0f, 0.0f));
+		}
+	}
+
+	PendingSpawn pending;
+	pending.objectID = networkID;
+	pending.archetypeID = archetypeID;
+	pending.ownerServerID = mServerID;
+	pending.spawnerPlayerID = spawnerPlayerID;
+	pending.position = at;
+	mPendingSpawns.push_back(pending);
+
+	return networkID;
+}
+
+bool NCL::DistributedGameServer::ServerWorldManager::PopPendingSpawn(PendingSpawn& out) {
+	if (mPendingSpawns.empty()) {
+		return false;
+	}
+	out = mPendingSpawns.front();
+	mPendingSpawns.erase(mPendingSpawns.begin());
+	return true;
+}
+
+bool NCL::DistributedGameServer::ServerWorldManager::CreateReplicatedSpawn(int networkID,
+	int archetypeID, int ownerServerID, int spawnerPlayerID, const Maths::Vector3& position) {
+	if (mCreatedObjectPool.find(networkID) != mCreatedObjectPool.end()) {
+		return false;   // Already known; a duplicate broadcast is not an error.
+	}
+
+	GameObject* object = CreateObjectFromArchetype(archetypeID, position, networkID, spawnerPlayerID);
+	if (object == nullptr) {
+		return false;
+	}
+
+	// Deactivated: this server holds the twin so a future handoff can reactivate it,
+	// exactly as it would for a pre-seeded object it does not currently own.
+	object->SetActive(false);
+	std::cout << "Created deactivated twin for runtime object " << networkID
+		<< " owned by server " << ownerServerID << "\n";
+	return true;
 }
 
 bool NCL::DistributedGameServer::ServerWorldManager::DestroyObject(int,
