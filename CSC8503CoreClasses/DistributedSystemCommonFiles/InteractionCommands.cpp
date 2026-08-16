@@ -23,26 +23,45 @@ namespace NCL::Interaction {
 		public:
 			CommandType GetType() const override { return CommandType::Impulse; }
 
-			CommandScope GetScope(const CommandArgs&) const override {
+			// A radius turns this from a push on one object into a field centred on a
+			// point, so it routes by point and may cross region borders.
+			CommandScope GetScope(const CommandArgs& args) const override {
 				CommandScope scope;
-				scope.targetsObject = true;
+				if (args.radius > 0.0f) {
+					scope.targetsPoint = true;
+					scope.isAreaEffect = true;
+				}
+				else {
+					scope.targetsObject = true;
+				}
 				return scope;
 			}
 
 			bool Validate(const CommandArgs& args) const override {
+				if (args.magnitude <= 0.0f) {
+					return false;
+				}
+
+				// An area effect is defined by its origin and radius; it needs neither
+				// a target object nor a direction, since the direction is radial.
+				if (args.radius > 0.0f) {
+					return true;
+				}
+
 				if (args.targetObjectID < 0) {
 					return false;
 				}
 				const Maths::Vector3 direction = NormalisedOrZero(args.direction);
-				if (direction.x == 0.0f && direction.y == 0.0f && direction.z == 0.0f) {
-					return false;
-				}
-				return args.magnitude > 0.0f;
+				return !(direction.x == 0.0f && direction.y == 0.0f && direction.z == 0.0f);
 			}
 
 			CommandResult Apply(ICommandContext& ctx, const CommandArgs& args) override {
 				if (!Validate(args)) {
 					return CommandResult::Rejected;
+				}
+
+				if (args.radius > 0.0f) {
+					return ApplyArea(ctx, args);
 				}
 
 				if (ctx.FindActiveObject(args.targetObjectID) != nullptr) {
@@ -70,6 +89,37 @@ namespace NCL::Interaction {
 
 				ctx.RelayToServer(owner, GetType(), args);
 				return CommandResult::Relayed;
+			}
+
+		private:
+			// Server-to-server event relay, not a ghost band: each server applies the
+			// field only to objects IT owns, so ownership stays exactly where the
+			// handoff protocol put it and nothing here perturbs that protocol.
+			CommandResult ApplyArea(ICommandContext& ctx, const CommandArgs& args) const {
+				ctx.ApplyRadialImpulse(args.worldPoint, args.radius, args.magnitude);
+
+				// A relayed blast has already been fanned out by its origin. Fanning
+				// out again would circulate it around the mesh; objects in a doubly
+				// overlapped region would also be pushed twice, which reads as 2x
+				// velocity and silently corrupts any measurement.
+				const bool alreadyFannedOut =
+					(args.flags & static_cast<int>(CommandFlags::AlreadyFannedOut)) != 0;
+				if (alreadyFannedOut) {
+					return CommandResult::Applied;
+				}
+
+				std::vector<int> overlapped;
+				ctx.GetOverlappedServers(args.worldPoint, args.radius, overlapped);
+
+				CommandArgs fanned = args;
+				fanned.flags |= static_cast<int>(CommandFlags::AlreadyFannedOut);
+				for (int serverID : overlapped) {
+					ctx.RelayToServer(serverID, GetType(), fanned);
+				}
+
+				// Applied, not Relayed: this server DID do the work for its own
+				// objects. Reporting Relayed would suppress the ack and unbalance I4.
+				return CommandResult::Applied;
 			}
 		};
 

@@ -356,3 +356,123 @@ TEST(MoveAxisDoesNotRelay) {
 	CHECK_EQ((int)ctx.relays.size(), 0);
 	CHECK_EQ((int)ctx.moveAxes.size(), 0);
 }
+
+// --- Area effects (cross-border) ------------------------------------------
+
+namespace {
+	// Extends FakeContext with region overlap, so an area effect can be tested
+	// without any real border map.
+	class AreaFakeContext : public FakeContext {
+	public:
+		std::vector<int> overlappedServers;
+
+		struct RadialCall { Maths::Vector3 origin; float radius; float magnitude; };
+		std::vector<RadialCall> radials;
+
+		void ApplyRadialImpulse(const Maths::Vector3& origin, float radius, float magnitude) override {
+			radials.push_back({ origin, radius, magnitude });
+		}
+		void GetOverlappedServers(const Maths::Vector3&, float, std::vector<int>& out) const override {
+			out = overlappedServers;
+		}
+	};
+}
+
+// A radius turns the command from object-targeted into a point-targeted area
+// effect. Routing must follow the point, not an object id.
+TEST(ImpulseWithRadiusIsAnAreaEffect) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+
+	CommandArgs args;
+	args.worldPoint = Maths::Vector3(0, 0, 0);
+	args.direction = Maths::Vector3(1, 0, 0);
+	args.magnitude = 10.0f;
+	args.radius = 25.0f;
+
+	const CommandScope scope = registry.Find(CommandType::Impulse)->GetScope(args);
+	CHECK(scope.isAreaEffect);
+	CHECK(scope.targetsPoint);
+	CHECK(!scope.targetsObject);
+}
+
+// An area effect needs no target object, so the object-id validation that a
+// point impulse requires must not apply to it.
+TEST(AreaEffectValidatesWithoutATargetObject) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+
+	CommandArgs args;
+	args.targetObjectID = -1;
+	args.worldPoint = Maths::Vector3(0, 0, 0);
+	args.magnitude = 10.0f;
+	args.radius = 25.0f;
+
+	CHECK(registry.Find(CommandType::Impulse)->Validate(args));
+}
+
+// The core of section 5.1: apply locally to owned objects, and relay to every
+// region the sphere overlaps. No server ever writes to an object it does not own.
+TEST(AreaEffectAppliesLocallyAndRelaysToOverlappedRegions) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+
+	AreaFakeContext ctx;
+	ctx.serverID = 0;
+	ctx.overlappedServers = { 1, 2 };
+
+	CommandArgs args;
+	args.worldPoint = Maths::Vector3(0, 0, 0);
+	args.magnitude = 10.0f;
+	args.radius = 25.0f;
+
+	const CommandResult result = registry.Find(CommandType::Impulse)->Apply(ctx, args);
+
+	CHECK(result == CommandResult::Applied);
+	CHECK_EQ((int)ctx.radials.size(), 1);
+	if (!ctx.radials.empty()) {
+		CHECK_NEAR(ctx.radials[0].radius, 25.0f, 1e-5);
+	}
+	CHECK_EQ((int)ctx.relays.size(), 2);
+}
+
+// A relayed area effect must apply locally and NOT fan out again, or one blast
+// would circulate around the mesh.
+TEST(AreaEffectDoesNotRelayWhenAlreadyRelayed) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+
+	AreaFakeContext ctx;
+	ctx.serverID = 1;
+	ctx.overlappedServers = { 0, 2 };
+
+	CommandArgs args;
+	args.worldPoint = Maths::Vector3(0, 0, 0);
+	args.magnitude = 10.0f;
+	args.radius = 25.0f;
+	args.flags = static_cast<int>(CommandFlags::AlreadyFannedOut);
+
+	const CommandResult result = registry.Find(CommandType::Impulse)->Apply(ctx, args);
+
+	CHECK(result == CommandResult::Applied);
+	CHECK_EQ((int)ctx.radials.size(), 1);
+	CHECK_EQ((int)ctx.relays.size(), 0);
+}
+
+// An area effect with nothing nearby still counts as applied - it did what it
+// was asked to do. Reporting it as rejected would break the I4 tally.
+TEST(AreaEffectWithNoOverlapStillApplies) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+
+	AreaFakeContext ctx;
+	ctx.overlappedServers = {};
+
+	CommandArgs args;
+	args.worldPoint = Maths::Vector3(0, 0, 0);
+	args.magnitude = 10.0f;
+	args.radius = 25.0f;
+
+	CHECK(registry.Find(CommandType::Impulse)->Apply(ctx, args) == CommandResult::Applied);
+	CHECK_EQ((int)ctx.relays.size(), 0);
+}

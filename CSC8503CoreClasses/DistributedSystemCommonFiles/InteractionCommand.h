@@ -39,6 +39,15 @@ namespace NCL::Interaction {
 
 	enum class DespawnReason : int { Destroyed = 0, LeftWorld = 1 };
 
+	// Bit flags carried in CommandArgs::flags. Wire values - APPEND ONLY.
+	enum class CommandFlags : int {
+		None = 0,
+		// Set by the origin server when it fans an area effect out to overlapped
+		// regions. A receiver applies it locally but must not fan out again, or one
+		// blast would circulate around the peer mesh forever.
+		AlreadyFannedOut = 1 << 0
+	};
+
 	// POD payload shared by every command type. Fixed size; no std::string, no
 	// std::vector, no pointers: the ENet path memcpys these structs verbatim
 	// (GameClient::SendPacket), which is why DistributedClientConnectToPhysicsServerPacket
