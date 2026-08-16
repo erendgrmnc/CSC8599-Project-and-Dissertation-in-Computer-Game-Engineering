@@ -4,7 +4,9 @@
 # must never be able to perturb the four shipped binaries. It links the same
 # libraries EntryPointServer does, minus DistributedGameServer, because the
 # engine's static libs are interdependent and pull in the GL backend at link time.
-project(InteractionTests CXX)
+#
+# Deliberately no project() call: a nested project() makes CMake emit a second,
+# stray InteractionTests.sln alongside the real one.
 
 include_directories("../../NCLCoreClasses/")
 include_directories("../../CSC8503CoreClasses/")
