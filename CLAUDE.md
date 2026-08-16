@@ -88,6 +88,14 @@ touches zero switch statements** — write the command class, register it in `Re
 - Types live in `CSC8503CoreClasses/DistributedSystemCommonFiles/InteractionCommand.h`, deliberately
   free of `USEGL`/`DISTRIBUTEDSYSTEMACTIVE` guards because the servers, the client and the test
   target all include it. `CommandArgs` must stay POD — packets are `memcpy`'d.
+
+> **Bootstrap readiness is re-checked, not edge-triggered.** A game server starts when its
+> `DistributedPacketSenderServer` has all its expected peers, but the expected count only arrives
+> with the manager's start packet (`SetMaxClients`) — until then the bound sits at its constructor
+> value of 19. The last peer routinely connects *before* that, so the test must be `>=`, one-shot,
+> and re-evaluated whenever the bound changes; an `==` check inside `AddPeer` alone gets stepped
+> over and that server never starts. `SetMaxClients` also recomputes `mClientCount`, since shrinking
+> the bound drops peers past the new end.
 - **Authority:** the client routes to whichever server it believes owns the object (`mObjectOwner`,
   maintained from snapshots). A server that does not own it **relays** to the true owner rather
   than rejecting; only the server that *applied* the command acks, so the client gets exactly one
