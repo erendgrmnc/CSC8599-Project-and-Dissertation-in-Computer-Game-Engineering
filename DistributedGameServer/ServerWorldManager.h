@@ -243,6 +243,12 @@ namespace NCL {
 			// UpdateCollisionList dereferences raw GameObject* for several frames
 			// afterwards, so the pointer must outlive the collision purge.
 			std::vector<CSC8503::GameObject*> mPendingDeletion;
+			// Re-applies each controlled object's movement axis every tick. Continuous
+			// input is state: the client sends the axis once and it stays in effect
+			// until superseded, so applying it only on receipt would make movement
+			// depend on the packet rate rather than on the input.
+			void ApplyControlForces();
+
 			void FlushPendingDeletions();
 			void TeardownObject(CSC8503::GameObject* object);
 

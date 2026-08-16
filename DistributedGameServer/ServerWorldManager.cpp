@@ -440,10 +440,29 @@ void NCL::DistributedGameServer::ServerWorldManager::SetMoveAxis(int networkObje
 	if (object == nullptr || object->GetPhysicsObject() == nullptr) {
 		return;
 	}
-	// Applied as a force so it composes with gravity and collisions rather than
-	// overwriting the velocity the integrator just produced.
-	object->GetPhysicsObject()->AddForce(Maths::Vector3(
-		axis.x * MOVE_AXIS_FORCE, axis.y * MOVE_AXIS_FORCE, axis.z * MOVE_AXIS_FORCE));
+	// Recorded, not applied here: the axis is continuous state. ApplyControlForces
+	// re-applies it every tick, so movement depends on the input rather than on how
+	// often the client happens to send it - and the state travels with the object
+	// when it is handed to another server.
+	object->SetControlState(playerID, axis);
+}
+
+void NCL::DistributedGameServer::ServerWorldManager::ApplyControlForces() {
+	for (auto& poolEntry : mCreatedObjectPool) {
+		CSC8503::GameObject* object = poolEntry.second;
+		if (object == nullptr || !object->IsNetworkActive()) {
+			continue;
+		}
+		if (object->GetControllerPlayerID() < 0 || object->GetPhysicsObject() == nullptr) {
+			continue;
+		}
+
+		const Maths::Vector3& axis = object->GetMoveAxis();
+		// Applied as a force so it composes with gravity and collisions rather than
+		// overwriting the velocity the integrator just produced.
+		object->GetPhysicsObject()->AddForce(Maths::Vector3(
+			axis.x * MOVE_AXIS_FORCE, axis.y * MOVE_AXIS_FORCE, axis.z * MOVE_AXIS_FORCE));
+	}
 }
 
 void NCL::DistributedGameServer::ServerWorldManager::RelayToServer(int serverID,
@@ -571,6 +590,10 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	timeTaken = end - start;
 	Profiler::SetPhysicsPredictionTime(timeTaken.count());
 
+	// Before the integrator, so this tick's control input contributes to this tick's
+	// motion rather than arriving a frame late.
+	ApplyControlForces();
+
 	start = std::chrono::high_resolution_clock::now();
 	mPhysics->Update(dt);
 	end = std::chrono::high_resolution_clock::now();
@@ -697,6 +720,10 @@ bool DistributedGameServer::ServerWorldManager::StartHandlingObject(StartSimulat
 
 		transform.SetPredictedPosition(lastNetworkState.position);
 		transform.SetPredictedOrientation(lastNetworkState.orientation);
+
+		// Continuous input travels with the object, so a driven avatar keeps moving
+		// across the border instead of stalling until the client's next axis update.
+		objectToHandle->SetControlState(packet->mControllerPlayerID, packet->mMoveAxis);
 
 		auto* physicsComp = objectToHandle->GetPhysicsObject();
 		physicsComp->SetAngularVelocity(packet->mAngularVelocity);

@@ -566,6 +566,13 @@ void DistributedGameServer::DistributedGameServerManager::SendFinishTransactionP
 	auto* testComp = dynamic_cast<TestObject*>(&gameObjectComp);
 
 	StartSimulatingObjectPacket packet(obj.GetNetworkID(), obj.GetNewServerID(), mGameServerID, lastFullState, *gameObjectComp.GetPhysicsObject());
+
+	// Carry the object's control state across the border. Continuous input is never
+	// relayed or replayed, so without this a driven avatar would stall on every
+	// crossing until the client's next axis update reached the new owner.
+	packet.mControllerPlayerID = gameObjectComp.GetControllerPlayerID();
+	packet.mMoveAxis = gameObjectComp.GetMoveAxis();
+
 	mDistributedPacketSenderServer->SendGlobalReliablePacket(packet);
 }
 
