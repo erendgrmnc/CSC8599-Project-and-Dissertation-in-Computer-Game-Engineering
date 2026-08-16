@@ -67,9 +67,35 @@ int RunDistributedClient(int argc, char* argv[]) {
 	scene->ConnectClientToDistributedManager(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], managerPort);
 
 	const bool headless = config.Has("--headless");
+
+	// Opt-in command driver. There is no input path in a headless client, so without
+	// this the interaction channel is wired but never exercised - and the I4
+	// accounting invariant cannot be checked at all. Fires one impulse every N ticks
+	// at a rotating object id, which deliberately includes ids this client believes
+	// are owned by the wrong server, so the relay path is covered too.
+	const int impulseTestPeriod = config.GetInt("--impulse-test", 0);
+	int driverTick = 0;
+	int driverObjectId = 0;
+
 	NCL::TelemetryReporter reporter(NCL::TelemetryRole::Client);
 	auto tick = [&](float dt) {
 		scene->UpdateGame(dt);
+
+		if (impulseTestPeriod > 0 && scene->IsGameStarted()) {
+			if ((driverTick++ % impulseTestPeriod) == 0) {
+				NCL::Interaction::CommandArgs args;
+				args.targetObjectID = driverObjectId;
+				args.playerID = 0;
+				args.direction = NCL::Maths::Vector3(0, 1, 0);
+				args.magnitude = 5.0f;
+				scene->SendCommand(NCL::Interaction::CommandType::Impulse, args);
+
+				const int replicas = static_cast<int>(scene->GetReplicaCount());
+				driverObjectId = (replicas > 0) ? ((driverObjectId + 1) % replicas) : 0;
+			}
+		}
+
+		Profiler::SetCommandsSent(scene->GetCommandsSent());
 		Profiler::Update();
 		reporter.MaybeEmit(scene->IsGameStarted());
 	};

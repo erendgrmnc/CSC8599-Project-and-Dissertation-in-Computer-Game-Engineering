@@ -18,6 +18,9 @@ param(
     [int]$Seed = 42,
     [string]$Workload = "shuttle",
     [string]$Tag = "run",
+    # Fires one interaction command every N client ticks. 0 disables. Exercises the
+    # command channel so the I4 accounting invariant can be checked.
+    [int]$ImpulseTest = 0,
     [string]$OutDir = ""
 )
 $ErrorActionPreference = "Continue"
@@ -72,7 +75,7 @@ $mid = Start-Process -PassThru -FilePath (Join-Path $deploy "Midware\EntryPoint.
 Start-Sleep -Seconds 4
 
 $cli = Start-Process -PassThru -FilePath (Join-Path $deploy "Client\EntryPoint.exe") `
-    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --headless" `
+    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --headless --impulse-test $ImpulseTest" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\cli.log" -RedirectStandardError "$runDir\cli.err" -WindowStyle Hidden
 
 # Servers self-terminate; allow slack for startup plus flush. Reproducible runs are
