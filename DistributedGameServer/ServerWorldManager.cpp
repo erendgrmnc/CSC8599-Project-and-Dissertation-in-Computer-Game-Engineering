@@ -19,6 +19,10 @@ namespace {
 	constexpr int NETWORK_ID_BUFFER = 10;
 	constexpr float PREDICTION_STEP = 1.0f;
 
+	// Force applied per unit of movement-axis input. Tuned against the shuttle
+	// workload's 30-60 u/s so a driven object is comparable to a launched one.
+	constexpr float MOVE_AXIS_FORCE = 200.0f;
+
 	// "shuttle" workload tuning. Linear damping is (1 - 0.4*dt) per substep, i.e. a
 	// velocity time-constant of ~2.5 s, so an object launched at V travels roughly
 	// 2.5*V before stopping. At 30-60 u/s that is 75-150 units of travel, which
@@ -118,6 +122,151 @@ void NCL::DistributedGameServer::ServerWorldManager::SetFixedTimestep(bool state
 float NCL::DistributedGameServer::ServerWorldManager::GetFixedTimestepDt() const {
 	const int hz = mPhysics->GetSubstepHZ();
 	return (hz > 0) ? (1.0f / static_cast<float>(hz)) : 0.0f;
+}
+
+// ---------------------------------------------------------------------------
+// ICommandContext
+// ---------------------------------------------------------------------------
+
+int NCL::DistributedGameServer::ServerWorldManager::GetServerID() const {
+	return mServerID;
+}
+
+int NCL::DistributedGameServer::ServerWorldManager::GetOwningServer(const Maths::Vector3& worldPoint) const {
+	// Deliberately delegates rather than re-deriving: GetObjectServer is the single
+	// place the region test lives, so commands and handoff cannot disagree.
+	return GetObjectServer(worldPoint);
+}
+
+NCL::CSC8503::GameObject* NCL::DistributedGameServer::ServerWorldManager::FindActiveObject(int networkObjectID) const {
+	const auto entry = mCreatedObjectPool.find(networkObjectID);
+	if (entry == mCreatedObjectPool.end() || entry->second == nullptr) {
+		return nullptr;
+	}
+	// Every server holds a pool entry for every object; only the owner has it active.
+	// That is exactly the ownership test a command needs.
+	if (!entry->second->IsNetworkActive()) {
+		return nullptr;
+	}
+	return entry->second;
+}
+
+bool NCL::DistributedGameServer::ServerWorldManager::TryGetLastKnownPosition(int networkObjectID,
+	Maths::Vector3& out) const {
+	const auto entry = mCreatedObjectPool.find(networkObjectID);
+	if (entry == mCreatedObjectPool.end() || entry->second == nullptr) {
+		return false;
+	}
+	out = entry->second->GetTransform().GetPosition();
+	return true;
+}
+
+int NCL::DistributedGameServer::ServerWorldManager::SpawnObject(int, const Maths::Vector3&, int) {
+	// Runtime spawn is a later increment. Returning -1 makes any premature caller
+	// fail loudly through the normal ID-exhaustion path rather than half-working.
+	return -1;
+}
+
+bool NCL::DistributedGameServer::ServerWorldManager::DestroyObject(int,
+	NCL::Interaction::DespawnReason, int) {
+	return false;   // Runtime destroy is a later increment.
+}
+
+void NCL::DistributedGameServer::ServerWorldManager::ApplyImpulse(int networkObjectID,
+	const Maths::Vector3& impulse) {
+	CSC8503::GameObject* object = FindActiveObject(networkObjectID);
+	if (object == nullptr || object->GetPhysicsObject() == nullptr) {
+		return;
+	}
+	object->GetPhysicsObject()->ApplyLinearImpulse(impulse);
+}
+
+void NCL::DistributedGameServer::ServerWorldManager::ApplyRadialImpulse(const Maths::Vector3& origin,
+	float radius, float magnitude) {
+	if (radius <= 0.0f) {
+		return;
+	}
+	const float radiusSquared = radius * radius;
+
+	for (auto& entry : mCreatedObjectPool) {
+		CSC8503::GameObject* object = entry.second;
+		if (object == nullptr || !object->IsNetworkActive() || object->GetPhysicsObject() == nullptr) {
+			continue;
+		}
+
+		const Maths::Vector3 offset = object->GetTransform().GetPosition() - origin;
+		const float distanceSquared = offset.x * offset.x + offset.y * offset.y + offset.z * offset.z;
+		if (distanceSquared > radiusSquared || distanceSquared <= 0.0f) {
+			continue;
+		}
+
+		// Linear falloff to zero at the radius, so an object exactly on the edge
+		// gets nothing and the effect has no discontinuity at the boundary.
+		const float distance = std::sqrt(distanceSquared);
+		const float falloff = 1.0f - (distance / radius);
+		const float scale = (magnitude * falloff) / distance;
+		object->GetPhysicsObject()->ApplyLinearImpulse(
+			Maths::Vector3(offset.x * scale, offset.y * scale, offset.z * scale));
+	}
+}
+
+void NCL::DistributedGameServer::ServerWorldManager::SetMoveAxis(int networkObjectID, int playerID,
+	const Maths::Vector3& axis) {
+	CSC8503::GameObject* object = FindActiveObject(networkObjectID);
+	if (object == nullptr || object->GetPhysicsObject() == nullptr) {
+		return;
+	}
+	// Applied as a force so it composes with gravity and collisions rather than
+	// overwriting the velocity the integrator just produced.
+	object->GetPhysicsObject()->AddForce(Maths::Vector3(
+		axis.x * MOVE_AXIS_FORCE, axis.y * MOVE_AXIS_FORCE, axis.z * MOVE_AXIS_FORCE));
+}
+
+void NCL::DistributedGameServer::ServerWorldManager::RelayToServer(int serverID,
+	NCL::Interaction::CommandType type, const NCL::Interaction::CommandArgs& args) {
+	if (serverID < 0 || serverID == mServerID) {
+		return;
+	}
+	PendingRelay relay;
+	relay.targetServerID = serverID;
+	relay.type = type;
+	relay.args = args;
+	mPendingRelays.push_back(relay);
+}
+
+bool NCL::DistributedGameServer::ServerWorldManager::PopPendingRelay(PendingRelay& out) {
+	if (mPendingRelays.empty()) {
+		return false;
+	}
+	out = mPendingRelays.front();
+	mPendingRelays.erase(mPendingRelays.begin());
+	return true;
+}
+
+void NCL::DistributedGameServer::ServerWorldManager::GetOverlappedServers(const Maths::Vector3& origin,
+	float radius, std::vector<int>& outServerIDs) const {
+	outServerIDs.clear();
+	if (radius <= 0.0f || mServerBorderMap == nullptr) {
+		return;
+	}
+
+	for (const auto& entry : *mServerBorderMap) {
+		if (entry.first == mServerID || entry.second == nullptr) {
+			continue;   // Excludes this server, per the interface contract.
+		}
+		const PhysicsServerBorderData* border = entry.second;
+
+		// Closest point on the region rectangle to the sphere centre; inside the
+		// radius means the sphere overlaps that region.
+		const float closestX = std::clamp(origin.x, border->minXVal, border->maxXVal);
+		const float closestZ = std::clamp(origin.z, border->minZVal, border->maxZVal);
+		const float dx = origin.x - closestX;
+		const float dz = origin.z - closestZ;
+
+		if ((dx * dx + dz * dz) <= (radius * radius)) {
+			outServerIDs.push_back(entry.first);
+		}
+	}
 }
 
 void NCL::DistributedGameServer::ServerWorldManager::EnableMetrics(const std::string& outputPath, size_t capacity) {

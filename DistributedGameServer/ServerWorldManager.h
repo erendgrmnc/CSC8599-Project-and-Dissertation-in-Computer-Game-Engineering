@@ -4,6 +4,7 @@
 #include <string>
 
 #include "DistributedSystemCommonFiles/MetricSink.h"
+#include "DistributedSystemCommonFiles/InteractionCommand.h"
 
 namespace NCL::CSC8503 {
 	struct StartSimulatingObjectReceivedPacket;
@@ -33,7 +34,9 @@ namespace NCL {
 			float minXVal;
 		};
 
-		class ServerWorldManager {
+		// Implements ICommandContext so interaction commands can act on the world
+		// without ever seeing the network layer, and vice versa.
+		class ServerWorldManager : public NCL::Interaction::ICommandContext {
 		public:
 			ServerWorldManager(int serverID, PhysicsServerBorderData& physcisServerBorderData, std::map<const int, PhysicsServerBorderData*>& map);
 			NCL::CSC8503::GameWorld* GetGameWorld() const;
@@ -73,6 +76,32 @@ namespace NCL {
 			// as its dt makes each tick perform exactly one substep, which is what
 			// turns a run deterministic.
 			float GetFixedTimestepDt() const;
+
+			// --- ICommandContext ---
+			int GetServerID() const override;
+			int GetOwningServer(const Maths::Vector3& worldPoint) const override;
+			CSC8503::GameObject* FindActiveObject(int networkObjectID) const override;
+			bool TryGetLastKnownPosition(int networkObjectID, Maths::Vector3& out) const override;
+			int SpawnObject(int archetypeID, const Maths::Vector3& at, int spawnerPlayerID) override;
+			bool DestroyObject(int networkObjectID, NCL::Interaction::DespawnReason reason,
+				int destroyerPlayerID) override;
+			void ApplyImpulse(int networkObjectID, const Maths::Vector3& impulse) override;
+			void ApplyRadialImpulse(const Maths::Vector3& origin, float radius, float magnitude) override;
+			void SetMoveAxis(int networkObjectID, int playerID, const Maths::Vector3& axis) override;
+			void RelayToServer(int serverID, NCL::Interaction::CommandType type,
+				const NCL::Interaction::CommandArgs& args) override;
+			void GetOverlappedServers(const Maths::Vector3& origin, float radius,
+				std::vector<int>& outServerIDs) const override;
+
+			// Relays are queued rather than sent, so a command never re-enters the
+			// network layer from inside a packet handler. The manager drains this
+			// after Apply returns.
+			struct PendingRelay {
+				int targetServerID = -1;
+				NCL::Interaction::CommandType type = NCL::Interaction::CommandType::None;
+				NCL::Interaction::CommandArgs args;
+			};
+			bool PopPendingRelay(PendingRelay& out);
 
 			// Selects the initial-motion workload applied when the world is built.
 			//   ""        - none (default): objects fall and settle, never crossing a
@@ -137,6 +166,7 @@ namespace NCL {
 			NCL::DistributedGameServer::PhysicsServerBorderData* mServerBorderData;
 
 			std::map<int, NCL::CSC8503::GameObject*> mCreatedObjectPool;
+			std::vector<PendingRelay> mPendingRelays;
 			std::map<const int, PhysicsServerBorderData*>* mServerBorderMap;
 
 			void AddNetworkObjectToNetworkObjects(NCL::CSC8503::NetworkObject* networkObj);
