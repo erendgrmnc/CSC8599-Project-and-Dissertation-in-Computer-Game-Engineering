@@ -20,7 +20,15 @@ msbuild DistributedPhysicsSystem.sln /p:Configuration=Debug /p:Platform=x64
 
 Or open `DistributedPhysicsSystem.sln` in Visual Studio and build (`EntryPoint` is the startup project). Asset paths are baked into the binary at configure time via the `ASSETROOTLOCATION` compile definition pointing at `Assets/`.
 
-There is no automated test suite. Validation is empirical, done by running the roles together and reading the on-screen profilers (see `docs/DissertationEvaluationVisuals/`).
+Validation is largely empirical — run the roles together and read the on-screen profilers (see `docs/DissertationEvaluationVisuals/`). There is one automated suite, `tools/InteractionTests`, a dependency-free assert harness covering pure logic and the physics system:
+
+```powershell
+# Note the solution-folder prefix: the target lives under "Tools".
+msbuild DistributedPhysicsSystem.sln /t:Tools\InteractionTests /p:Configuration=Debug /p:Platform=x64
+.\tools\InteractionTests\Debug\InteractionTests.exe   # non-zero exit = failures
+```
+
+It links the same libraries as `EntryPointServer` and needs the roles' `target_precompile_headers` list — without it `PhysicsSystem.h` fails on `std::set` and `PhysicsObject.h` on `Matrix3`. Note `AABBVolume` inherits `CollisionVolume` **privately**, so constructing one requires the same `(CollisionVolume*)` cast the engine uses everywhere.
 
 ## The build-mode toggle (most important thing to know)
 
@@ -64,7 +72,8 @@ The interesting domain logic lives in `ServerWorldManager` (border checks, objec
 > - **Snapshots are sent at 60 Hz** (1 full : 5 delta → 10 Hz full, 50 Hz delta). The inline comment and `docs/NETWORKING.md` both say 20 Hz — both are wrong.
 > - **Deltas never apply after the first full snapshot.** `mServerSideLastFullID` is only written in `HandleClientPlayerInputPacket`, which never fires, so every delta carries `fullID=0` while the client's `stateID` advances. The client runs on 10 Hz full snapshots; the delta traffic is generated, sent and discarded.
 > - **The integrator ignores ownership.** `IntegrateAccel`/`IntegrateVelocity` null-check only — they do not test `HasPhysics()`/`IsNetworkActive()`, so every server integrates every object in the world, not just its region's.
-> - **The timestep is not fixed.** `realHZ`/`realDT` are file-scope globals mutated at runtime on overrun/underrun, so servers under different load run different timesteps.
+> - **The timestep is not fixed** without `--fixed-step`. `mRealHZ`/`mRealDT` adapt to measured frame cost, so servers under different load run different timesteps. (They were file-scope globals shared by every `PhysicsSystem` in the process; now members.)
+> - **Runtime object creation is supported by the physics system but unused.** `PhysicsSystem::RegisterObject`/`UnregisterObject` exist and are unit-tested, but no distributed code calls them — there is nothing to spawn or destroy until the interaction increments land. Before this, an object added after the first tick was never integrated *and* never predicted, so it would never have been handed off.
 > - **There is no cross-border collision.** Deactivated out-of-region objects are skipped by broadphase; there is no ghost/halo band. Objects on opposite sides of a boundary pass through each other.
 > - `docs/NETWORKING.md` and `docs/SPATIAL-PARTITIONING.md` are otherwise faithful on control flow, but are also wrong that world bounds are fixed at ±150 (now `--world`).
 
@@ -113,8 +122,8 @@ The midware spawns `./DistributedPhysicsServer/EntryPoint.exe` **relative to its
 | Role | Flags |
 |---|---|
 | Manager | `--servers N --clients N --objects N --port P --world minX,maxX,minZ,maxZ --midwares N --autostart [--headless]` |
-| Midware | `--manager-ip A.B.C.D --manager-port P --server-exe <path> [--headless] [--fixed-step] [--seed N] [--workload shuttle] [--metrics-dir <dir>] [--metrics-capacity N] [--run-seconds N]` |
-| Game Server | `--headless`, `--fixed-step`, `--seed N`, `--workload`, `--metrics-dir`, `--metrics-capacity`, `--run-seconds` — **not passed directly**, see below |
+| Midware | `--manager-ip A.B.C.D --manager-port P --server-exe <path> [--headless] [--fixed-step] [--seed N] [--workload shuttle] [--metrics-dir <dir>] [--metrics-capacity N] [--run-seconds N] [--run-ticks N]` |
+| Game Server | `--headless`, `--fixed-step`, `--seed N`, `--workload`, `--metrics-dir`, `--metrics-capacity`, `--run-seconds`, `--run-ticks` — **not passed directly**, see below |
 | Client | `--manager-ip A.B.C.D --manager-port P [--game-instance N] [--render-deferred]` |
 
 > **Game servers are spawned by the midware, not the launcher.** Their launch string is built in `ServerMidwareManager::StartPhysicsServerInstance`, so a flag the game server understands is unreachable unless the midware forwards it. `--fixed-step` and `--seed` are therefore given to the **midware**, which appends them to every server it spawns (`mServerExtraArgs`). Any new game-server flag needs adding in both `ServerStarter.cpp` (to parse it) and `PhysicsServerMidware/ProgramStart.cpp` (to forward it) — otherwise it is silently ignored with no error.
@@ -122,6 +131,12 @@ The midware spawns `./DistributedPhysicsServer/EntryPoint.exe` **relative to its
 > `--fixed-step` pins the physics substep rate (otherwise `mRealHZ`/`mRealDT` adapt to measured frame cost, so servers under different load integrate with different `dt`). `--seed` drives deterministic world construction. **Both are required for any measurement run whose numbers are meant to be comparable.**
 >
 > `--workload shuttle` gives objects an initial X velocity so they cross borders; without it a default world spawns everything inside one region and produces zero handoffs.
+
+**Two run modes, and the choice is methodological.** `--run-seconds N` bounds by wall clock and feeds the loop measured deltas — genuine behaviour under load, but **not reproducible**: tick counts vary with machine load (28.6k–29.4k over nominally identical 60 s runs), and since the border check runs once per *tick*, handoffs land at different simulated times. `--run-ticks N` with `--fixed-step` pins the loop `dt` to the substep length *and* paces each tick to that much real time, so every server stays on one shared clock. End state and conservation then reproduce exactly; handoff *event* counts still vary by ±1, which would need a global tick barrier to remove. Use `--run-ticks` for correctness/conservation experiments and `--run-seconds` with repeats for performance claims.
+
+> Pacing is not optional in reproducible mode. An unpaced fixed-`dt` run lets a lightly loaded server race ahead and **exit while a busier peer is still handing objects to it**; those objects are lost outright (conservation fell to 389/400). That is the §0.7 ownership gap made visible — the sender deactivates on send, so a handoff to a dead peer is unrecoverable.
+>
+> Beware the realtime `p50`: the loop spins at ~1 kHz while physics substeps at 120 Hz, so ~7 ticks in 8 do **no** physics work and `p50 = 0.017 ms` is the cost of an empty iteration. Paced mode does one substep per tick and gives a tight unimodal distribution. Both agree on `p95 ≈ 1.58 ms`, which is the real per-substep cost.
 
 **Per-tick metrics.** `--metrics-dir <dir>` makes each game server buffer one `TickSample` per tick and write `<dir>/ticks-server<N>.csv` on exit (`DistributedSystemCommonFiles/MetricSink`). Samples are appended to a pre-reserved vector (`--metrics-capacity`, default 200000) so recording never allocates mid-tick; overflow is dropped and counted, and the drop count is printed at flush. **The CSV is only written on a clean exit**, so pair it with `--run-seconds N`, which makes the headless loop return after N seconds — a force-killed server loses its whole buffer.
 
