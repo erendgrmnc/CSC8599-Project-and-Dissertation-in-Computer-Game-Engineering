@@ -86,7 +86,17 @@ int RunDistributedClient(int argc, char* argv[]) {
 	// blast necessarily spans two regions and the cross-border fan-out is exercised.
 	// 0 disables.
 	const int blastEvery = config.GetInt("--blast-every", 0);
+
+	// Spawns an object every N ticks, alternating sides of the seam so both the
+	// local-owner path and the relay-to-owner path are covered. 0 disables.
+	const int spawnEvery = config.GetInt("--spawn-every", 0);
+	int spawnTick = 0;
+	int spawnIndex = 0;
 	const float blastRadius = static_cast<float>(config.GetInt("--blast-radius", 40));
+	// Shifts the blast origin along X. A blast centred exactly on the seam pushes
+	// objects AWAY from it on both sides; offsetting it puts objects between the
+	// origin and the seam, so the radial push carries them across.
+	const float blastOffsetX = static_cast<float>(config.GetInt("--blast-offset-x", 0));
 	int blastTick = 0;
 
 	int driverTick = 0;
@@ -144,6 +154,31 @@ int RunDistributedClient(int argc, char* argv[]) {
 					blast.magnitude = 25.0f;
 					blast.radius = blastRadius;
 					scene->SendCommand(NCL::Interaction::CommandType::Impulse, blast);
+				}
+			}
+		}
+
+		if (spawnEvery > 0 && scene->IsGameStarted()) {
+			if ((spawnTick++ % spawnEvery) == 0) {
+				float minX = 0.0f, maxX = 0.0f, minZ = 0.0f, maxZ = 0.0f;
+				if (scene->GetWorldBounds(minX, maxX, minZ, maxZ)) {
+					const float midX = (minX + maxX) * 0.5f;
+					const float midZ = (minZ + maxZ) * 0.5f;
+
+					NCL::Interaction::CommandArgs spawn;
+					spawn.playerID = 0;
+					spawn.archetypeID = static_cast<int>((spawnIndex % 2 == 0)
+						? NCL::Interaction::ObjectArchetype::Cube
+						: NCL::Interaction::ObjectArchetype::Sphere);
+					// Alternate sides of the seam so both servers own some spawns, and
+					// stay close to it so a modest push carries them across - which is
+					// what proves the peer's deactivated twin can actually receive a
+					// handoff, not merely that it was created.
+					const float offset = (spawnIndex % 2 == 0) ? -4.0f : 4.0f;
+					spawn.worldPoint = NCL::Maths::Vector3(midX + offset, 40.0f, midZ);
+					++spawnIndex;
+
+					scene->SendCommand(NCL::Interaction::CommandType::Spawn, spawn);
 				}
 			}
 		}

@@ -109,6 +109,11 @@ namespace NCL {
 		static int GetCommandsFannedOut();
 		static void SetCommandsFannedOut(int count);
 
+		// Runtime spawns originated by this server. Conservation becomes
+		// pre-seeded + spawned - destroyed once objects can be created at runtime.
+		static int GetObjectsSpawned();
+		static void SetObjectsSpawned(int count);
+
 		// Objects this server actually integrated on the last tick, versus the number
 		// it owns. These must match: a gap means the integrator is touching objects
 		// outside this server's region, which flattens the scaling curve.
@@ -168,6 +173,7 @@ namespace NCL {
 		static int sCommandsRejected;
 		static int sCommandsSent;
 		static int sCommandsFannedOut;
+		static int sObjectsSpawned;
 		static int sIntegratedObjects;
 		static int sDeltasApplied;
 		static int sDeltasRejected;

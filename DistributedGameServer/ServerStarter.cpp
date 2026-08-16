@@ -187,6 +187,7 @@ int StartGameServer(int argc, char* argv[]) {
 			<< " cmdDup=" << Profiler::GetCommandsDuplicate()
 			<< " cmdRejected=" << Profiler::GetCommandsRejected()
 			<< " cmdFanout=" << Profiler::GetCommandsFannedOut()
+			<< " objSpawned=" << Profiler::GetObjectsSpawned()
 			<< "\n";
 		return 0;
 	}

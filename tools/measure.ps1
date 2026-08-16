@@ -27,6 +27,9 @@ param(
     # Fires a radial impulse on a region seam every N client ticks, exercising the
     # cross-border fan-out. 0 disables.
     [int]$BlastEvery = 0,
+    # Spawns an object every N client ticks, alternating sides of the seam. 0 disables.
+    [int]$SpawnEvery = 0,
+    [int]$BlastOffsetX = 0,
     [string]$OutDir = ""
 )
 $ErrorActionPreference = "Continue"
@@ -86,7 +89,7 @@ $serverRunSeconds = if ($Ticks -gt 0) { [Math]::Round($Ticks / 120.0) } else { $
 $clientSeconds = [Math]::Max(5, $serverRunSeconds - 15)
 
 $cli = Start-Process -PassThru -FilePath (Join-Path $deploy "Client\EntryPoint.exe") `
-    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --headless --impulse-test $ImpulseTest --misroute-every $MisrouteEvery --blast-every $BlastEvery --run-seconds $clientSeconds" `
+    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --headless --impulse-test $ImpulseTest --misroute-every $MisrouteEvery --blast-every $BlastEvery --spawn-every $SpawnEvery --blast-offset-x $BlastOffsetX --run-seconds $clientSeconds" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\cli.log" -RedirectStandardError "$runDir\cli.err" -WindowStyle Hidden
 
 # Servers self-terminate; allow slack for startup plus flush. Reproducible runs are
