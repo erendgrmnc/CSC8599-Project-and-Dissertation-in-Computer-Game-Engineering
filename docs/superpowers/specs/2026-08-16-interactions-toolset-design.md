@@ -1891,3 +1891,61 @@ exact.
 
 This also unblocks the 4-server scaling experiments, which would otherwise have silently produced
 three-server data.
+
+---
+
+## 17. Reproducibility: how far it goes, and why it stops there (2026-08-17)
+
+Four concrete sources of run-to-run variation were identified and removed. A fifth remains, and it
+is architectural.
+
+### Removed
+
+1. **Adaptive substep rate** — `--fixed-step` pins `mRealHZ`/`mRealDT` (increment 0).
+2. **Variable tick counts** — `--run-ticks` bounds by simulated ticks rather than wall clock, and
+   the loop is wall-paced so peers stay in step (increment 1).
+3. **Arrival jitter in handoff application** — `--handoff-lookahead N` schedules an incoming object
+   at `senderTick + N` instead of on arrival. `mSenderTick` is appended to
+   `StartSimulatingObjectPacket` (append-only, as with the avatar fields). Packets that miss their
+   slot are applied anyway and counted as `hoLate`, so an inadequate lookahead is visible rather
+   than silent. Measured `hoLate = 0` at N = 60 (0.5 s).
+4. **A measured `dt` on the game-start tick** — a genuine bug. `countTicksWhen` is evaluated
+   *before* `tick()`, so on the single tick where the game starts during `tick()` the world manager
+   received one **measured** delta. That seeds `PhysicsSystem::mDTOffset` differently in every run
+   and shifts every subsequent substep boundary. Reproducible mode now feeds the fixed `dt`
+   unconditionally. This is worth keeping regardless of reproducibility: one measured tick was
+   enough to perturb the whole run.
+
+`--epoch-align-us N` also lands every server's tick 0 on a shared monotonic-clock boundary (QPC is
+consistent across processes on one machine). Verified working — both servers logged the *same*
+boundary in each run. **Caveat:** it only aligns servers that reach the align point within the same
+period; a server arriving just after a boundary waits for the next one. Cross-machine it needs real
+clock synchronisation.
+
+### What remains
+
+After all of the above, two runs at the same seed still differ by **±1 handoff** (e.g. 41/1 vs
+42/1; end state 360/40 vs 359/41 — 0.25% of 400 objects).
+
+The residual is inherent to the coordination model. An object handed over carries a *predicted*
+state computed by the sender; the receiver resumes from it. Servers advance their own tick counters
+independently, and an object oscillating near a border can be handed back and forth, so a
+one-substep difference anywhere flips which side it finishes on. Closing this requires the servers
+to agree on a global tick index before advancing — a **barrier**, i.e. conservative time
+synchronisation (Chandy–Misra–Bryant).
+
+**That trade-off is the paper's subject, not an implementation gap.** A barrier would buy bit-exact
+reproducibility at the cost of the "no central coordination in the physics path" property the
+architecture exists to demonstrate. The honest scope for reproducibility claims is therefore:
+
+| Quantity | Reproducible? |
+|---|---|
+| Object conservation (I2) | **Exact** |
+| Command accounting (I4) | **Exact** |
+| Handoff parity (I5) | **Exact** |
+| `hoFail`, `hoLate` | **Exact** (both 0) |
+| Per-server final object counts | **±1 object in 400** |
+| Handoff event counts | **±1** |
+
+Performance claims should be made from repeated runs with error bars; correctness claims rest on
+the invariants, which are exact.
