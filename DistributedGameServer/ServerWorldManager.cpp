@@ -1,5 +1,7 @@
 #include "ServerWorldManager.h"
 
+#include <algorithm>
+#include <cmath>
 #include <fstream>
 
 #include "GameWorld.h"
@@ -24,6 +26,15 @@ namespace {
 	constexpr float SHUTTLE_MIN_SPEED = 30.0f;
 	constexpr float SHUTTLE_MAX_SPEED = 60.0f;
 	constexpr float SHUTTLE_Z_SPREAD = 20.0f;
+
+	// Objects are radius 0.5, i.e. one unit across. The grid spacing used to be 1.0,
+	// so they spawned exactly touching and the opening seconds of every run were
+	// dominated by resolving the initial contacts rather than by the workload.
+	constexpr float OBJECT_GRID_SPACING = 2.0f;
+
+	// Where each player's grid is centred, alternating either side of the origin.
+	constexpr float PLAYER_START_OFFSET = 50.0f;
+	constexpr float PLAYER_START_STRIDE = 40.0f;
 
 	// Deterministic replacement for rand() when choosing an object's shape.
 	//
@@ -197,17 +208,23 @@ void NCL::DistributedGameServer::ServerWorldManager::AddNetworkObject(CSC8503::G
 void DistributedGameServer::ServerWorldManager::CreatePlayerObjects(int playerCount, int objectsPerPlayer) {
 	for (int i = 0; i < playerCount; i++) {
 		Vector3 startPos;
-		if (i == 0) {
-			startPos.x = -50;
-		}
-		else if (i == 1) {
-			startPos.x = 50;
-		}
 
-		startPos.y = 10;
-		startPos.z = 0;
+		// Players alternate either side of the origin, stepping outwards. Previously
+		// only players 0 and 1 were positioned at all, so every player from index 2
+		// spawned its whole grid at x=0, stacked inside the others.
+		const int pairIndex = i / 2;
+		const float side = (i % 2 == 0) ? -1.0f : 1.0f;
+		startPos.x = side * (PLAYER_START_OFFSET + pairIndex * PLAYER_START_STRIDE);
+		startPos.y = 10.f;
+		startPos.z = 0.f;
 
-		CreateObjectGrid(10, 10, objectsPerPlayer, 1.f, 1.f, i, startPos);
+		// Grid sized to the requested object count. This was hardcoded 10x10, which
+		// silently capped every player at 100 objects however many were asked for -
+		// making an object-count sweep impossible and reporting nothing.
+		const int cols = std::max(1, static_cast<int>(std::ceil(std::sqrt(static_cast<double>(objectsPerPlayer)))));
+		const int rows = std::max(1, static_cast<int>(std::ceil(static_cast<double>(objectsPerPlayer) / cols)));
+
+		CreateObjectGrid(rows, cols, objectsPerPlayer, OBJECT_GRID_SPACING, OBJECT_GRID_SPACING, i, startPos);
 	}
 }
 
