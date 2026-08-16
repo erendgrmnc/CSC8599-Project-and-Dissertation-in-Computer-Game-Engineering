@@ -40,6 +40,21 @@ namespace {
 		floor->SetActive(true);
 		return floor;
 	}
+
+	// Counts OnCollisionEnd calls. Unregistering an object must NOT fire it: the
+	// object is being removed, not separating from a contact.
+	class ProbeObject : public GameObject {
+	public:
+		ProbeObject() : GameObject(NoSpecialFeatures, "probe") {}
+		int collisionBeginCount = 0;
+		int collisionEndCount = 0;
+		void OnCollisionBegin(GameObject* otherObject) override {
+			++collisionBeginCount;
+		}
+		void OnCollisionEnd(GameObject* otherObject) override {
+			++collisionEndCount;
+		}
+	};
 }
 
 TEST(PreSeededObjectIsIntegrated) {
@@ -160,6 +175,108 @@ TEST(RegisterNullIsSafe) {
 	world.AddGameObject(MakeFloor());
 	physics.Update(TICK_DT);
 	physics.RegisterObject(nullptr);
+	physics.Update(TICK_DT);
+
+	CHECK_EQ(Profiler::GetIntegratedObjects(), 0);
+
+	world.ClearAndErase();
+}
+
+TEST(UnregisteredObjectStopsIntegrating) {
+	GameWorld world;
+	PhysicsSystem physics(world);
+	physics.UseGravity(true);
+
+	world.AddGameObject(MakeFloor());
+	GameObject* cube = MakeDynamicCube(Vector3(0, 50, 0));
+	world.AddGameObject(cube);
+
+	physics.Update(TICK_DT);
+	CHECK_EQ(Profiler::GetIntegratedObjects(), 1);
+
+	physics.UnregisterObject(cube);
+	physics.Update(TICK_DT);
+
+	CHECK_EQ(Profiler::GetIntegratedObjects(), 0);
+
+	world.ClearAndErase();
+}
+
+// Removal must be deferred to the top of the next Update: the integrators walk
+// mDynamicObjectList by index, so erasing during a tick is undefined behaviour.
+// Observable consequence - the object still integrates on the tick during which
+// it was unregistered, never mid-tick.
+TEST(UnregisterIsDeferredNotImmediate) {
+	GameWorld world;
+	PhysicsSystem physics(world);
+	physics.UseGravity(true);
+
+	world.AddGameObject(MakeFloor());
+	GameObject* cube = MakeDynamicCube(Vector3(0, 50, 0));
+	world.AddGameObject(cube);
+	physics.Update(TICK_DT);
+
+	physics.UnregisterObject(cube);
+	// Not yet flushed, so the list is untouched until the next Update begins.
+	CHECK_EQ(Profiler::GetIntegratedObjects(), 1);
+
+	physics.Update(TICK_DT);
+	CHECK_EQ(Profiler::GetIntegratedObjects(), 0);
+
+	world.ClearAndErase();
+}
+
+// The use-after-free guard. Two overlapping cubes generate a collision record;
+// after unregistering one, no further callback may reference it.
+TEST(UnregisterPurgesCollisionRecords) {
+	GameWorld world;
+	PhysicsSystem physics(world);
+	physics.UseGravity(false);
+
+	world.AddGameObject(MakeFloor());
+
+	ProbeObject* probe = new ProbeObject();
+	probe->SetBoundingVolume((CollisionVolume*)new AABBVolume(Vector3(1, 1, 1)));
+	probe->GetTransform().SetScale(Vector3(2, 2, 2)).SetPosition(Vector3(0, 20, 0));
+	probe->SetPhysicsObject(new PhysicsObject(&probe->GetTransform(), probe->GetBoundingVolume()));
+	probe->GetPhysicsObject()->SetInverseMass(1.0f);
+	probe->GetPhysicsObject()->InitCubeInertia();
+	probe->SetActive(true);
+	world.AddGameObject(probe);
+
+	// Overlapping the probe, so a contact is generated immediately.
+	GameObject* other = MakeDynamicCube(Vector3(0, 20, 0));
+	world.AddGameObject(other);
+
+	physics.Update(TICK_DT);
+
+	// Guards against a vacuous pass: if no contact ever formed there is no stale
+	// record to purge and the assertion below would hold for the wrong reason.
+	CHECK(probe->collisionBeginCount > 0);
+
+	const int endsBeforeRemoval = probe->collisionEndCount;
+
+	physics.UnregisterObject(probe);
+
+	// mNumCollisionFrames is 5, so run well past the window a stale record would
+	// survive. Any purge failure shows up as an extra OnCollisionEnd here, and in a
+	// real run as a dereference of freed memory.
+	for (int tick = 0; tick < 10; ++tick) {
+		physics.Update(TICK_DT);
+	}
+
+	CHECK_EQ(probe->collisionEndCount, endsBeforeRemoval);
+
+	world.ClearAndErase();
+}
+
+TEST(UnregisterNullIsSafe) {
+	GameWorld world;
+	PhysicsSystem physics(world);
+
+	world.AddGameObject(MakeFloor());
+	physics.Update(TICK_DT);
+	physics.UnregisterObject(nullptr);
 	physics.Update(TICK_DT);
 
 	CHECK_EQ(Profiler::GetIntegratedObjects(), 0);

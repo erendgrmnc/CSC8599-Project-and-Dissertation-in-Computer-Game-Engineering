@@ -66,6 +66,10 @@ namespace NCL {
 
 			void ClearForces();
 
+			// Drains mPendingUnregister. Called at the top of Update, where no
+			// iteration over mDynamicObjectList is in progress.
+			void FlushPendingUnregisters();
+
 			void IntegrateAccel(float dt);
 			void IntegrateVelocity(float dt);
 
@@ -125,6 +129,11 @@ namespace NCL {
 			// compounded several times a frame. It also cannot express "seeded, now
 			// accepting incremental Register/Unregister".
 			bool mBroadphaseSeeded = false;
+
+			// Removal is deferred, never immediate: IntegrateAccel, IntegrateVelocity
+			// and BroadPhase all walk mDynamicObjectList by index, so erasing from it
+			// during a tick is undefined behaviour.
+			std::vector<GameObject*> mPendingUnregister;
 			bool mUseBroadPhase		= true;
 			int mNumCollisionFrames	= 5;
 			int mBroadphaseX = 256;

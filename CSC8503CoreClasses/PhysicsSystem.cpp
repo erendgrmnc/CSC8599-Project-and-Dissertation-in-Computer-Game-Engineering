@@ -67,6 +67,8 @@ void PhysicsSystem::Clear() {
 	// Without this, a cleared world can never be re-seeded and nothing would ever
 	// integrate again.
 	mBroadphaseSeeded = false;
+	// Anything queued refers to objects the caller is about to destroy.
+	mPendingUnregister.clear();
 }
 
 /*
@@ -80,6 +82,9 @@ bool useSimpleContainer = false;
 int constraintIterationCount = 10;
 
 void PhysicsSystem::Update(float dt) {
+	// Must run before anything iterates mDynamicObjectList this tick.
+	FlushPendingUnregisters();
+
 	mDTOffset += dt; //We accumulate time delta here - there might be remainders from previous frame!
 
 	GameTimer t;
@@ -475,6 +480,48 @@ void PhysicsSystem::RegisterObject(GameObject* o) {
 	}
 
 	mDynamicObjectList.push_back(o);
+}
+
+void PhysicsSystem::UnregisterObject(GameObject* o) {
+	if (o == nullptr) {
+		return;
+	}
+
+	// QuadTree exposes no removal operation, so a static object cannot be taken out
+	// of mStaticTree. Runtime spawn and destroy only ever produce dynamic objects;
+	// this guard exists so a future caller gets a diagnostic instead of silently
+	// leaving a dangling pointer in the tree.
+	if (o->GetCollisionLayer() & STATIC_COLLISION_LAYERS) {
+		std::cout << "WARNING: UnregisterObject called on static object '" << o->GetName()
+			<< "' - the quadtree has no removal operation, so it will remain in the broadphase.\n";
+		return;
+	}
+
+	mPendingUnregister.push_back(o);
+}
+
+void PhysicsSystem::FlushPendingUnregisters() {
+	if (mPendingUnregister.empty()) {
+		return;
+	}
+
+	for (GameObject* o : mPendingUnregister) {
+		std::erase(mDynamicObjectList, o);
+
+		// UpdateCollisionList dereferences CollisionInfo::a and ::b to fire
+		// OnCollisionEnd for up to mNumCollisionFrames after a contact ends, so a
+		// leftover record referencing a destroyed object is a use-after-free.
+		// Deliberately no OnCollisionEnd here: the object is being removed from the
+		// simulation, not separating from a contact.
+		const auto referencesObject = [o](const CollisionDetection::CollisionInfo& info) {
+			return info.a == o || info.b == o;
+		};
+		std::erase_if(mAllCollisions, referencesObject);
+		std::erase_if(mBroadphaseCollisions, referencesObject);
+		std::erase_if(mBroadphaseCollisionsVec, referencesObject);
+	}
+
+	mPendingUnregister.clear();
 }
 
 void PhysicsSystem::BroadPhase() {
