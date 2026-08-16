@@ -2,6 +2,9 @@
 #ifdef USEGL
 #include "NetworkObject.h"
 #include "./enet/enet.h"
+
+#include <algorithm>
+#include <iostream>
 using namespace NCL;
 using namespace CSC8503;
 
@@ -299,8 +302,18 @@ StartDistributedGameServerPacket::StartDistributedGameServerPacket(int serverMan
 	this->serverManagerPort = serverManagerPort;
 	this->gameInstanceID = gameInstanceID;
 
-	this->totalServerCount = serverBorderMap.size();
-	this->currentServerCount = serverIps.size();
+	// Clamped, not trusted: every array in this packet is a fixed 20 entries, so an
+	// instance with more servers than that would write past the end of the struct
+	// and corrupt whatever follows it on the wire.
+	this->totalServerCount = static_cast<int>(serverBorderMap.size());
+	this->currentServerCount = static_cast<int>(serverIps.size());
+	if (this->totalServerCount > MAX_SERVERS || this->currentServerCount > MAX_SERVERS) {
+		std::cout << "ERROR: instance has " << this->totalServerCount << " servers and "
+			<< this->currentServerCount << " registered, but the packet holds at most "
+			<< MAX_SERVERS << ". Clamping - the instance will be incomplete.\n";
+		this->totalServerCount = std::min(this->totalServerCount, MAX_SERVERS);
+		this->currentServerCount = std::min(this->currentServerCount, MAX_SERVERS);
+	}
 	this->clientsToConnect = maxClientCount;
 	this->objectsPerPlayer = objectsPerPlayer;
 

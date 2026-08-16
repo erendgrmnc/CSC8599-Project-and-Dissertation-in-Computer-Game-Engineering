@@ -351,6 +351,12 @@ namespace NCL::CSC8503 {
 		int clientsToConnect;
 		int objectsPerPlayer;
 
+		// Hard bound on every array below. The packet is POD with fixed-size arrays
+		// (a variable-length payload cannot cross a memcpy'd wire), so exceeding this
+		// is a buffer overflow rather than a truncation - the constructor clamps and
+		// reports instead.
+		static constexpr int MAX_SERVERS = 20;
+
 		// Indexed by SERVER ID, alongside borders[]. Runs to totalServerCount.
 		int serverIDs[20];
 		int serverPorts[20];
