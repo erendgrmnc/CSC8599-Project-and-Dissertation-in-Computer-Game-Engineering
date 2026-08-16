@@ -115,6 +115,17 @@ void NCL::DistributedGameServer::ServerWorldManager::SetFixedTimestep(bool state
 	mPhysics->SetFixedTimestep(state);
 }
 
+void NCL::DistributedGameServer::ServerWorldManager::EnableMetrics(const std::string& outputPath, size_t capacity) {
+	mMetrics = std::make_unique<NCL::MetricSink>(outputPath, capacity);
+	std::cout << "Per-tick metrics -> " << outputPath << " (capacity " << capacity << " samples)\n";
+}
+
+void NCL::DistributedGameServer::ServerWorldManager::FlushMetrics() {
+	if (mMetrics) {
+		mMetrics->Flush();
+	}
+}
+
 // Gives a freshly created object its initial motion. Without a workload the default
 // scene is purely ballistic - objects fall straight down and settle - so nothing ever
 // approaches a region border and the handoff protocol, which is the whole point of
@@ -193,6 +204,26 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	Profiler::SetHandoffsSent(mHandoffsSent);
 	Profiler::SetHandoffsReceived(mHandoffsReceived);
 	Profiler::SetHandoffsFailed(mHandoffsFailed);
+
+	// Per-tick record. The @@STAT line above is a 2 Hz instantaneous sample and
+	// cannot describe a distribution; this is what the paper's timing figures are
+	// built from. Recording is a push_back into a pre-reserved buffer - no
+	// allocation, no I/O, nothing that would perturb what is being measured.
+	if (mMetrics) {
+		NCL::TickSample sample;
+		sample.tick = mTickCounter;
+		sample.timeMicros = NCL::MonotonicMicros();
+		sample.physicsMs = static_cast<float>(Profiler::GetPhysicsTime());
+		sample.predictMs = static_cast<float>(Profiler::GetPhysicsPredictionTime());
+		sample.worldMs = static_cast<float>(Profiler::GetWorldTime());
+		sample.ownedObjects = activeObjCount;
+		sample.integratedObjects = Profiler::GetIntegratedObjects();
+		sample.handoffsSent = mHandoffsSent;
+		sample.handoffsReceived = mHandoffsReceived;
+		sample.handoffsFailed = mHandoffsFailed;
+		mMetrics->Record(sample);
+	}
+	++mTickCounter;
 }
 
 void NCL::DistributedGameServer::ServerWorldManager::AddNetworkObject(CSC8503::GameObject& objToAdd) {

@@ -1,5 +1,10 @@
 #pragma once
 
+#include <memory>
+#include <string>
+
+#include "DistributedSystemCommonFiles/MetricSink.h"
+
 namespace NCL::CSC8503 {
 	struct StartSimulatingObjectReceivedPacket;
 	struct StartSimulatingObjectPacket;
@@ -98,11 +103,21 @@ namespace NCL {
 			void RecordHandoffSent() {
 				++mHandoffsSent;
 			}
+
+			// Enables per-tick metric recording to a CSV. Empty path disables it, in
+			// which case Record() is a no-op and nothing is allocated.
+			void EnableMetrics(const std::string& outputPath, size_t capacity);
+
+			// Writes any buffered samples out. Called on a clean shutdown; a run that
+			// is force-killed loses whatever has not been flushed.
+			void FlushMetrics();
 		protected:
 			int mNetworkIdBuffer;
 			int mServerID;
 			unsigned int mWorldSeed = 1u;
 			std::string mWorkload;
+			std::unique_ptr<NCL::MetricSink> mMetrics;
+			uint64_t mTickCounter = 0;
 			int mHandoffsSent = 0;
 			int mHandoffsReceived = 0;
 			int mHandoffsFailed = 0;
