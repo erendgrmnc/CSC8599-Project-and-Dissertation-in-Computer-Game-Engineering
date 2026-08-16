@@ -353,6 +353,15 @@ NCL::DistributedGameServer::ServerWorldManager::BuildOwnedObjectManifest() const
 			continue;
 		}
 
+		// RUNTIME-spawned objects only. Pre-seeded ones need no manifest: every server
+		// builds the identical set independently, and a client learns them from the
+		// first snapshot. Including them meant every peer received a ~400-entry
+		// reliable burst at connect time - which flooded the link during bootstrap and
+		// stopped a 4-server instance starting at all.
+		if (!NCL::NetworkIdSpace::IsRuntimeId(poolEntry.first)) {
+			continue;
+		}
+
 		ManifestEntry entry;
 		entry.objectID = poolEntry.first;
 		const auto archetype = mObjectArchetypes.find(poolEntry.first);
@@ -661,6 +670,20 @@ void DistributedGameServer::ServerWorldManager::CreatePlayerObjects(int playerCo
 		// making an object-count sweep impossible and reporting nothing.
 		const int cols = std::max(1, static_cast<int>(std::ceil(std::sqrt(static_cast<double>(objectsPerPlayer)))));
 		const int rows = std::max(1, static_cast<int>(std::ceil(static_cast<double>(objectsPerPlayer) / cols)));
+
+		// The "seam" workload centres each grid ON the world origin, where the region
+		// borders meet. The grid grows in +x/+z from startPos, so centring it means
+		// stepping back by half its extent - which lands a whole row and column of
+		// objects EXACTLY on x=0 and z=0, with the rest straddling both sides.
+		//
+		// That is the case the half-open ownership rule exists for. Without it the
+		// default world spawns every object well inside one region, so a pre-seed
+		// ownership check passes without the border case ever arising: it confirms no
+		// regression rather than confirming the rule works.
+		if (mWorkload == "seam") {
+			startPos.x = -(rows / 2) * OBJECT_GRID_SPACING;
+			startPos.z = -(cols / 2) * OBJECT_GRID_SPACING;
+		}
 
 		CreateObjectGrid(rows, cols, objectsPerPlayer, OBJECT_GRID_SPACING, OBJECT_GRID_SPACING, i, startPos);
 	}
