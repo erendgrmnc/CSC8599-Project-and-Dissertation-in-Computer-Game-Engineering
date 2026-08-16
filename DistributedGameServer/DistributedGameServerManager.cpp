@@ -103,6 +103,7 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 	Profiler::SetCommandsRejected(mCommandsRejected);
 	Profiler::SetCommandsFannedOut(mCommandsFannedOut);
 	Profiler::SetObjectsSpawned(mObjectsSpawned);
+	Profiler::SetObjectsDestroyed(mObjectsDestroyed);
 
 	for (auto& gameServerConnection : mDistributedPhysicsClients) {
 		gameServerConnection->client->UpdateClient();
@@ -158,6 +159,7 @@ void DistributedGameServer::DistributedGameServerManager::RegisterPacketSenderSe
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedClientCommand, this);
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedServerCommandRelay, this);
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedObjectSpawned, this);
+	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedObjectDespawned, this);
 
 	// One registration for the process. Adding a new interaction never touches
 	// ReceivePacket - that is the point of the registry.
@@ -274,6 +276,10 @@ void DistributedGameServer::DistributedGameServerManager::ReceivePacket(int type
 	}
 	case BasicNetworkMessages::DistributedObjectSpawned: {
 		HandleObjectSpawnedPacket(static_cast<DistributedObjectSpawnedPacket*>(payload));
+		break;
+	}
+	case BasicNetworkMessages::DistributedObjectDespawned: {
+		HandleObjectDespawnedPacket(static_cast<DistributedObjectDespawnedPacket*>(payload));
 		break;
 	}
 	case BasicNetworkMessages::ClientPlayerInputState: {
@@ -646,6 +652,7 @@ void DistributedGameServer::DistributedGameServerManager::DispatchCommand(
 	// from inside a packet handler.
 	DrainPendingRelays(playerID, clientSequence);
 	DrainPendingSpawns();
+	DrainPendingDespawns();
 
 	// Only the server that APPLIED the command acks the client. A relaying server
 	// stays silent so the client gets exactly one ack per command.
@@ -741,6 +748,39 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectSpawnedPac
 		packet->ownerServerID, packet->spawnerPlayerID, packet->position);
 }
 
+void DistributedGameServer::DistributedGameServerManager::DrainPendingDespawns() {
+	ServerWorldManager* worldManager = GetServerWorldManager();
+	if (worldManager == nullptr || mDistributedPacketSenderServer == nullptr) {
+		return;
+	}
+
+	ServerWorldManager::PendingDespawn despawn;
+	while (worldManager->PopPendingDespawn(despawn)) {
+		++mObjectsDestroyed;
+
+		// Explicit despawn rather than letting the object simply stop appearing in
+		// snapshots: absence already means "not mine", so it cannot also mean
+		// "destroyed" without making the two indistinguishable.
+		DistributedObjectDespawnedPacket packet(despawn.objectID, despawn.reason,
+			despawn.destroyerPlayerID);
+		mDistributedPacketSenderServer->SendGlobalReliablePacket(packet);
+	}
+}
+
+void DistributedGameServer::DistributedGameServerManager::HandleObjectDespawnedPacket(
+	DistributedObjectDespawnedPacket* packet) {
+	if (packet == nullptr) {
+		return;
+	}
+
+	ServerWorldManager* worldManager = GetServerWorldManager();
+	if (worldManager == nullptr) {
+		return;
+	}
+
+	worldManager->ApplyRemoteDespawn(packet->objectID, packet->reason, packet->destroyerPlayerID);
+}
+
 void DistributedGameServer::DistributedGameServerManager::SendCommandAck(int sequence, int playerID,
 	int targetObjectID, NCL::Interaction::CommandResult result, int correctedServerID) {
 	DistributedCommandAckPacket packet(sequence, playerID, targetObjectID,
@@ -783,6 +823,7 @@ DistributedGameServer::GameServerConnection* DistributedGameServer::DistributedG
 		// Spawns are broadcast on the owner's sender server, so a peer receives them
 		// through its outbound link exactly as it receives a handoff.
 		client->RegisterPacketHandler(BasicNetworkMessages::DistributedObjectSpawned, this);
+		client->RegisterPacketHandler(BasicNetworkMessages::DistributedObjectDespawned, this);
 	}
 
 	GameServerConnection* connection = new GameServerConnection(gameServerID, client);

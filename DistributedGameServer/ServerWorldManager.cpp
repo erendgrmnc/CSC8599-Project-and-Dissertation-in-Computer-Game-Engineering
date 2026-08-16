@@ -266,9 +266,108 @@ bool NCL::DistributedGameServer::ServerWorldManager::CreateReplicatedSpawn(int n
 	return true;
 }
 
-bool NCL::DistributedGameServer::ServerWorldManager::DestroyObject(int,
-	NCL::Interaction::DespawnReason, int) {
-	return false;   // Runtime destroy is a later increment.
+// Tears an object down locally. Deliberately does NOT delete it: mDynamicObjectList,
+// mStaticTree and the collision sets all hold raw GameObject*, and UpdateCollisionList
+// dereferences them for up to mNumCollisionFrames frames after a contact ends.
+void NCL::DistributedGameServer::ServerWorldManager::TeardownObject(CSC8503::GameObject* object) {
+	if (object == nullptr) {
+		return;
+	}
+
+	object->SetActive(false);
+	// Defers the structural removal and purges the collision sets (increment 1).
+	mPhysics->UnregisterObject(object);
+	// andDelete stays false: this object is still referenced by the physics system
+	// until the next flush.
+	mGameWorld->RemoveGameObject(object, false);
+
+	mTestObjects.erase(
+		std::remove(mTestObjects.begin(), mTestObjects.end(), object),
+		mTestObjects.end());
+
+	if (auto* networkObject = object->GetNetworkObject()) {
+		std::erase(mNetworkObjects, networkObject);
+	}
+
+	mPendingDeletion.push_back(object);
+}
+
+void NCL::DistributedGameServer::ServerWorldManager::FlushPendingDeletions() {
+	for (CSC8503::GameObject* object : mPendingDeletion) {
+		delete object;
+	}
+	mPendingDeletion.clear();
+}
+
+bool NCL::DistributedGameServer::ServerWorldManager::DestroyObject(int networkObjectID,
+	NCL::Interaction::DespawnReason reason, int destroyerPlayerID) {
+	// Idempotent (race W4): a destroy arriving twice - once direct, once relayed -
+	// observes the tombstone and reports success rather than double-destroying.
+	if (IsTombstoned(networkObjectID)) {
+		return true;
+	}
+
+	const auto entry = mCreatedObjectPool.find(networkObjectID);
+	if (entry == mCreatedObjectPool.end() || entry->second == nullptr) {
+		return false;
+	}
+
+	CSC8503::GameObject* object = entry->second;
+
+	// Race W1: a destroy that arrives after the transition flag is set but before
+	// the handoff is dispatched. The tick order runs the network pump before
+	// HandleObjectTransitions, so this is the common case - and destroy wins.
+	if (auto* networkObject = object->GetNetworkObject()) {
+		if (networkObject->IsPendingTransition()) {
+			networkObject->CancelPendingTransition();
+		}
+	}
+
+	mTombstones.insert(networkObjectID);
+	TeardownObject(object);
+	// The pool entry becomes a tombstone rather than being erased, so a late relayed
+	// command resolves to ObjectDestroyed rather than ObjectUnknown.
+	entry->second = nullptr;
+
+	PendingDespawn despawn;
+	despawn.objectID = networkObjectID;
+	despawn.reason = static_cast<int>(reason);
+	despawn.destroyerPlayerID = destroyerPlayerID;
+	mPendingDespawns.push_back(despawn);
+
+	return true;
+}
+
+bool NCL::DistributedGameServer::ServerWorldManager::PopPendingDespawn(PendingDespawn& out) {
+	if (mPendingDespawns.empty()) {
+		return false;
+	}
+	out = mPendingDespawns.front();
+	mPendingDespawns.erase(mPendingDespawns.begin());
+	return true;
+}
+
+void NCL::DistributedGameServer::ServerWorldManager::ApplyRemoteDespawn(int networkID, int reason,
+	int destroyerPlayerID) {
+	if (IsTombstoned(networkID)) {
+		return;
+	}
+	mTombstones.insert(networkID);
+
+	const auto entry = mCreatedObjectPool.find(networkID);
+	if (entry == mCreatedObjectPool.end() || entry->second == nullptr) {
+		// Race W3: the destroy beat the object here. Remember it, so when
+		// StartHandlingObject later runs for this id it destroys instead of
+		// activating - otherwise the object would be resurrected.
+		mPendingDestroyOnArrival.insert(networkID);
+		return;
+	}
+
+	if (auto* networkObject = entry->second->GetNetworkObject()) {
+		networkObject->CancelPendingTransition();
+	}
+	TeardownObject(entry->second);
+	entry->second = nullptr;
 }
 
 void NCL::DistributedGameServer::ServerWorldManager::ApplyImpulse(int networkObjectID,
@@ -453,6 +552,12 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	Profiler::SetPhysicsTime(timeTaken.count());
 
 	CheckPositionOutOfServerBoundaries();
+
+	// Freed here, at the END of the tick, because mPhysics->Update above has already
+	// run FlushPendingUnregisters and purged every raw pointer to these objects from
+	// mDynamicObjectList and the collision sets. Freeing any earlier would leave a
+	// dangling pointer in those containers for the rest of the tick.
+	FlushPendingDeletions();
 
 	Profiler::SetHandoffsSent(mHandoffsSent);
 	Profiler::SetHandoffsReceived(mHandoffsReceived);

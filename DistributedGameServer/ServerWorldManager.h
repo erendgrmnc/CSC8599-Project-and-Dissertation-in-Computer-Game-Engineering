@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <set>
 #include <string>
 
 #include "DistributedSystemCommonFiles/MetricSink.h"
@@ -124,6 +125,21 @@ namespace NCL {
 			bool CreateReplicatedSpawn(int networkID, int archetypeID, int ownerServerID,
 				int spawnerPlayerID, const Maths::Vector3& position);
 
+			struct PendingDespawn {
+				int objectID = -1;
+				int reason = 0;
+				int destroyerPlayerID = -1;
+			};
+			bool PopPendingDespawn(PendingDespawn& out);
+
+			// Applies a destroy that originated on a peer. Idempotent: a second
+			// despawn for the same id observes the tombstone and is ignored.
+			void ApplyRemoteDespawn(int networkID, int reason, int destroyerPlayerID);
+
+			bool IsTombstoned(int networkID) const {
+				return mTombstones.find(networkID) != mTombstones.end();
+			}
+
 			// Selects the initial-motion workload applied when the world is built.
 			//   ""        - none (default): objects fall and settle, never crossing a
 			//               region border, so the handoff path is never exercised
@@ -194,6 +210,26 @@ namespace NCL {
 			// partitioning means no server can ever mint another's id, so no central
 			// allocator and no round trip per spawn.
 			int mRuntimeSpawnCounter = 0;
+
+			std::vector<PendingDespawn> mPendingDespawns;
+
+			// Destroyed ids, kept forever. IDs are never recycled (that would need
+			// distributed agreement on when every server AND client has retired one -
+			// a distributed GC problem), which is exactly what makes a permanent
+			// tombstone safe and cheap.
+			std::set<int> mTombstones;
+
+			// A destroy can arrive at the new owner BEFORE the object does (race W3).
+			// Dropping it would resurrect the object, so it is held here and applied
+			// when StartHandlingObject later runs for that id.
+			std::set<int> mPendingDestroyOnArrival;
+
+			// Objects awaiting deletion. Never deleted on the tick they are destroyed:
+			// UpdateCollisionList dereferences raw GameObject* for several frames
+			// afterwards, so the pointer must outlive the collision purge.
+			std::vector<CSC8503::GameObject*> mPendingDeletion;
+			void FlushPendingDeletions();
+			void TeardownObject(CSC8503::GameObject* object);
 
 			// Shared by the owner path and the peer-replica path so both build a
 			// byte-identical object; only their active state differs.
