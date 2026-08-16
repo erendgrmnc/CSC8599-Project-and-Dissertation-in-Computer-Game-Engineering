@@ -63,7 +63,7 @@ in, and it is fully unit-testable.
 - Consumes: the `TEST`/`CHECK` harness from increment 1 Task 1.
 - Produces: `NCL::Interaction::{CommandType, CommandResult, DespawnReason, CommandArgs, CommandScope, IInteractionCommand, ICommandContext, CommandRegistry}`; `NCL::SequenceWindow`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `tools/InteractionTests/CommandChannelTests.cpp`:
 
@@ -156,7 +156,7 @@ TEST(SequenceWindowRejectsBeyondWindow) {
 }
 ```
 
-- [ ] **Step 2: Run — must fail to compile**
+- [x] **Step 2: Run — must fail to compile**
 
 ```powershell
 & "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" DistributedPhysicsSystem.sln /t:InteractionTests /p:Configuration=Debug /p:Platform=x64 /v:minimal /nologo /m
@@ -164,7 +164,7 @@ TEST(SequenceWindowRejectsBeyondWindow) {
 
 Expected: `fatal error C1083: Cannot open include file: 'DistributedSystemCommonFiles/InteractionCommand.h'`.
 
-- [ ] **Step 3: Write `SequenceWindow.h`**
+- [x] **Step 3: Write `SequenceWindow.h`**
 
 ```cpp
 #pragma once
@@ -220,7 +220,7 @@ namespace NCL {
 }
 ```
 
-- [ ] **Step 4: Write `InteractionCommand.h`**
+- [x] **Step 4: Write `InteractionCommand.h`**
 
 Copy the full declaration from spec §6.2 verbatim. It defines `CommandType`, `CommandResult`,
 `DespawnReason`, `CommandArgs`, `CommandScope`, `IInteractionCommand`, `ICommandContext` and
@@ -238,7 +238,7 @@ Add above `CommandType`:
 	// renumber here is a silent cross-version misinterpretation, not a build error.
 ```
 
-- [ ] **Step 5: Write `InteractionCommand.cpp`**
+- [x] **Step 5: Write `InteractionCommand.cpp`**
 
 ```cpp
 #include "InteractionCommand.h"
@@ -272,7 +272,7 @@ namespace NCL::Interaction {
 
 `RegisterDefaults` is added in Task 3, when there are defaults to register.
 
-- [ ] **Step 6: Register the sources in CMake**
+- [x] **Step 6: Register the sources in CMake**
 
 In `CSC8503CoreClasses/CMakePC.cmake`, alongside the other `DistributedSystemCommonFiles` entries,
 add `DistributedSystemCommonFiles/InteractionCommand.h`, `InteractionCommand.cpp` and
@@ -281,7 +281,7 @@ add `DistributedSystemCommonFiles/InteractionCommand.h`, `InteractionCommand.cpp
 In `tools/InteractionTests/CMakeLists.txt`, add `"CommandChannelTests.cpp"` to the
 `add_executable` source list.
 
-- [ ] **Step 7: Run the tests — all must pass**
+- [x] **Step 7: Run the tests — all must pass**
 
 ```powershell
 & "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" DistributedPhysicsSystem.sln /t:InteractionTests /p:Configuration=Debug /p:Platform=x64 /v:minimal /nologo /m
@@ -290,7 +290,7 @@ In `tools/InteractionTests/CMakeLists.txt`, add `"CommandChannelTests.cpp"` to t
 
 Expected: the 7 new tests pass alongside increment 1's 10.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add CSC8503CoreClasses/DistributedSystemCommonFiles/InteractionCommand.h CSC8503CoreClasses/DistributedSystemCommonFiles/InteractionCommand.cpp CSC8503CoreClasses/DistributedSystemCommonFiles/SequenceWindow.h CSC8503CoreClasses/CMakePC.cmake tools/InteractionTests
@@ -315,7 +315,7 @@ git commit -m "feat(interaction): command types, registry and sequence window"
 > `DistributedObjectDespawned` belong to increments 5 and 6; adding them now would put unused
 > entries on the wire before their semantics are settled.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `CommandChannelTests.cpp`:
 
@@ -382,11 +382,11 @@ TEST(ServerCommandRelayPacketHasCorrectLayout) {
 }
 ```
 
-- [ ] **Step 2: Run — must fail to compile**
+- [x] **Step 2: Run — must fail to compile**
 
 Expected: `error C2065: 'DistributedClientCommand': undeclared identifier`.
 
-- [ ] **Step 3: Append the enum entries**
+- [x] **Step 3: Append the enum entries**
 
 In `CSC8503CoreClasses/NetworkBase.h`, after `DistributedClientSnapshotAck` (the current last
 entry) — note it currently has no trailing comma:
@@ -400,7 +400,7 @@ entry) — note it currently has no trailing comma:
 };
 ```
 
-- [ ] **Step 4: Add the packet structs**
+- [x] **Step 4: Add the packet structs**
 
 In `CSC8503CoreClasses/NetworkObject.h`, inside the existing `#ifdef USEGL` block with the other
 packets. Include `DistributedSystemCommonFiles/InteractionCommand.h` at the top of the file.
@@ -452,7 +452,7 @@ packets. Include `DistributedSystemCommonFiles/InteractionCommand.h` at the top 
 
 Add `#include <type_traits>` if `std::is_trivially_copyable_v` does not resolve.
 
-- [ ] **Step 5: Add the constructors**
+- [x] **Step 5: Add the constructors**
 
 In `CSC8503CoreClasses/NetworkObject.cpp`:
 
@@ -497,7 +497,7 @@ DistributedServerCommandRelayPacket::DistributedServerCommandRelayPacket(int com
 }
 ```
 
-- [ ] **Step 6: Run the tests — all must pass**
+- [x] **Step 6: Run the tests — all must pass**
 
 Expected: 3 new layout tests pass.
 
@@ -505,7 +505,7 @@ If `CommandChannelTests.cpp` fails to compile on `NetworkObject.h` because of `U
 `USEGL` to the test target's `target_compile_definitions` — the root `CMakeLists.txt` sets it
 globally for x64, so this should already hold.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add CSC8503CoreClasses/NetworkBase.h CSC8503CoreClasses/NetworkObject.h CSC8503CoreClasses/NetworkObject.cpp tools/InteractionTests/CommandChannelTests.cpp
@@ -529,7 +529,7 @@ This is where the "adding an interaction touches no switch statement" claim is p
 - Consumes: `IInteractionCommand`, `ICommandContext`, `CommandRegistry` from Task 1.
 - Produces: `CommandRegistry::RegisterDefaults()` registering `CommandType::MoveAxis` and `CommandType::Impulse`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `CommandChannelTests.cpp`:
 
@@ -749,11 +749,11 @@ TEST(MoveAxisDoesNotRelay) {
 }
 ```
 
-- [ ] **Step 2: Run — must fail to compile**
+- [x] **Step 2: Run — must fail to compile**
 
 Expected: `error C2039: 'RegisterDefaultsInto': is not a member of 'CommandRegistry'`.
 
-- [ ] **Step 3: Add `RegisterDefaultsInto` to the registry**
+- [x] **Step 3: Add `RegisterDefaultsInto` to the registry**
 
 The spec's `RegisterDefaults()` is a static that populates the singleton. Tests need to populate a
 local instance, so add both. In `InteractionCommand.h`, in `CommandRegistry`'s public section:
@@ -766,7 +766,7 @@ local instance, so add both. In `InteractionCommand.h`, in `CommandRegistry`'s p
 		static void RegisterDefaultsInto(CommandRegistry& registry);
 ```
 
-- [ ] **Step 4: Implement the commands**
+- [x] **Step 4: Implement the commands**
 
 `CSC8503CoreClasses/DistributedSystemCommonFiles/InteractionCommands.cpp`:
 
@@ -890,7 +890,7 @@ namespace NCL::Interaction {
 }
 ```
 
-- [ ] **Step 5: Register the source and run the tests**
+- [x] **Step 5: Register the source and run the tests**
 
 Add `DistributedSystemCommonFiles/InteractionCommands.cpp` to `CSC8503CoreClasses/CMakePC.cmake`,
 then:
@@ -902,7 +902,7 @@ then:
 
 Expected: all 10 new tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add CSC8503CoreClasses/DistributedSystemCommonFiles/ CSC8503CoreClasses/CMakePC.cmake tools/InteractionTests/CommandChannelTests.cpp
@@ -925,7 +925,7 @@ network layer never sees the world.
 - Produces: `ServerWorldManager` as an `ICommandContext`; a drainable relay queue
   `bool PopPendingRelay(PendingRelay& out)`.
 
-- [ ] **Step 1: Declare the interface**
+- [x] **Step 1: Declare the interface**
 
 In `ServerWorldManager.h`, include `DistributedSystemCommonFiles/InteractionCommand.h` and change
 the class declaration:
@@ -970,7 +970,7 @@ And to the protected data:
 			std::vector<PendingRelay> mPendingRelays;
 ```
 
-- [ ] **Step 2: Implement the accessors**
+- [x] **Step 2: Implement the accessors**
 
 In `ServerWorldManager.cpp`:
 
@@ -1009,7 +1009,7 @@ bool DistributedGameServer::ServerWorldManager::TryGetLastKnownPosition(int netw
 }
 ```
 
-- [ ] **Step 3: Implement the effects**
+- [x] **Step 3: Implement the effects**
 
 ```cpp
 void DistributedGameServer::ServerWorldManager::ApplyImpulse(int networkObjectID,
@@ -1085,7 +1085,7 @@ bool DistributedGameServer::ServerWorldManager::DestroyObject(int, NCL::Interact
 }
 ```
 
-- [ ] **Step 4: Implement relay queueing and region overlap**
+- [x] **Step 4: Implement relay queueing and region overlap**
 
 ```cpp
 void DistributedGameServer::ServerWorldManager::RelayToServer(int serverID,
@@ -1136,7 +1136,7 @@ void DistributedGameServer::ServerWorldManager::GetOverlappedServers(const Maths
 }
 ```
 
-- [ ] **Step 5: Verify the physics API names**
+- [x] **Step 5: Verify the physics API names**
 
 `ApplyLinearImpulse` and `AddForce` must exist on `PhysicsObject`. Check before building:
 
@@ -1146,7 +1146,7 @@ Select-String -Path CSC8503CoreClasses\PhysicsObject.h -Pattern "ApplyLinearImpu
 
 If either is named differently, use the actual name — do not add a wrapper.
 
-- [ ] **Step 6: Build the server role**
+- [x] **Step 6: Build the server role**
 
 ```powershell
 & "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" DistributedPhysicsSystem.sln /t:EntryPointServer /p:Configuration=Debug /p:Platform=x64 /v:minimal /nologo /m
@@ -1155,7 +1155,7 @@ If either is named differently, use the actual name — do not add a wrapper.
 Expected: clean build. A pure-virtual error means a method in the `ICommandContext` list was
 missed.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add DistributedGameServer/ServerWorldManager.h DistributedGameServer/ServerWorldManager.cpp
@@ -1174,7 +1174,7 @@ git commit -m "feat(server): implement command context on world manager"
 - Consumes: packets from Task 2, `CommandRegistry` from Task 1, `ICommandContext` from Task 4.
 - Produces: handlers for `DistributedClientCommand` and `DistributedServerCommandRelay`; per-player and per-origin dedupe; `@@STAT` counters `cmdApplied`, `cmdRelayed`, `cmdDup`, `cmdRejected`.
 
-- [ ] **Step 1: Add the state**
+- [x] **Step 1: Add the state**
 
 In `DistributedGameServerManager.h`, include `SequenceWindow.h` and add to the protected section:
 
@@ -1203,7 +1203,7 @@ In `DistributedGameServerManager.h`, include `SequenceWindow.h` and add to the p
 				NCL::Interaction::CommandResult result, int correctedServerID);
 ```
 
-- [ ] **Step 2: Register the handlers and the defaults**
+- [x] **Step 2: Register the handlers and the defaults**
 
 Where the other `RegisterPacketHandler` calls are made in `DistributedGameServerManager`'s
 constructor:
@@ -1230,7 +1230,7 @@ And in `ReceivePacket`'s switch:
 	}
 ```
 
-- [ ] **Step 3: Implement the client-command handler**
+- [x] **Step 3: Implement the client-command handler**
 
 ```cpp
 void DistributedGameServerManager::HandleClientCommandPacket(DistributedClientCommandPacket* packet, int source) {
@@ -1266,7 +1266,7 @@ void DistributedGameServerManager::HandleClientCommandPacket(DistributedClientCo
 }
 ```
 
-- [ ] **Step 4: Implement dispatch, ack and relay drain**
+- [x] **Step 4: Implement dispatch, ack and relay drain**
 
 ```cpp
 void DistributedGameServerManager::DispatchCommand(NCL::Interaction::CommandType type,
@@ -1349,7 +1349,7 @@ void DistributedGameServerManager::DrainPendingRelays(int playerID, int clientSe
 > `client->RegisterPacketHandler(BasicNetworkMessages::DistributedServerCommandRelay, this);`
 > next to it, or relays arrive and are silently dropped by the receiver.
 
-- [ ] **Step 5: Implement the relay handler**
+- [x] **Step 5: Implement the relay handler**
 
 ```cpp
 void DistributedGameServerManager::HandleServerCommandRelayPacket(DistributedServerCommandRelayPacket* packet) {
@@ -1377,20 +1377,20 @@ void DistributedGameServerManager::HandleServerCommandRelayPacket(DistributedSer
 }
 ```
 
-- [ ] **Step 6: Publish the counters**
+- [x] **Step 6: Publish the counters**
 
 Wherever the other `@@STAT` values are set for the game server role, add `cmdApplied`,
 `cmdRelayed`, `cmdDup` and `cmdRejected`. These four are what the I4 accounting invariant is
 computed from: commands sent by clients must equal applied + relayed + duplicate + rejected,
 summed across servers.
 
-- [ ] **Step 7: Build the server role**
+- [x] **Step 7: Build the server role**
 
 ```powershell
 & "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" DistributedPhysicsSystem.sln /t:EntryPointServer /p:Configuration=Debug /p:Platform=x64 /v:minimal /nologo /m
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add DistributedGameServer/DistributedGameServerManager.h DistributedGameServer/DistributedGameServerManager.cpp
@@ -1409,7 +1409,7 @@ git commit -m "feat(server): dispatch, dedupe and relay client commands"
 - Consumes: packets from Task 2; existing `mObjectOwner` and `mServerRegions`.
 - Produces: `int ResolveCommandTarget(const CommandArgs&, const CommandScope&) const`; `bool SendCommand(CommandType, const CommandArgs&)`.
 
-- [ ] **Step 1: Add the state and methods**
+- [x] **Step 1: Add the state and methods**
 
 In `DistributedMultiplayerGameScene.h`:
 
@@ -1433,7 +1433,7 @@ Protected:
 	std::map<int, int> mAckResultCounts;   // CommandResult -> count, for the I4 invariant
 ```
 
-- [ ] **Step 2: Implement resolution**
+- [x] **Step 2: Implement resolution**
 
 ```cpp
 int DistributedMultiplayerGameScene::ResolveCommandTarget(
@@ -1465,7 +1465,7 @@ int DistributedMultiplayerGameScene::ResolveCommandTarget(
 }
 ```
 
-- [ ] **Step 3: Implement sending**
+- [x] **Step 3: Implement sending**
 
 ```cpp
 bool DistributedMultiplayerGameScene::SendCommand(NCL::Interaction::CommandType type,
@@ -1512,7 +1512,7 @@ bool DistributedMultiplayerGameScene::SendCommand(NCL::Interaction::CommandType 
 }
 ```
 
-- [ ] **Step 4: Handle the ack**
+- [x] **Step 4: Handle the ack**
 
 Register `DistributedCommandAck` in the scene's handler registration, and in `ReceivePacket`:
 
@@ -1535,7 +1535,7 @@ Register `DistributedCommandAck` in the scene's handler registration, and in `Re
 > Acks are broadcast to every client on that server (Task 5), so a client must ignore acks whose
 > `playerID` is not its own before counting them — otherwise the I4 tally double-counts.
 
-- [ ] **Step 5: Build the client**
+- [x] **Step 5: Build the client**
 
 The client is the non-distributed configure, so it needs its own:
 
@@ -1543,7 +1543,7 @@ The client is the non-distributed configure, so it needs its own:
 powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1 -Config Debug
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add CSC8503/DistributedMultiplayerGameScene.h CSC8503/DistributedMultiplayerGameScene.cpp CSC8503CoreClasses/NetworkObject.h CSC8503CoreClasses/NetworkObject.cpp
@@ -1556,7 +1556,7 @@ git commit -m "feat(client): route and send interaction commands"
 
 **Files:** none — this task is measurement.
 
-- [ ] **Step 1: Run the full unit suite**
+- [x] **Step 1: Run the full unit suite**
 
 ```powershell
 .\tools\InteractionTests\Debug\InteractionTests.exe
@@ -1564,14 +1564,14 @@ git commit -m "feat(client): route and send interaction commands"
 
 Expected: every test from increments 1 and 3 passes, exit code 0.
 
-- [ ] **Step 2: Run a two-server scenario with commands**
+- [x] **Step 2: Run a two-server scenario with commands**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1 -Config Release
 powershell -ExecutionPolicy Bypass -File tools\measure.ps1 -Servers 2 -Objects 400 -Seconds 60 -Tag s2-o400-cmd
 ```
 
-- [ ] **Step 3: Check the I4 accounting invariant**
+- [x] **Step 3: Check the I4 accounting invariant**
 
 From the run logs, sum across both servers:
 
@@ -1584,19 +1584,19 @@ catch. Note that a relayed command contributes `Relayed` on the first server **a
 the second, so the identity to check is: `sent == applied + rejected + dup` with `relayed`
 accounted separately as an internal hop.
 
-- [ ] **Step 4: Confirm the handoff baseline is unchanged**
+- [x] **Step 4: Confirm the handoff baseline is unchanged**
 
 Compare `hoSent`/`hoRecv`/`hoFail` and final object counts against the increment 1 run
 (`s2-o400-postreg`). This increment is purely additive to the handoff protocol; any change is a
 defect.
 
-- [ ] **Step 5: Record implementation notes**
+- [x] **Step 5: Record implementation notes**
 
 Append to the spec's implementation-notes section: what shipped, that `SpawnObject`/`DestroyObject`
 are stubs pending increments 5–6, whether the directed peer send existed or the broadcast path was
 reused (Task 5 Step 4), and the I4 numbers from Step 3.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-16-interactions-toolset-design.md
@@ -1614,3 +1614,34 @@ git commit -m "docs: record increment 3 verification results"
   add a controller ID to `TestObject` or extend the handoff packet.
 - **The `--scenario` replay flag** (spec §7.3 Tier 1). Task 7 verifies by hand; scripted replay
   arrives with the evaluation harness.
+
+---
+
+## Execution outcome (2026-08-16)
+
+All seven tasks completed. Deviations:
+
+- **`BasicNetworkMessages` and `GamePacket` are at global scope**, not `NCL::` / `NCL::CSC8503::`.
+  The plan's test snippets qualified them wrongly.
+- **The directed peer send already existed** (`mDistributedPhysicsClients` +
+  `SendTransactionHandshakePacket`), so the plan's hedge about reusing the broadcast path was
+  unnecessary. It did need the relay type registering on the outbound peer link.
+- **`DistributedCommandAckPacket` gained `targetObjectID`** as the plan anticipated, so the client
+  can correct `mObjectOwner` on a `NotOwner` ack.
+- **`RegisterDefaults()` also has to run on the client**, which the plan did not mention.
+
+Work added beyond the plan, all of it needed to make Task 7 checkable at all:
+
+- `--impulse-test N` on the client — a headless client has no input path, so without a driver the
+  channel was wired but never exercised and `cmdApplied` stayed 0.
+- `--misroute-every N` and `SendCommandTo(..., forcedServerId)` — the natural staleness window is
+  milliseconds wide, so the relay path had to be forced.
+- Exact `@@FINAL` totals on both roles plus a bounded client run, because 2 Hz sampling can never
+  make the two ends of the I4 tally align.
+- **A real bug fix:** peer links were labelled by array index rather than server id, so every
+  relay was silently dropped — and the same lookup is used by `SendTransactionHandshakePacket`.
+  See §11 of the spec.
+
+Still deliberately out of scope, as planned: cross-border area effects (increment 4), runtime
+spawn/destroy (5–6, `SpawnObject`/`DestroyObject` are honest stubs), player avatars (7), late-join
+manifest (8), and the `--scenario` replay flag.

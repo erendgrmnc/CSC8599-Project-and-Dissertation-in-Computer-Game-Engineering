@@ -53,7 +53,7 @@ Nothing can be test-driven until there is a runner. This task delivers a target 
 - Consumes: nothing.
 - Produces: `TEST(name) { ... }` macro auto-registering a test; `CHECK(cond)`, `CHECK_EQ(a, b)`, `CHECK_NEAR(a, b, tol)`; `NCL::Testing::RunAllTests()` returning the failure count.
 
-- [ ] **Step 1: Write the harness header**
+- [x] **Step 1: Write the harness header**
 
 `tools/InteractionTests/TestHarness.h`:
 
@@ -144,7 +144,7 @@ namespace NCL::Testing {
 	} while (false)
 ```
 
-- [ ] **Step 2: Write the runner**
+- [x] **Step 2: Write the runner**
 
 `tools/InteractionTests/main.cpp`:
 
@@ -156,7 +156,7 @@ int main() {
 }
 ```
 
-- [ ] **Step 3: Write the first test — current behaviour, must pass unmodified**
+- [x] **Step 3: Write the first test — current behaviour, must pass unmodified**
 
 This test asserts what the engine does *today*: a pre-seeded object integrates. It is the
 harness's own smoke test. `Profiler::GetIntegratedObjects()` is the observation point —
@@ -229,7 +229,7 @@ TEST(PreSeededObjectIsIntegrated) {
 }
 ```
 
-- [ ] **Step 4: Write the CMake target**
+- [x] **Step 4: Write the CMake target**
 
 `tools/InteractionTests/CMakeLists.txt`. The link set mirrors `EntryPoint/CMakeDistributedRoles.cmake`
 minus the role library — the engine pulls in the OpenGL backend at link time even though no window
@@ -286,7 +286,7 @@ target_link_libraries(InteractionTests LINK_PUBLIC DetourTileCache)
 set_target_properties(InteractionTests PROPERTIES FOLDER "Tools")
 ```
 
-- [ ] **Step 5: Register the subdirectory**
+- [x] **Step 5: Register the subdirectory**
 
 In the root `CMakeLists.txt`, immediately after the `add_subdirectory(DetourTileCache)` line:
 
@@ -298,7 +298,7 @@ add_subdirectory(DetourTileCache)
 add_subdirectory(tools/InteractionTests)
 ```
 
-- [ ] **Step 6: Configure and build**
+- [x] **Step 6: Configure and build**
 
 ```powershell
 cmake -G "Visual Studio 17 2022" -A x64 .
@@ -308,7 +308,7 @@ cmake -G "Visual Studio 17 2022" -A x64 .
 Expected: builds clean. If `AABBVolume.h` or `Profiler.h` are not found, check the
 `include_directories` paths above resolve from `tools/InteractionTests/`.
 
-- [ ] **Step 7: Run — must pass**
+- [x] **Step 7: Run — must pass**
 
 ```powershell
 .\tools\InteractionTests\Debug\InteractionTests.exe
@@ -320,7 +320,7 @@ If `Profiler::GetIntegratedObjects()` returns 0, the substep did not run — rai
 If it returns 2, the floor is being counted as dynamic — confirm `StaticObj` is in
 `PhysicsSystem`'s `STATIC_COLLISION_LAYERS`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add tools/InteractionTests CMakeLists.txt
@@ -346,7 +346,7 @@ floor, which every server world does.
 - Consumes: the harness from Task 1.
 - Produces: `PhysicsSystem::mBroadphaseSeeded` (protected `bool`, default `false`), reset by `Clear()`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `PhysicsRegistrationTests.cpp`:
 
@@ -374,7 +374,7 @@ TEST(SeedRunsOnceEvenWithNoStaticObjects) {
 }
 ```
 
-- [ ] **Step 2: Run it — must fail**
+- [x] **Step 2: Run it — must fail**
 
 ```powershell
 & "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" DistributedPhysicsSystem.sln /t:InteractionTests /p:Configuration=Debug /p:Platform=x64 /v:minimal /nologo /m
@@ -383,7 +383,7 @@ TEST(SeedRunsOnceEvenWithNoStaticObjects) {
 
 Expected: `SeedRunsOnceEvenWithNoStaticObjects` FAILS — the second check reports 2, the third 3.
 
-- [ ] **Step 3: Add the flag to the header**
+- [x] **Step 3: Add the flag to the header**
 
 In `PhysicsSystem.h`, in the protected member block, directly after the
 `std::vector<GameObject*> mDynamicObjectList;` line:
@@ -399,7 +399,7 @@ In `PhysicsSystem.h`, in the protected member block, directly after the
 			bool mBroadphaseSeeded = false;
 ```
 
-- [ ] **Step 4: Use the flag in `BroadPhase`**
+- [x] **Step 4: Use the flag in `BroadPhase`**
 
 In `PhysicsSystem.cpp`, replace the line `if(mStaticTree.Empty()) {` (~453) and add the
 assignment at the end of that block. The loop body itself is unchanged:
@@ -424,7 +424,7 @@ assignment at the end of that block. The loop body itself is unchanged:
 Note the pre-existing `if (first == last) return;` above stays where it is, so an empty world
 returns before the flag is set and still seeds properly once objects arrive.
 
-- [ ] **Step 5: Reset the flag in `Clear`**
+- [x] **Step 5: Reset the flag in `Clear`**
 
 `Clear()` empties `mDynamicObjectList`, so it must also allow a re-seed — otherwise a cleared
 world is permanently empty to the physics system. In `PhysicsSystem.cpp` (~line 61):
@@ -439,7 +439,7 @@ void PhysicsSystem::Clear() {
 }
 ```
 
-- [ ] **Step 6: Run the tests — all must pass**
+- [x] **Step 6: Run the tests — all must pass**
 
 ```powershell
 & "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" DistributedPhysicsSystem.sln /t:InteractionTests /p:Configuration=Debug /p:Platform=x64 /v:minimal /nologo /m
@@ -448,7 +448,7 @@ void PhysicsSystem::Clear() {
 
 Expected: `2 passed, 0 failed.`
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add CSC8503CoreClasses/PhysicsSystem.h CSC8503CoreClasses/PhysicsSystem.cpp tools/InteractionTests/PhysicsRegistrationTests.cpp
@@ -468,7 +468,7 @@ git commit -m "fix(physics): seed broadphase once via explicit flag"
 - Consumes: `mBroadphaseSeeded` from Task 2.
 - Produces: `void PhysicsSystem::RegisterObject(GameObject* o)` — public, null-safe, idempotent.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `PhysicsRegistrationTests.cpp`:
 
@@ -558,7 +558,7 @@ TEST(RegisterNullIsSafe) {
 }
 ```
 
-- [ ] **Step 2: Run — must fail to compile**
+- [x] **Step 2: Run — must fail to compile**
 
 ```powershell
 & "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" DistributedPhysicsSystem.sln /t:InteractionTests /p:Configuration=Debug /p:Platform=x64 /v:minimal /nologo /m
@@ -566,7 +566,7 @@ TEST(RegisterNullIsSafe) {
 
 Expected: `error C2039: 'RegisterObject': is not a member of 'NCL::CSC8503::PhysicsSystem'`.
 
-- [ ] **Step 3: Declare it in the header**
+- [x] **Step 3: Declare it in the header**
 
 In `PhysicsSystem.h`, at the end of the public section (after `GetPredictionHorizon`, before
 `protected:`):
@@ -581,7 +581,7 @@ In `PhysicsSystem.h`, at the end of the public section (after `GetPredictionHori
 			void UnregisterObject(GameObject* o);
 ```
 
-- [ ] **Step 4: Implement `RegisterObject`**
+- [x] **Step 4: Implement `RegisterObject`**
 
 In `PhysicsSystem.cpp`, directly above `void PhysicsSystem::BroadPhase()`:
 
@@ -621,7 +621,7 @@ void PhysicsSystem::RegisterObject(GameObject* o) {
 Add `#include <algorithm>` to the include block at the top of `PhysicsSystem.cpp` if `std::find`
 does not resolve.
 
-- [ ] **Step 5: Run the tests — all must pass**
+- [x] **Step 5: Run the tests — all must pass**
 
 ```powershell
 & "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" DistributedPhysicsSystem.sln /t:InteractionTests /p:Configuration=Debug /p:Platform=x64 /v:minimal /nologo /m
@@ -634,7 +634,7 @@ If `RuntimeObjectGetsPredictedPosition` fails, check the cube is network-active 
 in `MakeDynamicCube` sets `mIsNetworkActive`, and `PredictFuturePositions` skips objects where it
 is false.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add CSC8503CoreClasses/PhysicsSystem.h CSC8503CoreClasses/PhysicsSystem.cpp tools/InteractionTests/PhysicsRegistrationTests.cpp
@@ -661,7 +661,7 @@ frames after contact ends — leaving an entry behind is a use-after-free.
   `void PhysicsSystem::FlushPendingUnregisters()` — protected, drained at the top of `Update`;
   `std::vector<GameObject*> mPendingUnregister` — protected.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `PhysicsRegistrationTests.cpp`. The collision test needs a probe subclass, so add it to
 the anonymous namespace at the top of the file first:
@@ -780,7 +780,7 @@ TEST(UnregisterNullIsSafe) {
 }
 ```
 
-- [ ] **Step 2: Run — must fail to compile**
+- [x] **Step 2: Run — must fail to compile**
 
 ```powershell
 & "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" DistributedPhysicsSystem.sln /t:InteractionTests /p:Configuration=Debug /p:Platform=x64 /v:minimal /nologo /m
@@ -790,7 +790,7 @@ Expected: `error C2039: 'UnregisterObject': is not a member of 'NCL::CSC8503::Ph
 (`UnregisterObject` was declared alongside `RegisterObject` in Task 3 step 3 — if it was, this
 fails at link time with `LNK2019` instead. Either failure is the expected red.)
 
-- [ ] **Step 3: Add the protected members and method to the header**
+- [x] **Step 3: Add the protected members and method to the header**
 
 In `PhysicsSystem.h`, in the protected section next to the other helpers (near `ClearForces`):
 
@@ -809,7 +809,7 @@ And with the protected data, after `mBroadphaseSeeded`:
 			std::vector<GameObject*> mPendingUnregister;
 ```
 
-- [ ] **Step 4: Implement `UnregisterObject` and `FlushPendingUnregisters`**
+- [x] **Step 4: Implement `UnregisterObject` and `FlushPendingUnregisters`**
 
 In `PhysicsSystem.cpp`, directly below `RegisterObject`:
 
@@ -860,7 +860,7 @@ void PhysicsSystem::FlushPendingUnregisters() {
 `PhysicsSystem.cpp` already includes `<functional>`; add `#include <iostream>` if `std::cout` does
 not resolve.
 
-- [ ] **Step 5: Drain at the top of `Update`**
+- [x] **Step 5: Drain at the top of `Update`**
 
 In `PhysicsSystem.cpp`, `Update` (~line 77) — the flush must be the first statement, before
 `mDTOffset` accumulates and before any iteration begins:
@@ -873,7 +873,7 @@ void PhysicsSystem::Update(float dt) {
 	mDTOffset += dt; //We accumulate time delta here - there might be remainders from previous frame!
 ```
 
-- [ ] **Step 6: Clear the pending list in `Clear`**
+- [x] **Step 6: Clear the pending list in `Clear`**
 
 ```cpp
 void PhysicsSystem::Clear() {
@@ -887,7 +887,7 @@ void PhysicsSystem::Clear() {
 }
 ```
 
-- [ ] **Step 7: Run the tests — all must pass**
+- [x] **Step 7: Run the tests — all must pass**
 
 ```powershell
 & "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe" DistributedPhysicsSystem.sln /t:InteractionTests /p:Configuration=Debug /p:Platform=x64 /v:minimal /nologo /m
@@ -896,7 +896,7 @@ void PhysicsSystem::Clear() {
 
 Expected: `10 passed, 0 failed.`
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add CSC8503CoreClasses/PhysicsSystem.h CSC8503CoreClasses/PhysicsSystem.cpp tools/InteractionTests/PhysicsRegistrationTests.cpp
@@ -917,7 +917,7 @@ that empirically against the metrics substrate, and is the gate on the increment
 - Consumes: everything from Tasks 2–4.
 - Produces: a recorded before/after comparison for the dissertation's methods section.
 
-- [ ] **Step 0: Promote the measurement script into the repo**
+- [x] **Step 0: Promote the measurement script into the repo**
 
 `measure.ps1` currently exists only in the session scratchpad, so the baseline it produced is not
 reproducible by anyone else. Copy it to `tools/measure.ps1` and commit it before using it as a
@@ -929,7 +929,7 @@ git add tools/measure.ps1 .gitignore
 git commit -m "tools: add bounded measurement run script"
 ```
 
-- [ ] **Step 1: Build and deploy all roles in Release**
+- [x] **Step 1: Build and deploy all roles in Release**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1 -Config Release
@@ -937,7 +937,7 @@ powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1 -Config Release
 
 Expected: `deploy/Manager|Midware|Client|DistributedPhysicsServer/EntryPoint.exe` all present.
 
-- [ ] **Step 2: Re-run the fixed-seed measurement scenario**
+- [x] **Step 2: Re-run the fixed-seed measurement scenario**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\measure.ps1 -Servers 2 -Objects 400 -Seconds 60 -Tag s2-o400-postreg
@@ -945,7 +945,7 @@ powershell -ExecutionPolicy Bypass -File tools\measure.ps1 -Servers 2 -Objects 4
 
 Expected: two CSVs written, `Headless run complete after 60.0…s`, zero dropped samples.
 
-- [ ] **Step 3: Compare against the pre-change baseline**
+- [x] **Step 3: Compare against the pre-change baseline**
 
 The reference run is `s2-o400` (2 servers, 400 objects, seed 42, `--fixed-step`, Release).
 Compare, per server:
@@ -960,7 +960,7 @@ Compare, per server:
 A handoff-count difference is a **hard stop** — it means physics membership changed, and the
 increment must be re-examined before going further.
 
-- [ ] **Step 4: Record the comparison in the spec**
+- [x] **Step 4: Record the comparison in the spec**
 
 Append an "implementation notes" entry to
 `docs/superpowers/specs/2026-08-16-interactions-toolset-design.md` recording: both runs' handoff
@@ -968,13 +968,13 @@ counts and object counts, the p50/p99 tick costs, and the fact that increment 1 
 any call site yet — `RegisterObject` and `UnregisterObject` exist and are tested but nothing in
 `ServerWorldManager` calls them until increment 5 (spawn) and increment 6 (destroy).
 
-- [ ] **Step 5: Update the audit notes in CLAUDE.md**
+- [x] **Step 5: Update the audit notes in CLAUDE.md**
 
 The "Verified-state warnings" block says the integrator and broadphase cannot accept runtime
 objects. Replace that claim with the current state: the physics system now supports incremental
 membership, but no distributed code calls it yet.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/superpowers/specs/2026-08-16-interactions-toolset-design.md CLAUDE.md
@@ -1004,3 +1004,22 @@ Spec §0.3's checked `find()` replacing `mCreatedObjectPool.at()` in `StartHandl
   refuses for static objects. Adding quadtree removal is a separate piece of work and is not
   needed by any planned increment.
 - **The command channel** (increment 3) is a separate plan — it shares no code with this one.
+
+---
+
+## Execution outcome (2026-08-16)
+
+All five tasks completed. Two deviations worth recording:
+
+- **Task 2's failing test was worse than predicted.** The plan expected the no-static-geometry world
+  to re-seed once per tick. It re-seeds once per **substep** (`BroadPhase` runs inside the substep
+  loop), so the observed counts were 5 → 11 → 17, not 2 → 3 → 4.
+- **Task 5 Step 3's gate was not a valid gate and was replaced.** It required handoff counts to
+  equal the baseline exactly. Two runs of the *identical* binary disagreed, so the requirement was
+  untestable: the harness fed `Update` a measured wall-clock `dt` and bounded on wall-clock
+  seconds. The increment was instead verified on tick-cost distribution, conservation, `hoFail`
+  and `integrated == owned`, and the harness gained a reproducible mode (`--run-ticks` plus a
+  loop-level fixed `dt`, wall-paced so peers stay in step). See §10 of the spec.
+
+Also completed beyond the plan, because the gate depended on it: `tools/measure.ps1` gained a run
+manifest and reproducible mode, and `HeadlessRunner` gained `HeadlessRunOptions`.
