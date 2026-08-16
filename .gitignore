@@ -114,3 +114,11 @@ Generate.bat
 # .NET build output for the launcher tool
 tools/DistributedLauncher/bin/
 tools/DistributedLauncher/obj/
+
+# Per-role EntryPoint targets (EntryPoint/CMakeDistributedRoles.cmake)
+/EntryPoint/EntryPointManager.dir
+/EntryPoint/EntryPointMidware.dir
+/EntryPoint/EntryPointServer.dir
+/EntryPoint/EntryPointManager.vcxproj*
+/EntryPoint/EntryPointMidware.vcxproj*
+/EntryPoint/EntryPointServer.vcxproj*

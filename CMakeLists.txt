@@ -7,9 +7,15 @@ project(DistributedPhysicsSystem CXX)
 set(CMAKE_CXX_STANDARD 20)
 add_compile_options(-std=c++20)
 
+# Selects whether this configure builds the three distributed server roles (true) or
+# the non-distributed client / demo build (false). This is the ONLY toggle that still
+# changes library code - it gates ~16 files via DISTRIBUTEDSYSTEMACTIVE.
+#
+# The former CMAKE_BUILD_FOR_DISTRIBUTED_MANAGER / CMAKE_BUILD_FOR_PHYSICS_MIDWARE
+# toggles are gone: role selection is now a per-target compile definition (see
+# EntryPoint/CMakeDistributedRoles.cmake), so one configure produces all three server
+# executables instead of needing one full rebuild each.
 set(CMAKE_DISTRIBUTED_SYSTEM_ACTIVE "true")
-set(CMAKE_BUILD_FOR_DISTRIBUTED_MANAGER "false")
-set(CMAKE_BUILD_FOR_PHYSICS_MIDWARE "true")
 if(NOT CMAKE_VS_PLATFORM_NAME)
     set(CMAKE_VS_PLATFORM_NAME "x64")
 endif()
@@ -19,11 +25,8 @@ if("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "x64")
     add_compile_definitions(USEGL)
     if("${CMAKE_DISTRIBUTED_SYSTEM_ACTIVE}" STREQUAL "true")
         add_compile_definitions(DISTRIBUTEDSYSTEMACTIVE)
-        if("${CMAKE_BUILD_FOR_DISTRIBUTED_MANAGER}" STREQUAL "true")
-            add_compile_definitions(BUILDFORDISTRIBUTEDMANAGER)
-        elseif("${CMAKE_BUILD_FOR_PHYSICS_MIDWARE}" STREQUAL "true")
-            add_compile_definitions(BUILDFORPHYSICSMIDWARE)
-       endif()
+        # BUILDFORDISTRIBUTEDMANAGER / BUILDFORPHYSICSMIDWARE are deliberately NOT set
+        # globally any more - they are per-target on the EntryPoint* executables.
     endif()
     
 endif()
@@ -83,4 +86,10 @@ if ("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "Prospero")
     #add_subdirectory(PS5Starter)
 endif()
 
-set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT EntryPoint)
+# The distributed configure produces three role executables rather than one
+# "EntryPoint"; pick a sensible default startup project for each case.
+if("${CMAKE_DISTRIBUTED_SYSTEM_ACTIVE}" STREQUAL "true")
+    set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT EntryPointServer)
+else()
+    set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT EntryPoint)
+endif()

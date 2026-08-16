@@ -42,7 +42,8 @@ $ErrorActionPreference = "Continue"
 $repo = Split-Path -Parent $PSScriptRoot   # tools/ -> repo root
 $cml = Join-Path $repo "CMakeLists.txt"
 $deploy = Join-Path $repo "deploy"
-$builtExe = Join-Path $repo "EntryPoint\$Config\EntryPoint.exe"
+# Per-role exe names now differ (EntryPointManager / EntryPointMidware /
+# EntryPointServer / EntryPoint); Stage-Role resolves each from $builtDir.
 $builtDir = Join-Path $repo "EntryPoint\$Config"
 
 $msbuild = "C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe"
@@ -52,21 +53,46 @@ if (-not (Test-Path $msbuild)) {
     if ($found) { $msbuild = $found.FullName } else { Write-Host "ERROR: MSBuild.exe not found." -ForegroundColor Red; exit 1 }
 }
 
-# role -> (toggle triple, deploy subfolder)
-$matrix = @{
-    "Manager"    = @{ Toggle = @("true", "true", "false");  Out = "Manager" }
-    "Midware"    = @{ Toggle = @("true", "false", "true");  Out = "Midware" }
-    "Client"     = @{ Toggle = @("false", "false", "true"); Out = "Client" }
-    "GameServer" = @{ Toggle = @("true", "false", "false"); Out = "DistributedPhysicsServer" }
+# The three distributed server roles now differ only by a per-target compile
+# definition, so ONE configure + ONE build produces all three. Only the Client flips
+# DISTRIBUTEDSYSTEMACTIVE, which changes library code, so it needs its own configure.
+# This is two configures instead of the previous four full rebuilds.
+#
+# role -> (cmake target, deploy subfolder)
+$distributedRoles = @{
+    "Manager"    = @{ Target = "EntryPointManager"; Out = "Manager" }
+    "Midware"    = @{ Target = "EntryPointMidware"; Out = "Midware" }
+    "GameServer" = @{ Target = "EntryPointServer";  Out = "DistributedPhysicsServer" }
 }
+$clientRole = @{ Target = "EntryPoint"; Out = "Client" }
 
-function Set-Toggle([string]$active, [string]$manager, [string]$midware) {
+function Set-Toggle([string]$active) {
     $enc = New-Object System.Text.UTF8Encoding($false)
     $text = [System.IO.File]::ReadAllText($cml)
     $text = [regex]::Replace($text, 'set\(CMAKE_DISTRIBUTED_SYSTEM_ACTIVE "[^"]*"\)', "set(CMAKE_DISTRIBUTED_SYSTEM_ACTIVE `"$active`")")
-    $text = [regex]::Replace($text, 'set\(CMAKE_BUILD_FOR_DISTRIBUTED_MANAGER "[^"]*"\)', "set(CMAKE_BUILD_FOR_DISTRIBUTED_MANAGER `"$manager`")")
-    $text = [regex]::Replace($text, 'set\(CMAKE_BUILD_FOR_PHYSICS_MIDWARE "[^"]*"\)', "set(CMAKE_BUILD_FOR_PHYSICS_MIDWARE `"$midware`")")
     [System.IO.File]::WriteAllText($cml, $text, $enc)
+}
+
+# Stages one built exe into deploy/<Out>/EntryPoint.exe, carrying any sibling DLLs.
+function Stage-Role([string]$targetName, [string]$outName, [ref]$resultList) {
+    $src = Join-Path $builtDir "$targetName.exe"
+    if (-not (Test-Path $src)) { $resultList.Value += "$outName : EXE MISSING ($targetName.exe)"; return }
+
+    $outDir = Join-Path $deploy $outName
+    New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+    try {
+        Copy-Item $src (Join-Path $outDir "EntryPoint.exe") -Force -ErrorAction Stop
+    }
+    catch {
+        $resultList.Value += "$outName : COPY FAILED (exe in use? close running role windows)"
+        return
+    }
+
+    foreach ($dll in (Get-ChildItem $builtDir -Filter "*.dll" -ErrorAction SilentlyContinue)) {
+        Copy-Item $dll.FullName (Join-Path $outDir $dll.Name) -Force -ErrorAction SilentlyContinue
+        Copy-Item $dll.FullName (Join-Path $deploy $dll.Name) -Force -ErrorAction SilentlyContinue
+    }
+    $resultList.Value += "$outName : OK -> deploy\$outName\EntryPoint.exe"
 }
 
 Set-Location $repo
@@ -80,39 +106,46 @@ Get-Process -Name EntryPoint -ErrorAction SilentlyContinue |
     ForEach-Object { Write-Host "Stopping running role: $($_.Path)" -ForegroundColor Yellow; Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Milliseconds 600
 
-foreach ($role in $Roles) {
-    $info = $matrix[$role]
-    $t = $info.Toggle
-    Write-Host "==================== DEPLOY: $role ($($t -join '/')) ====================" -ForegroundColor Cyan
+# ---- Pass 1: the three distributed server roles, one configure + one build --------
+$wantedDistributed = @($Roles | Where-Object { $distributedRoles.ContainsKey($_) })
+if ($wantedDistributed.Count -gt 0) {
+    Write-Host "==================== DEPLOY: $($wantedDistributed -join ', ') (distributed configure) ====================" -ForegroundColor Cyan
 
-    Set-Toggle $t[0] $t[1] $t[2]
+    Set-Toggle "true"
     Remove-Item (Join-Path $repo "CMakeCache.txt") -ErrorAction SilentlyContinue
     & cmake -G "Visual Studio 17 2022" -A x64 . | Out-Null
-    if ($LASTEXITCODE -ne 0) { $results += "$role : CMAKE FAILED"; continue }
-
-    & $msbuild "DistributedPhysicsSystem.sln" /t:EntryPoint /p:Configuration=$Config /p:Platform=x64 /m /v:minimal /nologo
-    if ($LASTEXITCODE -ne 0) { $results += "$role : BUILD FAILED"; continue }
-    if (-not (Test-Path $builtExe)) { $results += "$role : EXE MISSING"; continue }
-
-    $outDir = Join-Path $deploy $info.Out
-    New-Item -ItemType Directory -Force -Path $outDir | Out-Null
-    try {
-        Copy-Item $builtExe (Join-Path $outDir "EntryPoint.exe") -Force -ErrorAction Stop
+    if ($LASTEXITCODE -ne 0) {
+        $results += "distributed roles : CMAKE FAILED"
     }
-    catch {
-        $results += "$role : COPY FAILED (exe in use? close running role windows)"
-        continue
+    else {
+        $targets = ($wantedDistributed | ForEach-Object { $distributedRoles[$_].Target }) -join ";"
+        & $msbuild "DistributedPhysicsSystem.sln" /t:$targets /p:Configuration=$Config /p:Platform=x64 /m /v:minimal /nologo
+        if ($LASTEXITCODE -ne 0) {
+            $results += "distributed roles : BUILD FAILED"
+        }
+        else {
+            foreach ($role in $wantedDistributed) {
+                Stage-Role $distributedRoles[$role].Target $distributedRoles[$role].Out ([ref]$results)
+            }
+        }
     }
+}
 
-    # Carry any DLLs (FMOD etc.) that CMake copied next to the exe; place them
-    # both next to the role exe and at the deploy root for convenience.
-    $dlls = Get-ChildItem $builtDir -Filter "*.dll" -ErrorAction SilentlyContinue
-    foreach ($dll in $dlls) {
-        Copy-Item $dll.FullName (Join-Path $outDir $dll.Name) -Force -ErrorAction SilentlyContinue
-        Copy-Item $dll.FullName (Join-Path $deploy $dll.Name) -Force -ErrorAction SilentlyContinue
+# ---- Pass 2: the client, which needs DISTRIBUTEDSYSTEMACTIVE off ------------------
+if ($Roles -contains "Client") {
+    Write-Host "==================== DEPLOY: Client (non-distributed configure) ====================" -ForegroundColor Cyan
+
+    Set-Toggle "false"
+    Remove-Item (Join-Path $repo "CMakeCache.txt") -ErrorAction SilentlyContinue
+    & cmake -G "Visual Studio 17 2022" -A x64 . | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        $results += "Client : CMAKE FAILED"
     }
-
-    $results += "$role : OK -> deploy\$($info.Out)\EntryPoint.exe"
+    else {
+        & $msbuild "DistributedPhysicsSystem.sln" /t:$($clientRole.Target) /p:Configuration=$Config /p:Platform=x64 /m /v:minimal /nologo
+        if ($LASTEXITCODE -ne 0) { $results += "Client : BUILD FAILED" }
+        else { Stage-Role $clientRole.Target $clientRole.Out ([ref]$results) }
+    }
 }
 
 # Publish the .NET launcher into deploy/Launcher so a remote machine's deploy/
@@ -133,9 +166,15 @@ if (Test-Path $launcherProj) {
     }
 }
 
-# Restore the original (midware) toggle so the working tree is unchanged.
-Set-Toggle "true" "false" "true"
+# Restore the default (distributed) toggle so the working tree is unchanged, and
+# REGENERATE. Restoring the toggle alone left DistributedPhysicsSystem.sln holding the
+# last pass's configuration (the Client), so a subsequent plain
+# `msbuild DistributedPhysicsSystem.sln` would build the wrong role set against
+# libraries from a different configure and fail to link.
+Set-Toggle "true"
 Remove-Item (Join-Path $repo "CMakeCache.txt") -ErrorAction SilentlyContinue
+& cmake -G "Visual Studio 17 2022" -A x64 . | Out-Null
+if ($LASTEXITCODE -ne 0) { $results += "restore configure : CMAKE FAILED" }
 
 Write-Host "==================== SUMMARY ====================" -ForegroundColor Cyan
 $results | ForEach-Object { Write-Host $_ }

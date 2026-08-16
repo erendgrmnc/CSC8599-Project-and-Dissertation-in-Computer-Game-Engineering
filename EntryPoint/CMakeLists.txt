@@ -2,21 +2,24 @@ set(PROJECT_NAME EntryPoint)
 
 include("CMakePS5.cmake")
 include("CMakePC.cmake")
-include("CMakeDistributedServerManager.cmake")
-include("CMakeDistributedGameServer.cmake")
-include("CMakePhysicsServerMidware.cmake")
+include("CMakeDistributedRoles.cmake")
+
+# The three per-role includes below are superseded by CMakeDistributedRoles.cmake,
+# which builds all three server roles in a single configure. Kept for reference; they
+# each produced one "EntryPoint" target and so required one configure per role.
+#include("CMakeDistributedServerManager.cmake")
+#include("CMakeDistributedGameServer.cmake")
+#include("CMakePhysicsServerMidware.cmake")
 
 # PC CMake file
 if("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "x64")
     if("${CMAKE_DISTRIBUTED_SYSTEM_ACTIVE}" STREQUAL "true")
-        if("${CMAKE_BUILD_FOR_DISTRIBUTED_MANAGER}" STREQUAL "true")
-            Create_Distributed_Server_Manager_EntryPoint_Files()
-        elseif("${CMAKE_BUILD_FOR_PHYSICS_MIDWARE}" STREQUAL "true")
-            Create_Physics_Server_Midware_EntryPoint_Files()
-        else()
-            Create_Distributed_Game_Server_EntryPoint_Files()
-        endif()
+        # Manager, Midware and Game Server all at once: they share every library and
+        # differ only by a compile definition consumed in main.cpp.
+        Create_All_Distributed_Role_EntryPoints()
     else()
+        # The client flips DISTRIBUTEDSYSTEMACTIVE, which changes the libraries
+        # themselves, so it still needs its own configure.
         Create_PC_EntryPoint_Files()
     endif()
 endif()
