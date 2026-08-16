@@ -32,6 +32,10 @@ param(
     [int]$BlastOffsetX = 0,
     # Destroys an object every N client ticks. 0 disables.
     [int]$DestroyEvery = 0,
+    # Starts a SECOND client this many seconds after the first. Every peer normally
+    # joins during bootstrap, before the world exists, so without this there is no
+    # late joiner and the manifest path is never exercised.
+    [int]$LateClientAfter = 0,
     [string]$OutDir = ""
 )
 $ErrorActionPreference = "Continue"
@@ -93,6 +97,14 @@ $clientSeconds = [Math]::Max(5, $serverRunSeconds - 15)
 $cli = Start-Process -PassThru -FilePath (Join-Path $deploy "Client\EntryPoint.exe") `
     -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --headless --impulse-test $ImpulseTest --misroute-every $MisrouteEvery --blast-every $BlastEvery --spawn-every $SpawnEvery --blast-offset-x $BlastOffsetX --destroy-every $DestroyEvery --run-seconds $clientSeconds" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\cli.log" -RedirectStandardError "$runDir\cli.err" -WindowStyle Hidden
+
+if ($LateClientAfter -gt 0) {
+    Start-Sleep -Seconds $LateClientAfter
+    Write-Host "Starting late-joining client after ${LateClientAfter}s"
+    $lateCli = Start-Process -PassThru -FilePath (Join-Path $deploy "Client\EntryPoint.exe") `
+        -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --headless --run-seconds 10" `
+        -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\cli-late.log" -RedirectStandardError "$runDir\cli-late.err" -WindowStyle Hidden
+}
 
 # Servers self-terminate; allow slack for startup plus flush. Reproducible runs are
 # not wall-clock paced (no per-tick sleep), so they finish faster than realtime -

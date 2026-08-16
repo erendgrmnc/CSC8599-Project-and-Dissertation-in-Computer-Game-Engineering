@@ -189,6 +189,7 @@ int StartGameServer(int argc, char* argv[]) {
 			<< " cmdFanout=" << Profiler::GetCommandsFannedOut()
 			<< " objSpawned=" << Profiler::GetObjectsSpawned()
 			<< " objDestroyed=" << Profiler::GetObjectsDestroyed()
+			<< " manifestSent=" << Profiler::GetManifestEntriesSent()
 			<< "\n";
 		return 0;
 	}

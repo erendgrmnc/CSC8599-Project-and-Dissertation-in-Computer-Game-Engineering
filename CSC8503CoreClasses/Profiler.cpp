@@ -49,6 +49,7 @@ int Profiler::sCommandsSent = 0;
 int Profiler::sCommandsFannedOut = 0;
 int Profiler::sObjectsSpawned = 0;
 int Profiler::sObjectsDestroyed = 0;
+int Profiler::sManifestEntriesSent = 0;
 int Profiler::sIntegratedObjects = 0;
 int Profiler::sDeltasApplied = 0;
 int Profiler::sDeltasRejected = 0;
@@ -307,6 +308,14 @@ int Profiler::GetObjectsDestroyed() {
 
 void Profiler::SetObjectsDestroyed(int count) {
 	sObjectsDestroyed = count;
+}
+
+int Profiler::GetManifestEntriesSent() {
+	return sManifestEntriesSent;
+}
+
+void Profiler::SetManifestEntriesSent(int count) {
+	sManifestEntriesSent = count;
 }
 
 int Profiler::GetIntegratedObjects() {

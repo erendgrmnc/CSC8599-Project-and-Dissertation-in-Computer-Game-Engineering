@@ -179,6 +179,7 @@ NCL::CSC8503::GameObject* NCL::DistributedGameServer::ServerWorldManager::Create
 	AddNetworkObjectToNetworkObjects(networkObject);
 
 	mCreatedObjectPool[networkID] = object;
+	mObjectArchetypes[networkID] = archetypeID;
 	mGameWorld->AddGameObject(object);
 
 	// Without this the object is invisible to the integrator AND to
@@ -336,6 +337,31 @@ bool NCL::DistributedGameServer::ServerWorldManager::DestroyObject(int networkOb
 	mPendingDespawns.push_back(despawn);
 
 	return true;
+}
+
+std::vector<NCL::DistributedGameServer::ServerWorldManager::ManifestEntry>
+NCL::DistributedGameServer::ServerWorldManager::BuildOwnedObjectManifest() const {
+	std::vector<ManifestEntry> manifest;
+	manifest.reserve(mCreatedObjectPool.size());
+
+	for (const auto& poolEntry : mCreatedObjectPool) {
+		CSC8503::GameObject* object = poolEntry.second;
+		// Tombstoned (null) and peer-owned (inactive) entries are both skipped: the
+		// manifest describes what THIS server owns, and every other server sends its
+		// own, so the joiner still ends up with the whole world exactly once.
+		if (object == nullptr || !object->IsNetworkActive()) {
+			continue;
+		}
+
+		ManifestEntry entry;
+		entry.objectID = poolEntry.first;
+		const auto archetype = mObjectArchetypes.find(poolEntry.first);
+		entry.archetypeID = (archetype != mObjectArchetypes.end()) ? archetype->second : 0;
+		entry.position = object->GetTransform().GetPosition();
+		manifest.push_back(entry);
+	}
+
+	return manifest;
 }
 
 bool NCL::DistributedGameServer::ServerWorldManager::PopPendingDespawn(PendingDespawn& out) {
@@ -729,7 +755,8 @@ void DistributedGameServer::ServerWorldManager::CreateObjectGrid(int rowCount, i
 
 			GameObject* obj = nullptr;
 
-			if (DeterministicHash(mWorldSeed, playerID, objCounter) & 1u) {
+			const bool isCube = (DeterministicHash(mWorldSeed, playerID, objCounter) & 1u) != 0;
+			if (isCube) {
 				std::cout << "Creating Object at: " << transform.GetPosition() << "\n";
 				obj = AddCubeToWorld(transform, objCounter++, playerID);
 			}
@@ -740,6 +767,11 @@ void DistributedGameServer::ServerWorldManager::CreateObjectGrid(int rowCount, i
 			AddNetworkObject(*obj);
 			auto networkId = obj->GetNetworkObject()->GetNetworkID();
 			mCreatedObjectPool[networkId] = obj;
+			// Recorded for pre-seeded objects too: without it a late joiner would be
+			// told every existing object is the default archetype.
+			mObjectArchetypes[networkId] = static_cast<int>(isCube
+				? NCL::Interaction::ObjectArchetype::Cube
+				: NCL::Interaction::ObjectArchetype::Sphere);
 
 			ApplyWorkloadInitialState(*obj, playerID, objCounter - 1);
 

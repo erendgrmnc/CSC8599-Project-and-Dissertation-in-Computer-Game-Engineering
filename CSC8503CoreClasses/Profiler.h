@@ -117,6 +117,10 @@ namespace NCL {
 		static int GetObjectsDestroyed();
 		static void SetObjectsDestroyed(int count);
 
+		// Late-join manifest entries sent to individual peers.
+		static int GetManifestEntriesSent();
+		static void SetManifestEntriesSent(int count);
+
 		// Objects this server actually integrated on the last tick, versus the number
 		// it owns. These must match: a gap means the integrator is touching objects
 		// outside this server's region, which flattens the scaling curve.
@@ -178,6 +182,7 @@ namespace NCL {
 		static int sCommandsFannedOut;
 		static int sObjectsSpawned;
 		static int sObjectsDestroyed;
+		static int sManifestEntriesSent;
 		static int sIntegratedObjects;
 		static int sDeltasApplied;
 		static int sDeltasRejected;

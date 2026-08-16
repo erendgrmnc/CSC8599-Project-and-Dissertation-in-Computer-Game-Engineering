@@ -136,6 +136,16 @@ namespace NCL {
 			// despawn for the same id observes the tombstone and is ignored.
 			void ApplyRemoteDespawn(int networkID, int reason, int destroyerPlayerID);
 
+			// One manifest entry per object this server currently owns, for a late
+			// joiner. Archetype is carried so the joiner builds the right shape rather
+			// than inferring a default from a transform-only snapshot.
+			struct ManifestEntry {
+				int objectID = -1;
+				int archetypeID = 0;
+				Maths::Vector3 position;
+			};
+			std::vector<ManifestEntry> BuildOwnedObjectManifest() const;
+
 			bool IsTombstoned(int networkID) const {
 				return mTombstones.find(networkID) != mTombstones.end();
 			}
@@ -210,6 +220,11 @@ namespace NCL {
 			// partitioning means no server can ever mint another's id, so no central
 			// allocator and no round trip per spawn.
 			int mRuntimeSpawnCounter = 0;
+
+			// objectID -> archetype, so a manifest can report what each object IS.
+			// Pre-seeded objects are recorded too, otherwise a late joiner would get
+			// the default shape for most of the world.
+			std::map<int, int> mObjectArchetypes;
 
 			std::vector<PendingDespawn> mPendingDespawns;
 

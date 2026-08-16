@@ -113,6 +113,7 @@ namespace NCL {
 			int mCommandsFannedOut = 0;
 			int mObjectsSpawned = 0;
 			int mObjectsDestroyed = 0;
+			int mManifestEntriesSent = 0;
 
 			std::map<const int, PhysicsServerBorderData*> mPhysicsServerBorderMap;
 
@@ -141,6 +142,7 @@ namespace NCL {
 			void HandleObjectSpawnedPacket(CSC8503::DistributedObjectSpawnedPacket* packet);
 			void DrainPendingDespawns();
 			void HandleObjectDespawnedPacket(CSC8503::DistributedObjectDespawnedPacket* packet);
+			void SendManifestToPeer(int peerNumber);
 			void SendCommandAck(int sequence, int playerID, int targetObjectID,
 				NCL::Interaction::CommandResult result, int correctedServerID);
 ;			GameServerConnection* ConnectServerToAnotherGameServer(char a, char b, char c, char d, int port, int gameServerID);

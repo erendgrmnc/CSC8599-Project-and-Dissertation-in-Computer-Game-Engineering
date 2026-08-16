@@ -104,6 +104,7 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 	Profiler::SetCommandsFannedOut(mCommandsFannedOut);
 	Profiler::SetObjectsSpawned(mObjectsSpawned);
 	Profiler::SetObjectsDestroyed(mObjectsDestroyed);
+	Profiler::SetManifestEntriesSent(mManifestEntriesSent);
 
 	for (auto& gameServerConnection : mDistributedPhysicsClients) {
 		gameServerConnection->client->UpdateClient();
@@ -164,6 +165,12 @@ void DistributedGameServer::DistributedGameServerManager::RegisterPacketSenderSe
 	// One registration for the process. Adding a new interaction never touches
 	// ReceivePacket - that is the point of the registry.
 	NCL::Interaction::CommandRegistry::RegisterDefaults();
+
+	// A late joiner gets one spawned-packet per object this server owns, sent to it
+	// alone. Broadcasting the manifest instead would make every already-connected
+	// client re-receive the entire world each time anyone joins.
+	mDistributedPacketSenderServer->RegisterOnPeerJoinedEvent(
+		[this](int peerNumber) { SendManifestToPeer(peerNumber); });
 
 	std::function<void()> onAllClientsConnectedCallback = std::bind(&DistributedGameServerManager::SendAllClientsAreConnectedToPacketSenderServerPacket, this);
 	mDistributedPacketSenderServer->RegisterOnAllClientsAreConnectedEvent(onAllClientsConnectedCallback);
@@ -779,6 +786,27 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectDespawnedP
 	}
 
 	worldManager->ApplyRemoteDespawn(packet->objectID, packet->reason, packet->destroyerPlayerID);
+}
+
+void DistributedGameServer::DistributedGameServerManager::SendManifestToPeer(int peerNumber) {
+	ServerWorldManager* worldManager = GetServerWorldManager();
+	if (worldManager == nullptr || mDistributedPacketSenderServer == nullptr) {
+		return;
+	}
+
+	const auto manifest = worldManager->BuildOwnedObjectManifest();
+	for (const auto& entry : manifest) {
+		DistributedObjectSpawnedPacket packet(entry.objectID, entry.archetypeID,
+			mGameServerID, -1, entry.position);
+		if (mDistributedPacketSenderServer->SendPacketToPeer(peerNumber, packet)) {
+			++mManifestEntriesSent;
+		}
+	}
+
+	if (!manifest.empty()) {
+		std::cout << "Sent late-join manifest of " << manifest.size()
+			<< " owned objects to peer " << peerNumber << "\n";
+	}
 }
 
 void DistributedGameServer::DistributedGameServerManager::SendCommandAck(int sequence, int playerID,
