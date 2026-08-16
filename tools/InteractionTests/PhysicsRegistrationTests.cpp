@@ -82,3 +82,87 @@ TEST(SeedRunsOnceEvenWithNoStaticObjects) {
 
 	world.ClearAndErase();
 }
+
+// The blocker this whole increment exists to remove: an object added after the
+// first tick is invisible to IntegrateAccel and never falls.
+TEST(RuntimeObjectIsIntegratedAfterRegister) {
+	GameWorld world;
+	PhysicsSystem physics(world);
+	physics.UseGravity(true);
+
+	world.AddGameObject(MakeFloor());
+	physics.Update(TICK_DT);
+	CHECK_EQ(Profiler::GetIntegratedObjects(), 0);
+
+	GameObject* cube = MakeDynamicCube(Vector3(0, 50, 0));
+	world.AddGameObject(cube);
+	physics.RegisterObject(cube);
+
+	physics.Update(TICK_DT);
+
+	CHECK_EQ(Profiler::GetIntegratedObjects(), 1);
+	CHECK(cube->GetPhysicsObject()->GetLinearVelocity().y < 0.0f);
+
+	world.ClearAndErase();
+}
+
+// The under-appreciated half of the blocker: PredictFuturePositions also walks
+// mDynamicObjectList, so an unregistered object gets no predicted position and
+// would never trigger a handoff.
+TEST(RuntimeObjectGetsPredictedPosition) {
+	GameWorld world;
+	PhysicsSystem physics(world);
+	physics.UseGravity(true);
+
+	world.AddGameObject(MakeFloor());
+	physics.Update(TICK_DT);
+
+	GameObject* cube = MakeDynamicCube(Vector3(0, 50, 0));
+	cube->GetPhysicsObject()->SetLinearVelocity(Vector3(10, 0, 0));
+	world.AddGameObject(cube);
+	physics.RegisterObject(cube);
+
+	physics.PredictFuturePositions(TICK_DT);
+
+	// Moving +X at 10 u/s over the default 0.1 s horizon lands about 1 unit ahead.
+	CHECK(cube->GetTransform().GetPredictedPosition().x > 0.5f);
+
+	world.ClearAndErase();
+}
+
+// Registering the same object twice must not integrate it twice - a double entry
+// would apply gravity twice per tick and silently corrupt every measurement.
+TEST(RegisterIsIdempotent) {
+	GameWorld world;
+	PhysicsSystem physics(world);
+	physics.UseGravity(true);
+
+	world.AddGameObject(MakeFloor());
+	physics.Update(TICK_DT);
+
+	GameObject* cube = MakeDynamicCube(Vector3(0, 50, 0));
+	world.AddGameObject(cube);
+	physics.RegisterObject(cube);
+	physics.RegisterObject(cube);
+
+	physics.Update(TICK_DT);
+
+	CHECK_EQ(Profiler::GetIntegratedObjects(), 1);
+
+	world.ClearAndErase();
+}
+
+// A null pointer must be ignored, not dereferenced.
+TEST(RegisterNullIsSafe) {
+	GameWorld world;
+	PhysicsSystem physics(world);
+
+	world.AddGameObject(MakeFloor());
+	physics.Update(TICK_DT);
+	physics.RegisterObject(nullptr);
+	physics.Update(TICK_DT);
+
+	CHECK_EQ(Profiler::GetIntegratedObjects(), 0);
+
+	world.ClearAndErase();
+}

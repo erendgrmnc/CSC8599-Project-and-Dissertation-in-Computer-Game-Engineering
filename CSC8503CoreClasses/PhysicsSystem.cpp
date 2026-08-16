@@ -8,7 +8,9 @@
 #include "Debug.h"
 #include "Profiler.h"
 #include "Window.h"
+#include <algorithm>
 #include <functional>
+#include <iostream>
 using namespace NCL;
 using namespace CSC8503;
 
@@ -444,6 +446,37 @@ split the world up using an acceleration structure, so that we can only
 compare the collisions that we absolutely need to.
 
 */
+void PhysicsSystem::RegisterObject(GameObject* o) {
+	if (o == nullptr) {
+		return;
+	}
+
+	// Before the bulk seed, membership is BroadPhase's job. Registering now would
+	// put the object in the list and the seed would then add it a second time.
+	if (!mBroadphaseSeeded) {
+		return;
+	}
+
+	Vector3 halfSizes;
+	if (!o->GetBroadphaseAABB(halfSizes)) {
+		return;
+	}
+
+	if (o->GetCollisionLayer() & STATIC_COLLISION_LAYERS) {
+		const Vector3 pos = o->GetTransform().GetPosition() + o->GetBoundingVolume()->GetOffset();
+		mStaticTree.Insert(o, pos, halfSizes, true);
+		return;
+	}
+
+	// Idempotent: a double entry integrates the object twice per tick, which reads
+	// as doubled gravity and corrupts every derived measurement.
+	if (std::find(mDynamicObjectList.begin(), mDynamicObjectList.end(), o) != mDynamicObjectList.end()) {
+		return;
+	}
+
+	mDynamicObjectList.push_back(o);
+}
+
 void PhysicsSystem::BroadPhase() {
 	// clear last frames collisions
  	mBroadphaseCollisions.clear();

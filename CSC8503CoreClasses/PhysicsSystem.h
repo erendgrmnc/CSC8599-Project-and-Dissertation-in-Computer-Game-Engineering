@@ -48,6 +48,14 @@ namespace NCL {
 			float GetPredictionHorizon() const {
 				return mPredictionHorizon;
 			}
+
+			// Incremental broadphase membership, for objects created or removed after
+			// the first physics tick. The initial world is still bulk-seeded by the
+			// first BroadPhase call exactly as before, so this changes nothing for the
+			// existing path. GameWorld::AddGameObject is not virtual and PhysicsSystem
+			// does not observe the world, so callers must invoke these explicitly.
+			void RegisterObject(GameObject* o);
+			void UnregisterObject(GameObject* o);
 		protected:
 			bool AreBothCollidersStatic(const CollisionDetection::CollisionInfo info);
 			bool IsEitherColliderNoCollide(const CollisionDetection::CollisionInfo& info);
