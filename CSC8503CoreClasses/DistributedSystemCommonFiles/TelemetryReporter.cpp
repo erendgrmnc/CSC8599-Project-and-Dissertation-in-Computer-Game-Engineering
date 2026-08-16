@@ -54,6 +54,13 @@ void TelemetryReporter::MaybeEmit(bool gameStarted) {
 			<< " hoSent=" << Profiler::GetHandoffsSent()
 			<< " hoRecv=" << Profiler::GetHandoffsReceived()
 			<< " hoFail=" << Profiler::GetHandoffsFailed()
+			// Command accounting (I4): cmdApplied + cmdRejected + cmdDup summed over
+			// servers must equal the commands clients sent. cmdRelayed is an internal
+			// hop, counted apart so it is not charged twice.
+			<< " cmdApplied=" << Profiler::GetCommandsApplied()
+			<< " cmdRelayed=" << Profiler::GetCommandsRelayed()
+			<< " cmdDup=" << Profiler::GetCommandsDuplicate()
+			<< " cmdRejected=" << Profiler::GetCommandsRejected()
 			<< " phys=" << F2(Profiler::GetPhysicsTime())
 			<< " world=" << F2(Profiler::GetWorldTime())
 			<< " predict=" << F2(Profiler::GetPhysicsPredictionTime())

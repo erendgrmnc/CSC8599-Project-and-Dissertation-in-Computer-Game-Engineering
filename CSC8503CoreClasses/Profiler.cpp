@@ -41,6 +41,10 @@ float Profiler::sLastFullSnapshotTime = 0.f;
 int Profiler::sHandoffsSent = 0;
 int Profiler::sHandoffsReceived = 0;
 int Profiler::sHandoffsFailed = 0;
+int Profiler::sCommandsApplied = 0;
+int Profiler::sCommandsRelayed = 0;
+int Profiler::sCommandsDuplicate = 0;
+int Profiler::sCommandsRejected = 0;
 int Profiler::sIntegratedObjects = 0;
 int Profiler::sDeltasApplied = 0;
 int Profiler::sDeltasRejected = 0;
@@ -235,6 +239,38 @@ int Profiler::GetHandoffsFailed() {
 
 void Profiler::SetHandoffsFailed(int count) {
 	sHandoffsFailed = count;
+}
+
+int Profiler::GetCommandsApplied() {
+	return sCommandsApplied;
+}
+
+void Profiler::SetCommandsApplied(int count) {
+	sCommandsApplied = count;
+}
+
+int Profiler::GetCommandsRelayed() {
+	return sCommandsRelayed;
+}
+
+void Profiler::SetCommandsRelayed(int count) {
+	sCommandsRelayed = count;
+}
+
+int Profiler::GetCommandsDuplicate() {
+	return sCommandsDuplicate;
+}
+
+void Profiler::SetCommandsDuplicate(int count) {
+	sCommandsDuplicate = count;
+}
+
+int Profiler::GetCommandsRejected() {
+	return sCommandsRejected;
+}
+
+void Profiler::SetCommandsRejected(int count) {
+	sCommandsRejected = count;
 }
 
 int Profiler::GetIntegratedObjects() {

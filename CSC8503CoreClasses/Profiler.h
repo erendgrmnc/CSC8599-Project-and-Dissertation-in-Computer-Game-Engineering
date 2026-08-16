@@ -82,6 +82,22 @@ namespace NCL {
 		static int GetHandoffsFailed();
 		static void SetHandoffsFailed(int count);
 
+		// Interaction command accounting (invariant I4). Summed across all servers,
+		// commands sent by clients must equal applied + rejected + duplicate; relayed
+		// is an internal hop and is counted separately so it is not double-charged.
+		// Without these, a silently swallowed command is invisible.
+		static int GetCommandsApplied();
+		static void SetCommandsApplied(int count);
+
+		static int GetCommandsRelayed();
+		static void SetCommandsRelayed(int count);
+
+		static int GetCommandsDuplicate();
+		static void SetCommandsDuplicate(int count);
+
+		static int GetCommandsRejected();
+		static void SetCommandsRejected(int count);
+
 		// Objects this server actually integrated on the last tick, versus the number
 		// it owns. These must match: a gap means the integrator is touching objects
 		// outside this server's region, which flattens the scaling curve.
@@ -135,6 +151,10 @@ namespace NCL {
 		static int sHandoffsSent;
 		static int sHandoffsReceived;
 		static int sHandoffsFailed;
+		static int sCommandsApplied;
+		static int sCommandsRelayed;
+		static int sCommandsDuplicate;
+		static int sCommandsRejected;
 		static int sIntegratedObjects;
 		static int sDeltasApplied;
 		static int sDeltasRejected;
