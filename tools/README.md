@@ -76,8 +76,15 @@ exe by hand; with no flags, the roles fall back to the original console prompts.
 | Role | Flags |
 |---|---|
 | Manager | `--servers N --clients N --objects N --port P --world minX,maxX,minZ,maxZ --midwares N --autostart [--headless]` |
-| Midware | `--manager-ip A.B.C.D --manager-port P --server-exe <path> [--headless]` |
+| Midware | `--manager-ip A.B.C.D --manager-port P --server-exe <path> [--headless] [--fixed-step] [--seed N]` |
 | Client | `--manager-ip A.B.C.D --manager-port P [--game-instance N]` (launcher always runs clients windowed) |
+
+**Determinism flags go to the midware, not the game servers.** Game servers are spawned by
+the midware, so `--fixed-step` and `--seed N` are given to the *midware*, which appends them
+to every server it launches. `--fixed-step` pins the physics substep rate (without it the rate
+adapts to measured frame cost, so servers under different load integrate with different `dt`);
+`--seed` makes world construction reproducible. Use both for any run whose numbers are meant
+to be compared against another run.
 
 `--headless` runs a role windowless (a `GameTimer` loop instead of the OpenGL profiler
 window). Every role also prints one `@@STAT role=... key=val ...` telemetry line to
