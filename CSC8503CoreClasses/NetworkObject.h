@@ -320,13 +320,21 @@ namespace NCL::CSC8503 {
 		int clientsToConnect;
 		int objectsPerPlayer;
 
+		// Indexed by SERVER ID, alongside borders[]. Runs to totalServerCount.
 		int serverIDs[20];
 		int serverPorts[20];
 		char borders[20][256];
 		std::string createdServerIPs[20];
 
+		// Indexed alongside serverPorts[] and createdServerIPs[], which are filled in
+		// the order servers registered with the manager - NOT by server ID. Without
+		// this, a receiver has no way to learn which server a given IP/port belongs
+		// to, and code that assumed index == id mislabelled its peer links.
+		int connectedServerIDs[20];
+
 		StartDistributedGameServerPacket(int serverManagerPort, int gameInstanceID, int clientsToConnect, int objectsPerPlayer, std::vector<int> serverPorts,
 			std::vector<std::string> serverIps,
+			std::vector<int> connectedServerIds,
 			const std::map<int, const std::string>& serverBorderMap);
 	};
 

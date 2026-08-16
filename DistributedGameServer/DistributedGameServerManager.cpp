@@ -493,24 +493,33 @@ void DistributedGameServer::DistributedGameServerManager::HandleStartGameServerP
 			continue;
 		}
 
-		std::cout << "Received IP Address of Server( " << i << "): " << packet->createdServerIPs[i] << "\n";
+		// The IP/port arrays are in registration order, so i is NOT the peer's server
+		// id. Labelling links by index made every id-based lookup miss - relays and
+		// transition handshakes alike went to a link that did not exist.
+		const int peerServerID = packet->connectedServerIDs[i];
+		if (peerServerID < 0) {
+			std::cout << "ERROR: no server id for entry " << i
+				<< " (" << packet->createdServerIPs[i] << "); skipping peer link.\n";
+			continue;
+		}
+
+		std::cout << "Received IP Address of Server( " << peerServerID << "): " << packet->createdServerIPs[i] << "\n";
 		std::vector<char> ipOctets = IpToCharArray(packet->createdServerIPs[i]);
-		//TODO(erendgrmnc): Add check if client already added.
 
 		bool isServerAdded = false;
 		for (auto* gameServerConnection : mDistributedPhysicsClients) {
-			if (gameServerConnection->serverID == i) {
+			if (gameServerConnection->serverID == peerServerID) {
 				isServerAdded = true;
 			}
 		}
 
 		if (!isServerAdded) {
-			if (auto* serverConnection = ConnectServerToAnotherGameServer(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], packet->serverPorts[i], i)) {
-				std::cout << "Successfully connected to server " << i << "! \n";
+			if (auto* serverConnection = ConnectServerToAnotherGameServer(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], packet->serverPorts[i], peerServerID)) {
+				std::cout << "Successfully connected to server " << peerServerID << "! \n";
 				mDistributedPhysicsClients.push_back(serverConnection);
 			}
 			else {
-				std::cout << "Failed to connected to server " << i << "! \n";
+				std::cout << "Failed to connected to server " << peerServerID << "! \n";
 			}
 		}
 	}
@@ -594,8 +603,12 @@ void DistributedGameServer::DistributedGameServerManager::HandleServerCommandRel
 		return;
 	}
 
+	// Anything this dispatch relays onward is a second hop and must be stamped as
+	// such, or the guard above can never fire.
+	mCurrentRelayHop = packet->hopCount + 1;
 	DispatchCommand(static_cast<NCL::Interaction::CommandType>(packet->commandType),
 		packet->args, packet->playerID, packet->clientSequence);
+	mCurrentRelayHop = 0;
 }
 
 void DistributedGameServer::DistributedGameServerManager::DispatchCommand(
@@ -649,14 +662,28 @@ void DistributedGameServer::DistributedGameServerManager::DrainPendingRelays(int
 			playerID,
 			clientSequence,
 			relay.args);
+		packet.hopCount = mCurrentRelayHop;
 
 		// Directed send over the existing peer mesh - the same lookup
 		// SendTransactionHandshakePacket already does, so no new plumbing.
+		bool sent = false;
 		for (const auto* connection : mDistributedPhysicsClients) {
 			if (connection->serverID == relay.targetServerID && connection->client != nullptr) {
 				connection->client->SendReliablePacket(packet);
+				sent = true;
 				break;
 			}
+		}
+		if (!sent) {
+			// Silently dropping here would look identical to the command being
+			// applied, which is exactly the hole invariant I4 exists to expose.
+			++mCommandsRejected;
+			std::cout << "ERROR: no peer link to server " << relay.targetServerID
+				<< " for relay; have " << mDistributedPhysicsClients.size() << " link(s):";
+			for (const auto* connection : mDistributedPhysicsClients) {
+				std::cout << " " << connection->serverID;
+			}
+			std::cout << "\n";
 		}
 	}
 }

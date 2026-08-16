@@ -92,15 +92,18 @@ SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int serve
 void DistributedManager::SystemManager::SendStartDataToPhysicsServer(int gameInstanceID, int physicsServerID) const {
 	std::vector<int> serverPorts;
 	std::vector<std::string> serverIps;
+	// Registration order, not id order - so the id has to travel with each entry.
+	std::vector<int> connectedServerIds;
 
 	auto* gameInstance = mDistributedPhysicsManagerServer->GetGameInstance(gameInstanceID);
 
 	for (const auto& createdServer : mDistributedPhysicsServers) {
 		serverIps.push_back(createdServer->GetServerIPAddress());
 		serverPorts.push_back(createdServer->GetDataSenderPort());
+		connectedServerIds.push_back(createdServer->GetServerID());
 	}
 	auto& physicsServersBorderStrMap = gameInstance->GetServerBorderStrMap();
-	StartDistributedGameServerPacket packet(mSystemManagerPort, gameInstanceID, mMaxClientCount, gameInstance->GetObjectsPerPlayer(), serverPorts, serverIps, physicsServersBorderStrMap);
+	StartDistributedGameServerPacket packet(mSystemManagerPort, gameInstanceID, mMaxClientCount, gameInstance->GetObjectsPerPlayer(), serverPorts, serverIps, connectedServerIds, physicsServersBorderStrMap);
 	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
 }
 

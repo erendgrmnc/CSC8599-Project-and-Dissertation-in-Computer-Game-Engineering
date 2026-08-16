@@ -97,6 +97,12 @@ namespace NCL {
 			std::map<int, NCL::SequenceWindow> mRelayWindows;
 			int mRelaySequenceCounter = 0;
 
+			// Hop count of the relay currently being handled, so a relay emitted while
+			// handling a relay is stamped 1 and the loop guard actually fires. The
+			// packet constructor cannot know this - it always stamps 0 - so without
+			// this the guard could never trigger.
+			int mCurrentRelayHop = 0;
+
 			int mCommandsApplied = 0;
 			int mCommandsRelayed = 0;
 			int mCommandsDuplicate = 0;

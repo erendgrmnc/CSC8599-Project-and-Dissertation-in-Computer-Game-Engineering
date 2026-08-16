@@ -292,7 +292,7 @@ DistributedClientsGameServersAreReadyPacket::DistributedClientsGameServersAreRea
 	size = sizeof(DistributedClientsGameServersAreReadyPacket);
 }
 
-StartDistributedGameServerPacket::StartDistributedGameServerPacket(int serverManagerPort, int gameInstanceID, int maxClientCount, int objectsPerPlayer, std::vector<int> serverPorts, std::vector<std::string> serverIps, const std::map<int, const std::string>& serverBorderMap) {
+StartDistributedGameServerPacket::StartDistributedGameServerPacket(int serverManagerPort, int gameInstanceID, int maxClientCount, int objectsPerPlayer, std::vector<int> serverPorts, std::vector<std::string> serverIps, std::vector<int> connectedServerIds, const std::map<int, const std::string>& serverBorderMap) {
 	type = BasicNetworkMessages::StartDistributedPhysicsServer;
 	size = sizeof(StartDistributedGameServerPacket);
 
@@ -327,6 +327,10 @@ StartDistributedGameServerPacket::StartDistributedGameServerPacket(int serverMan
 	for (int i = 0; i < currentServerCount; i++) {
 		this->serverPorts[i] = serverPorts[i];
 		this->createdServerIPs[i] = serverIps[i];
+		// -1 rather than i: a receiver must never fall back to treating the array
+		// index as a server id, which is the bug this field exists to fix.
+		this->connectedServerIDs[i] =
+			(i < static_cast<int>(connectedServerIds.size())) ? connectedServerIds[i] : -1;
 	}
 }
 
