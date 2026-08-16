@@ -126,6 +126,7 @@ touches zero switch statements** — write the command class, register it in `Re
 
 Built on **ENet** (`NetworkBase` wraps the opaque `_ENetHost`/`_ENetPeer`; the headers forward-declare these to avoid leaking the ENet include). Wire protocol:
 
+- **Every packet is strict POD with fixed-size arrays.** The ENet path `memcpy`s the struct, so a `std::string` member only ever worked because short-string optimisation kept the bytes inline *and* both ends were the same MSVC x64 binary. Use `CopyToPacketField` (`NetworkBase.h`) to fill a `char[N]` field; new packets get a `static_assert(std::is_trivially_copyable_v<T>)`.
 - All packets derive from `GamePacket` (`short type; short size;`). Message types are the `BasicNetworkMessages` enum in `CSC8503CoreClasses/NetworkBase.h` — the distributed-system types live at the bottom of that enum. Shared packet/DTO structs are in `CSC8503CoreClasses/DistributedSystemCommonFiles/`.
 - Dispatch is via `PacketReceiver` + `RegisterPacketHandler(msgID, receiver)`, stored in a `multimap`. Managers/servers implement `ReceivePacket(type, payload, source)` and switch on `type`.
 
@@ -168,14 +169,16 @@ The midware spawns `./DistributedPhysicsServer/EntryPoint.exe` **relative to its
 |---|---|
 | Manager | `--servers N --clients N --objects N --port P --world minX,maxX,minZ,maxZ --midwares N --autostart [--headless]` |
 | Midware | `--manager-ip A.B.C.D --manager-port P --server-exe <path> [--headless] [--fixed-step] [--seed N] [--workload shuttle] [--metrics-dir <dir>] [--metrics-capacity N] [--run-seconds N] [--run-ticks N]` |
-| Game Server | `--headless`, `--fixed-step`, `--seed N`, `--workload`, `--metrics-dir`, `--metrics-capacity`, `--run-seconds`, `--run-ticks` — **not passed directly**, see below |
+| Game Server | `--headless`, `--fixed-step`, `--seed N`, `--workload seam\|shuttle`, `--metrics-dir`, `--metrics-capacity`, `--run-seconds`, `--run-ticks`, `--handoff-delay-ticks N` — **not passed directly**, see below |
 | Client | `--manager-ip A.B.C.D --manager-port P [--game-instance N] [--render-deferred] [--headless] [--run-seconds N]` plus interaction drivers: `[--impulse-test N] [--misroute-every N] [--blast-every N] [--blast-radius N] [--blast-offset-x N] [--spawn-every N] [--destroy-every N] [--drive-every N]` |
 
 > **Game servers are spawned by the midware, not the launcher.** Their launch string is built in `ServerMidwareManager::StartPhysicsServerInstance`, so a flag the game server understands is unreachable unless the midware forwards it. `--fixed-step` and `--seed` are therefore given to the **midware**, which appends them to every server it spawns (`mServerExtraArgs`). Any new game-server flag needs adding in both `ServerStarter.cpp` (to parse it) and `PhysicsServerMidware/ProgramStart.cpp` (to forward it) — otherwise it is silently ignored with no error.
 >
 > `--fixed-step` pins the physics substep rate (otherwise `mRealHZ`/`mRealDT` adapt to measured frame cost, so servers under different load integrate with different `dt`). `--seed` drives deterministic world construction. **Both are required for any measurement run whose numbers are meant to be comparable.**
 >
-> `--workload shuttle` gives objects an initial X velocity so they cross borders; without it a default world spawns everything inside one region and produces zero handoffs.
+> `--workload shuttle` gives objects an initial X velocity so they cross borders; without it a default world spawns everything inside one region and produces zero handoffs. `--workload seam` instead centres each grid on the world origin, putting a whole row and column of objects **exactly** on `x = 0` / `z = 0` — the case the half-open ownership rule exists for, and the only way a border check is not vacuous.
+>
+> `--handoff-delay-ticks N` is **fault injection**: it holds each transfer packet back N ticks while releasing the object locally at the normal moment, deliberately widening the §0.7 ownership gap. Objects still in flight when a run ends are lost, and I2/I5 miss by exactly that count — which is how the gap gets *measured* rather than argued. **Must be 0 for any measurement run.**
 
 **Two run modes, and the choice is methodological.** `--run-seconds N` bounds by wall clock and feeds the loop measured deltas — genuine behaviour under load, but **not reproducible**: tick counts vary with machine load (28.6k–29.4k over nominally identical 60 s runs), and since the border check runs once per *tick*, handoffs land at different simulated times. `--run-ticks N` with `--fixed-step` pins the loop `dt` to the substep length *and* paces each tick to that much real time, so every server stays on one shared clock. End state and conservation then reproduce exactly; handoff *event* counts still vary by ±1, which would need a global tick barrier to remove. Use `--run-ticks` for correctness/conservation experiments and `--run-seconds` with repeats for performance claims.
 
