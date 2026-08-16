@@ -1323,3 +1323,95 @@ negotiation on this wire protocol, so a mixed deployment would misparse. Note th
 4. **Does the 20-peer overflow (§0.13) invalidate any already-captured measurements?** Worth
    checking what configurations have been run. Any run with servers + clients > 20 should be
    discarded and repeated after increment 8.
+
+---
+
+## 10. Implementation notes — increment 1 (shipped 2026-08-16)
+
+Plan: `docs/superpowers/plans/2026-08-16-physics-dynamic-registration.md`.
+
+### What shipped
+
+- `tools/InteractionTests` — the repo's first test target (Tier 0). 10 tests, all passing.
+  It links the same libraries as `EntryPointServer` and needs the roles' precompiled-header
+  list, without which `PhysicsSystem.h` fails on `std::set` and `PhysicsObject.h` on `Matrix3`.
+- `PhysicsSystem::RegisterObject` / `UnregisterObject`, `FlushPendingUnregisters`,
+  `mBroadphaseSeeded`, `mPendingUnregister`.
+- **No call sites.** `ServerWorldManager` does not call either method; there is nothing to spawn
+  or destroy until increments 5–6. The methods are tested, not yet used.
+
+### The seed sentinel was worse than §0.2 described
+
+§0.2 says `BroadPhase` seeds once, guarded by `mStaticTree.Empty()`. In a world with **no static
+geometry** the tree stays empty forever, so the seed re-runs — and `BroadPhase` runs inside the
+**substep** loop, not once per tick, so `mDynamicObjectList` grew by roughly six entries per tick.
+The failing test measured 1 → 5 → 11 → 17 integrated objects for a single cube. Never hit in
+production because every server world gets a floor in `ServerWorldManager`'s constructor.
+
+`Clear()` must also reset `mBroadphaseSeeded`, which §3.1 does not mention: it empties
+`mDynamicObjectList`, so without the reset a cleared world can never be re-seeded.
+
+### `QuadTree` has no removal operation
+
+§3.1's `UnregisterObject` design assumes one exists. It does not. Static objects therefore cannot
+be unregistered; the implementation warns and refuses rather than leaving a dangling pointer in
+`mStaticTree`. Harmless for the planned increments — runtime spawn only produces dynamic objects.
+
+### Reproducibility: the measurement harness was not reproducible
+
+Verifying "the baseline is unchanged" failed on its own terms. Two runs of the **identical binary**
+gave different handoff counts (40/2 vs 40/1) and different object splits (362/38 vs 361/39).
+
+**Cause.** `--fixed-step` pinned only the *substep* rate inside `PhysicsSystem`. The headless loop
+still fed `Update` a measured wall-clock `dt`, and the run was bounded by wall-clock seconds, so
+tick counts varied with machine load (28,653–29,431 over nominally identical 60 s runs).
+`CheckPositionOutOfServerBoundaries` runs once per **tick**, so border checks landed at different
+simulated times.
+
+**First fix — and why it made things worse.** Pinning the loop `dt` and bounding by tick count made
+each server advance exactly 7200 ticks, but let each advance at its own wall-clock rate: server 1
+finished 7200 ticks in 1.2 s while server 0 took 11.2 s. The fast server **exited while the slow
+one was still handing objects to it**, and those objects were lost outright — conservation dropped
+to 397/400 and then 389/400. This is the §0.7 ownership gap made visible: the sender deactivates on
+send, so a handoff to a dead peer loses the object permanently.
+
+**Shipped fix.** Reproducible mode pins `dt` *and* paces each tick to `fixedDt` of real time
+(`sleep_until`), so every server stays on the same shared clock without an explicit barrier.
+Bootstrap ticks are excluded from the budget via `HeadlessRunOptions::countTicksWhen` — without
+that gate a reproducible run consumed its entire 7200-tick budget during the handshake, in ~25 ms,
+and exited before the world was built.
+
+**Result.** Two paced runs, 7200 ticks each:
+
+| Run | s0 owns | s1 owns | total | conservation |
+|---|---|---|---|---|
+| paced-a | 359 | 41 | 400 | holds |
+| paced-b | 359 | 41 | 400 | holds |
+
+End state is identical. Handoff *event* counts still differ by ±1 (42 vs 41), because message
+arrival relative to a tick boundary is still wall-clock dependent. **Bit-identical event counts
+would require a global tick barrier between servers**, which this architecture does not have.
+Claims of reproducibility must therefore be scoped to end state and conservation, not to event
+counts.
+
+### The realtime baseline's p50 was measuring idle loop iterations
+
+| | mean | p50 | p95 | p99 |
+|---|---|---|---|---|
+| baseline realtime s0 | 0.3832 | 0.0170 | 1.5842 | 2.1763 |
+| paced-a s0 | 1.3392 | 1.3230 | 1.5808 | 1.7401 |
+| paced-b s0 | 1.3689 | 1.3419 | 1.6582 | 2.1301 |
+
+In realtime mode the loop spins at ~1 kHz while physics only substeps every 1/120 s, so roughly
+seven ticks in eight do **no** physics work — hence `p50 = 0.017 ms`. That number is the cost of an
+empty loop iteration, not of physics. Paced mode performs exactly one substep per tick, giving a
+tight unimodal distribution. The two agree where it matters: **p95 is ~1.58 ms in both**, because
+the realtime p95 is precisely the ticks that did work. Report paced percentiles; the realtime p50
+is an artefact.
+
+`integrated == owned` holds on **100%** of paced ticks (vs 0.14–0.25% mismatch in realtime), for
+the same reason — no partially-updated ticks to sample.
+
+### Verdict
+
+Increment 1 is free: paced tick costs bracket each other, conservation holds exactly, `hoFail = 0`.
