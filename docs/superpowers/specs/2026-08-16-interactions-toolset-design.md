@@ -1476,11 +1476,60 @@ Reproducible run, 2 servers, 400 objects, 7200 ticks, seed 42, `--impulse-test 2
 - **Handoff is untouched**, as designed: 44/1 against the increment 1 baseline's 42/1, inside the
   ±1-per-run event jitter that section 10 established is inherent without a global tick barrier.
 
-### Known gap
+### Closing the relay gap — and the bug it exposed
 
-**The relay path is implemented and unit-tested but was not exercised in the live run**
-(`cmdRelayed = 0`). The client's owner table is refreshed from 10 Hz full snapshots, so it was
-never stale at the moment a command was issued. Covering it live needs either a driver that
-deliberately targets a recently handed-off object, or artificial owner-table staleness. The
-unit tests (`ImpulseRelaysWhenNotOwner`, `ImpulseReportsUnknownWhenNoPositionKnown`,
-`MoveAxisDoesNotRelay`) cover the logic; end-to-end relay remains unverified.
+The first live run left `cmdRelayed = 0`: the client's owner table is refreshed from 10 Hz full
+snapshots, so it was never stale at the instant a command was issued. The real staleness window —
+between a handoff and the next snapshot — is a few milliseconds wide and cannot be hit reliably
+from outside. Added `--misroute-every N` on the client, which sends every Nth driven command to a
+server that demonstrably does **not** own the object, reproducing the condition on demand via a new
+`SendCommandTo(..., forcedServerId)`.
+
+That immediately exposed a real defect. With misrouting on, I4 came out as:
+
+```
+sent 1502  =  applied 992 + rejected 14 + dup 0   ->  gap 496
+relayed                                            =       496
+```
+
+The gap equalled the relay count exactly: **every relay was being counted as sent and then
+silently dropped.** The diagnostic added to `DrainPendingRelays` reported
+`no peer link to server 0 for relay; have 1 link(s): 1` — server 1's only peer link was labelled
+with its *own* id.
+
+**Root cause.** `HandleStartGameServerPacketReceived` used the loop index `i` as the peer's server
+id. But `StartDistributedGameServerPacket` has two differently-indexed families of arrays:
+`serverIDs[]` and `borders[]` are indexed **by server id** and run to `totalServerCount`, while
+`serverPorts[]` and `createdServerIPs[]` are filled **in registration order** and run to
+`currentServerCount`. Whenever servers registered in an order other than their id order, every
+peer link got the wrong label.
+
+**This was never specific to commands.** `SendTransactionHandshakePacket` does the same
+`connection->serverID == senderServerID` lookup, so the transition **ack could never find its link
+either** — a concrete mechanism behind the "handoff ack is stubbed" audit finding.
+
+**Fix.** Added `connectedServerIDs[20]` to the packet, aligned with the IP/port arrays and
+populated by the manager from `GetServerID()`; the receiver uses it instead of the index, and
+skips an entry with a `-1` id rather than falling back to the index. Also made the loop guard real:
+the packet constructor always stamps `hopCount = 0`, so a relay emitted while handling a relay was
+indistinguishable from a first hop. `mCurrentRelayHop` now stamps it correctly.
+
+### Verification (final)
+
+Reproducible run, 2 servers, 400 objects, 7200 ticks, seed 42, `--impulse-test 20
+--misroute-every 3`. The client is bounded 15 s shorter than the servers so every command it sent
+is processed before they exit, and both ends print exact `@@FINAL` totals rather than 2 Hz samples:
+
+| | server 0 | server 1 |
+|---|---|---|
+| objects owned | 362 | 38 |
+| handoffs sent / received | 39 / 1 | 1 / 39 |
+| commands applied | 1382 | 104 |
+| relayed / duplicate / rejected | 35 / 0 / 0 | 460 / 0 / 14 |
+
+- **I4 exact:** `1486 applied + 14 rejected + 0 duplicate = 1500` = `cmdSent 1500`. **Gap 0.**
+- **I5 exact:** 40 sent, 40 received, `hoFail = 0`.
+- **Conservation exact:** 362 + 38 = 400.
+- 495 relays, **0** dropped for a missing peer link, **0** routing loops.
+
+The relay path is now covered end to end, not just by unit test.
