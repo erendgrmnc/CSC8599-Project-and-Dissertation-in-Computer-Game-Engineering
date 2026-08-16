@@ -109,6 +109,14 @@ namespace NCL {
 			std::vector<CollisionDetection::CollisionInfo> mBroadphaseCollisionsVec;
 			QuadTree<GameObject*> mStaticTree;
 			std::vector<GameObject*> mDynamicObjectList;
+
+			// Replaces the old mStaticTree.Empty() sentinel for "has the one-time bulk
+			// seed run?". The tree is the wrong thing to ask: a world with no static
+			// geometry leaves it empty forever, so the seed re-ran on every broadphase
+			// pass - and BroadPhase runs per substep, not per tick, so the duplicates
+			// compounded several times a frame. It also cannot express "seeded, now
+			// accepting incremental Register/Unregister".
+			bool mBroadphaseSeeded = false;
 			bool mUseBroadPhase		= true;
 			int mNumCollisionFrames	= 5;
 			int mBroadphaseX = 256;

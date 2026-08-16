@@ -62,6 +62,9 @@ any collisions they are in.
 void PhysicsSystem::Clear() {
 	mAllCollisions.clear();
 	mDynamicObjectList.clear();
+	// Without this, a cleared world can never be re-seeded and nothing would ever
+	// integrate again.
+	mBroadphaseSeeded = false;
 }
 
 /*
@@ -450,7 +453,7 @@ void PhysicsSystem::BroadPhase() {
 	std::vector<GameObject*>::const_iterator last;
 	mGameWorld.GetObjectIterators(first, last);
 	if (first == last) return;
-	if(mStaticTree.Empty()) {
+	if (!mBroadphaseSeeded) {
 		for (auto i = first; i != last; i++) {
 			Vector3 halfSizes;
 			if (!(*i)->GetBroadphaseAABB(halfSizes)) continue;
@@ -462,6 +465,7 @@ void PhysicsSystem::BroadPhase() {
 				mDynamicObjectList.push_back(*i);
 			}
 		}
+		mBroadphaseSeeded = true;
 	}
 	for (int i = 0; i < mDynamicObjectList.size(); i++) {
 		if (!mDynamicObjectList[i]->HasPhysics()) continue;

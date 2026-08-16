@@ -60,3 +60,25 @@ TEST(PreSeededObjectIsIntegrated) {
 
 	world.ClearAndErase();
 }
+
+// A world with no static geometry seeds mDynamicObjectList once, not once per tick.
+// Under the old mStaticTree.Empty() sentinel the tree stays empty forever, so the
+// seed loop re-runs every tick and the same cube is pushed again and again.
+TEST(SeedRunsOnceEvenWithNoStaticObjects) {
+	GameWorld world;
+	PhysicsSystem physics(world);
+	physics.UseGravity(true);
+
+	world.AddGameObject(MakeDynamicCube(Vector3(0, 50, 0)));
+
+	physics.Update(TICK_DT);
+	CHECK_EQ(Profiler::GetIntegratedObjects(), 1);
+
+	physics.Update(TICK_DT);
+	CHECK_EQ(Profiler::GetIntegratedObjects(), 1);
+
+	physics.Update(TICK_DT);
+	CHECK_EQ(Profiler::GetIntegratedObjects(), 1);
+
+	world.ClearAndErase();
+}
