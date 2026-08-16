@@ -1789,3 +1789,74 @@ Increments 1-8 are complete. Of the two changes the design flagged as altering e
 one (increment 2's border rule) shipped as planned and one (increment 6's load-bearing ack) proved
 **unnecessary** — the ordinary relay path covers it. The handoff protocol's behaviour is unchanged
 throughout; the single wire change is append-only.
+
+---
+
+## 16. Flagged-issue remediation (2026-08-17)
+
+Four issues were recorded as open at the end of increment 8. Three are fixed; the fourth is
+diagnosed and quantified rather than fixed, for the reason given.
+
+### 1. `std::string` members in memcpy'd packets (§0.13) — FIXED
+
+Every live distributed packet now uses fixed-width `char` arrays: `GameStartStatePacket::levelSeed`,
+`DistributedPhysicsClientConnectedToManagerPacket::ipAddress`,
+`DistributedClientConnectToPhysicsServerPacket::ipAddress`,
+`DistributedClientsGameServersAreReadyPacket::ipAddresses`,
+`StartDistributedGameServerPacket::createdServerIPs` and
+`PhysicsServerMiddlewareConnectedPacket::ipAddress`, filled via a truncating, always-terminating
+`CopyToPacketField` helper in `NetworkBase.h`. `DistributedClientsGameServersAreReadyPacket` now
+also zeroes its arrays, which it never did — an unset slot previously put stack contents on the
+wire. Verified with a full run: conservation, I4 and I5 all exact.
+
+### 2. Increment 2's vacuous verification — FIXED
+
+New `--workload seam` centres each object grid on the world origin, placing a whole row and column
+**exactly** on `x = 0` / `z = 0`. Two-server run: pre-seed ownership is `200 + 200 = 400`, exact.
+Under the old closed-on-both-axes rule those border objects would have been claimed by both
+regions. The check is no longer vacuous.
+
+### 3. A regression this work exposed — FIXED
+
+The increment 8 manifest sent **every owned object** to every joining peer. At bootstrap that is a
+~400-entry reliable burst per peer, which flooded the link and stopped a 4-server instance starting
+at all (one server never received `GameStartState`). The manifest now carries **runtime-spawned
+objects only**: pre-seeded objects need no manifest, because every server builds the identical set
+independently and clients learn them from the first snapshot. That is also what §3.5 actually asks
+for.
+
+### 4. A missing guard, found by trying to test it
+
+The tombstone check in `StartHandlingObject` — documented in §14 as shipped — **was not in the
+code**. A scripted edit had silently failed to apply, so `mPendingDestroyOnArrival` was written but
+never read. Restored, and it now also counts the handoff as received so dropping it cannot break
+I5. This is a direct argument for fault injection: the guard was documented, believed present, and
+absent.
+
+### 5. Races W3 and the resurrection guard — STILL UNEXERCISED, with a reason
+
+New fault injection: `--handoff-delay-ticks N` holds each transfer packet back N ticks while
+releasing the object locally at the normal moment, widening the ownership gap on demand. Forwarded
+by the midware; **must be 0 for any measurement run**.
+
+Even at 240 ticks (2 s) with 1023 destroys against 992 handoffs, neither path fired. The reason is
+structural, not a gap in the testing: **W3 as the spec frames it — "B has no object with that ID" —
+cannot occur in this architecture**, because the deactivated-twin design guarantees every server
+holds a pool entry for every object. A destroy that reaches the new owner first simply destroys the
+twin. `mPendingDestroyOnArrival` is therefore a safety net for a lost spawn broadcast, not a
+reachable race.
+
+### What the fault injection did reveal — the ownership gap, quantified
+
+A clean A/B at identical churn (7200 ticks, ~758 spawns, ~1100 destroys):
+
+| | I2 conservation | I5 parity | I4 |
+|---|---|---|---|
+| no delay | `400 + 758 - 1158 = 0` = owned 0, **exact** | 481 = 481 | gap 0 |
+| 240-tick delay | `400 + 755 - 1023 = 132` vs owned **129** | 992 vs **989** | gap 0 |
+
+**Three objects lost, and both invariants miss by exactly three.** Those are the objects still in
+flight when the run ended: released by the sender, transfer never delivered. This is §0.7's
+ownership gap — the sender deactivates on send and the transfer is unacknowledged — now *measured*
+rather than argued. It is the paper's clearest quantification of the protocol's known weakness, and
+it is reproducible on demand with one flag.
