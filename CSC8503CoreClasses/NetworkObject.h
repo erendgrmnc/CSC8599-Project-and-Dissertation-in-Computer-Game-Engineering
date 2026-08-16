@@ -395,6 +395,18 @@ namespace NCL::CSC8503 {
 		Vector3 mInverseInertia;
 		Matrix3 mInverseInertiaTensor;
 
+		// --- appended for player-controlled avatars (increment 7) ---
+		//
+		// The ONLY change to this packet's wire format in the whole interaction
+		// design, and the fields are APPENDED so every offset above is unchanged.
+		//
+		// Continuous input is state, not an event (it is never sequenced and never
+		// relayed), so without carrying it across a handoff a driven avatar would
+		// stall for a tick or two on every border crossing until the client's next
+		// axis update reached the new owner.
+		int mControllerPlayerID;      // -1 when nothing is driving this object
+		Vector3 mMoveAxis;            // last applied movement axis
+
 		StartSimulatingObjectPacket(int objectID, int newServerID, int senderServerID, NetworkState lastFullState, PhysicsObject& physicsObj);
 	};
 

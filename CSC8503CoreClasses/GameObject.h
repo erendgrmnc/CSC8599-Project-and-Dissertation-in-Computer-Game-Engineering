@@ -58,6 +58,25 @@ namespace NCL::CSC8503 {
 			return mIsNetworkActive;
 		}
 
+		// --- player control (increment 7) ---
+		//
+		// Continuous movement input is STATE, not an event: it is applied every tick
+		// until superseded, never sequenced and never relayed. It therefore has to
+		// travel with the object across a handoff, or a driven avatar stalls on every
+		// border crossing until the client's next axis update reaches the new owner.
+		int GetControllerPlayerID() const {
+			return mControllerPlayerID;
+		}
+
+		const Vector3& GetMoveAxis() const {
+			return mMoveAxis;
+		}
+
+		void SetControlState(int playerID, const Vector3& axis) {
+			mControllerPlayerID = playerID;
+			mMoveAxis = axis;
+		}
+
 		void SetIsRendered(bool isRendered) {
 			mIsRendered = isRendered;
 		}
@@ -196,6 +215,8 @@ namespace NCL::CSC8503 {
 		bool		mIsSensed;
 		bool		mHasPhysics;
 		bool		mIsNetworkActive;
+		int			mControllerPlayerID = -1;
+		Vector3		mMoveAxis;
 		bool		mIsRendered;
 		int			mWorldID;
 		std::string	mName;

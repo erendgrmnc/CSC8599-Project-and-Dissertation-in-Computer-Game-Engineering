@@ -360,6 +360,11 @@ StartSimulatingObjectPacket::StartSimulatingObjectPacket(int objectID, int newSe
 	this->lastFullState.predictedPosition = physicsObj.GetTransform()->GetPredictedPosition();
 	this->lastFullState.predictedOrientation = physicsObj.GetTransform()->GetPredictedOrientation();;
 
+	// Defaults; the caller overwrites these when the object is under control. Set
+	// here so an uncontrolled object never carries stale axis state across a handoff.
+	this->mControllerPlayerID = -1;
+	this->mMoveAxis = Vector3(0, 0, 0);
+
 	this->newOwnerServerID = newServerID;
 	this->senderServerID = senderServerID;
 	this->objectID = objectID;
