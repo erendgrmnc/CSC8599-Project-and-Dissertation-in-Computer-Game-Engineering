@@ -5,6 +5,7 @@
 
 #include "DistributedSystemCommonFiles/MetricSink.h"
 #include "DistributedSystemCommonFiles/InteractionCommand.h"
+#include "DistributedSystemCommonFiles/RegionOwnership.h"
 
 namespace NCL::CSC8503 {
 	struct StartSimulatingObjectReceivedPacket;
@@ -167,6 +168,13 @@ namespace NCL {
 
 			std::map<int, NCL::CSC8503::GameObject*> mCreatedObjectPool;
 			std::vector<PendingRelay> mPendingRelays;
+
+			// GetObjectServer runs once per object per tick, so the region list is
+			// cached rather than rebuilt per call. The border map is populated after
+			// construction (when the manager's start packet arrives), hence the lazy
+			// rebuild keyed on its size rather than a one-shot copy.
+			mutable std::vector<NCL::Interaction::RegionBounds> mCachedRegions;
+			const std::vector<NCL::Interaction::RegionBounds>& GetRegionBounds() const;
 			std::map<const int, PhysicsServerBorderData*>* mServerBorderMap;
 
 			void AddNetworkObjectToNetworkObjects(NCL::CSC8503::NetworkObject* networkObj);

@@ -564,28 +564,38 @@ std::vector<CSC8503::NetworkObject*>* DistributedGameServer::ServerWorldManager:
 	return &mNetworkObjects;
 }
 
-bool DistributedGameServer::ServerWorldManager::IsObjectInBorder(const Maths::Vector3& objectPosition) const {
-
-	if (objectPosition.x >= mServerBorderData->minXVal && objectPosition.x < mServerBorderData->maxXVal &&
-		objectPosition.z >= mServerBorderData->minZVal && objectPosition.z <= mServerBorderData->maxZVal) {
-		return true;
-	}
-
-	return false;
-}
-
-int DistributedGameServer::ServerWorldManager::GetObjectServer(const Maths::Vector3& position) const {
-	for (const auto& entry : *mServerBorderMap) {
-		int serverNumber = entry.first;
-		PhysicsServerBorderData* borderData = entry.second;
-
-		if (position.x >= borderData->minXVal && position.x <= borderData->maxXVal &&
-			position.z >= borderData->minZVal && position.z <= borderData->maxZVal) {
-
-			return serverNumber;
+const std::vector<NCL::Interaction::RegionBounds>&
+DistributedGameServer::ServerWorldManager::GetRegionBounds() const {
+	const size_t mapSize = (mServerBorderMap != nullptr) ? mServerBorderMap->size() : 0;
+	if (mCachedRegions.size() != mapSize) {
+		mCachedRegions.clear();
+		mCachedRegions.reserve(mapSize);
+		if (mServerBorderMap != nullptr) {
+			for (const auto& entry : *mServerBorderMap) {
+				if (entry.second == nullptr) {
+					continue;
+				}
+				mCachedRegions.push_back(NCL::Interaction::RegionBounds{
+					entry.first,
+					entry.second->minXVal, entry.second->maxXVal,
+					entry.second->minZVal, entry.second->maxZVal });
+			}
 		}
 	}
-	return -1;
+	return mCachedRegions;
+}
+
+// Delegates rather than testing mServerBorderData directly, so it cannot disagree
+// with GetObjectServer. It used to: this test was half-open on X but CLOSED on Z,
+// while GetObjectServer was closed on both, so a point on a shared border was
+// claimed by the handoff path and rejected by the pre-seed path.
+bool DistributedGameServer::ServerWorldManager::IsObjectInBorder(const Maths::Vector3& objectPosition) const {
+	return GetObjectServer(objectPosition) == mServerID;
+}
+
+// The single ownership authority for this process.
+int DistributedGameServer::ServerWorldManager::GetObjectServer(const Maths::Vector3& position) const {
+	return NCL::Interaction::OwningServerFor(GetRegionBounds(), position);
 }
 
 // Clamps a handed-over object's position strictly inside this server's region.
