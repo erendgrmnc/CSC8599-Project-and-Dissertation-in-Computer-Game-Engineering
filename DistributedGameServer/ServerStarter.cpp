@@ -174,6 +174,19 @@ int StartGameServer(int argc, char* argv[]) {
 		if (auto* worldManager = serverManager->GetServerWorldManager()) {
 			worldManager->FlushMetrics();
 		}
+
+		// Final totals rather than a 2 Hz sample, so the I4 and I5 invariants can be
+		// checked exactly instead of approximately.
+		std::cout << "@@FINAL role=server id=" << serverId
+			<< " objs=" << Profiler::GetObjectsOnBorders()
+			<< " hoSent=" << Profiler::GetHandoffsSent()
+			<< " hoRecv=" << Profiler::GetHandoffsReceived()
+			<< " hoFail=" << Profiler::GetHandoffsFailed()
+			<< " cmdApplied=" << Profiler::GetCommandsApplied()
+			<< " cmdRelayed=" << Profiler::GetCommandsRelayed()
+			<< " cmdDup=" << Profiler::GetCommandsDuplicate()
+			<< " cmdRejected=" << Profiler::GetCommandsRejected()
+			<< "\n";
 		return 0;
 	}
 

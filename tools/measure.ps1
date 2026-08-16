@@ -21,6 +21,9 @@ param(
     # Fires one interaction command every N client ticks. 0 disables. Exercises the
     # command channel so the I4 accounting invariant can be checked.
     [int]$ImpulseTest = 0,
+    # Sends every Nth driven command to a server that does not own the object, so the
+    # misroute/relay path is exercised. 0 disables.
+    [int]$MisrouteEvery = 0,
     [string]$OutDir = ""
 )
 $ErrorActionPreference = "Continue"
@@ -74,8 +77,13 @@ $mid = Start-Process -PassThru -FilePath (Join-Path $deploy "Midware\EntryPoint.
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\mid.log" -RedirectStandardError "$runDir\mid.err" -WindowStyle Hidden
 Start-Sleep -Seconds 4
 
+# The client stops sending well before the servers stop counting, so every command
+# it issued has been processed by the time they exit and the I4 tally is exact.
+$serverRunSeconds = if ($Ticks -gt 0) { [Math]::Round($Ticks / 120.0) } else { $Seconds }
+$clientSeconds = [Math]::Max(5, $serverRunSeconds - 15)
+
 $cli = Start-Process -PassThru -FilePath (Join-Path $deploy "Client\EntryPoint.exe") `
-    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --headless --impulse-test $ImpulseTest" `
+    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --headless --impulse-test $ImpulseTest --misroute-every $MisrouteEvery --run-seconds $clientSeconds" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\cli.log" -RedirectStandardError "$runDir\cli.err" -WindowStyle Hidden
 
 # Servers self-terminate; allow slack for startup plus flush. Reproducible runs are
@@ -108,6 +116,7 @@ Select-String -Path "$runDir\mid.log" -Pattern "MetricSink:|Headless run complet
     ForEach-Object { $_.Line }
 
 Write-Host ""
-Write-Host "==================== FINAL SERVER @@STAT ===================="
-Select-String -Path "$runDir\mid.log" -Pattern "role=server" -ErrorAction SilentlyContinue |
-    Select-Object -Last $Servers | ForEach-Object { $_.Line }
+Write-Host "==================== FINAL TOTALS ===================="
+# @@FINAL lines are exact end-of-run totals, unlike the 2 Hz @@STAT samples.
+Select-String -Path "$runDir\mid.log", "$runDir\cli.log" -Pattern "@@FINAL" -ErrorAction SilentlyContinue |
+    ForEach-Object { $_.Line }

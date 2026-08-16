@@ -64,6 +64,17 @@ public:
 	// left the machine.
 	bool SendCommand(NCL::Interaction::CommandType type, NCL::Interaction::CommandArgs args);
 
+	// Sends to a caller-chosen server instead of the resolved one. Exists so a test
+	// can reproduce a stale owner table on demand: the real staleness window - the
+	// moment between an object being handed over and the next snapshot arriving - is
+	// only a few milliseconds wide and cannot be hit reliably from outside.
+	// forcedServerId < 0 behaves exactly like SendCommand.
+	bool SendCommandTo(NCL::Interaction::CommandType type, NCL::Interaction::CommandArgs args,
+		int forcedServerId);
+
+	// Server ids this client is connected to, in connection order.
+	std::vector<int> GetConnectedServerIds() const;
+
 	int GetCommandsSent() const { return mCommandsSent; }
 
 	void UpdateGame(float dt);

@@ -161,8 +161,22 @@ int DistributedMultiplayerGameScene::ResolveCommandTarget(
 	return -1;
 }
 
+std::vector<int> DistributedMultiplayerGameScene::GetConnectedServerIds() const {
+	std::vector<int> ids;
+	ids.reserve(mDistributedPhysicsClients.size());
+	for (const PhysicsServerLink& link : mDistributedPhysicsClients) {
+		ids.push_back(link.serverId);
+	}
+	return ids;
+}
+
 bool DistributedMultiplayerGameScene::SendCommand(NCL::Interaction::CommandType type,
 	NCL::Interaction::CommandArgs args) {
+	return SendCommandTo(type, args, -1);
+}
+
+bool DistributedMultiplayerGameScene::SendCommandTo(NCL::Interaction::CommandType type,
+	NCL::Interaction::CommandArgs args, int forcedServerId) {
 
 	NCL::Interaction::IInteractionCommand* command =
 		NCL::Interaction::CommandRegistry::Instance().Find(type);
@@ -176,7 +190,9 @@ bool DistributedMultiplayerGameScene::SendCommand(NCL::Interaction::CommandType 
 	}
 
 	const NCL::Interaction::CommandScope scope = command->GetScope(args);
-	const int targetServerId = ResolveCommandTarget(args, scope);
+	const int targetServerId = (forcedServerId >= 0)
+		? forcedServerId
+		: ResolveCommandTarget(args, scope);
 	if (targetServerId < 0) {
 		std::cout << "Command dropped: no server resolved for object "
 			<< args.targetObjectID << ".\n";

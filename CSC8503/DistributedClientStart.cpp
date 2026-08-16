@@ -74,8 +74,16 @@ int RunDistributedClient(int argc, char* argv[]) {
 	// at a rotating object id, which deliberately includes ids this client believes
 	// are owned by the wrong server, so the relay path is covered too.
 	const int impulseTestPeriod = config.GetInt("--impulse-test", 0);
+
+	// Every Nth driven command is deliberately sent to a server that does NOT own
+	// the object, reproducing a stale owner table on demand. The genuine staleness
+	// window - between a handoff and the next snapshot - is a few milliseconds wide
+	// and cannot be hit reliably from outside, so without this the relay path is
+	// never exercised end to end. 0 disables.
+	const int misrouteEvery = config.GetInt("--misroute-every", 0);
 	int driverTick = 0;
 	int driverObjectId = 0;
+	int driverCommandIndex = 0;
 
 	NCL::TelemetryReporter reporter(NCL::TelemetryRole::Client);
 	auto tick = [&](float dt) {
@@ -88,7 +96,27 @@ int RunDistributedClient(int argc, char* argv[]) {
 				args.playerID = 0;
 				args.direction = NCL::Maths::Vector3(0, 1, 0);
 				args.magnitude = 5.0f;
-				scene->SendCommand(NCL::Interaction::CommandType::Impulse, args);
+
+				int forcedServerId = -1;
+				if (misrouteEvery > 0 && (driverCommandIndex % misrouteEvery) == 0) {
+					// Pick any connected server other than the one that actually owns
+					// the object, so the receiver has to relay rather than apply.
+					const std::vector<int> serverIds = scene->GetConnectedServerIds();
+					if (serverIds.size() > 1) {
+						NCL::Interaction::CommandScope objectScope;
+						objectScope.targetsObject = true;
+						const int believedOwner = scene->ResolveCommandTarget(args, objectScope);
+						for (int candidate : serverIds) {
+							if (candidate != believedOwner) {
+								forcedServerId = candidate;
+								break;
+							}
+						}
+					}
+				}
+				++driverCommandIndex;
+
+				scene->SendCommandTo(NCL::Interaction::CommandType::Impulse, args, forcedServerId);
 
 				const int replicas = static_cast<int>(scene->GetReplicaCount());
 				driverObjectId = (replicas > 0) ? ((driverObjectId + 1) % replicas) : 0;
@@ -101,8 +129,24 @@ int RunDistributedClient(int argc, char* argv[]) {
 	};
 
 	if (headless) {
-		std::cout << "Running headless (client).\n";
-		NCL::RunHeadlessLoop(tick);
+		// Bounding the client matters for command accounting: if it keeps sending
+		// after the servers have stopped counting, the I4 tally can never balance
+		// because the two ends are measured over different windows. Give the client
+		// a shorter window than the servers and every command it sent has been
+		// processed by the time they exit.
+		NCL::HeadlessRunOptions clientRun;
+		clientRun.runSeconds = static_cast<double>(config.GetInt("--run-seconds", 0));
+
+		std::cout << "Running headless (client)";
+		if (clientRun.runSeconds > 0.0) {
+			std::cout << " for " << clientRun.runSeconds << "s";
+		}
+		std::cout << ".\n";
+
+		NCL::RunHeadlessLoop(tick, clientRun);
+
+		// Final totals, so accounting does not depend on catching a 2 Hz sample.
+		std::cout << "@@FINAL role=client cmdSent=" << scene->GetCommandsSent() << "\n";
 		delete scene;
 		return 0;
 	}
