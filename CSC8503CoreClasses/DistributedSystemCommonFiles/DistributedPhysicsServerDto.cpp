@@ -1,5 +1,6 @@
 #include "DistributedPhysicsServerDto.h"
 
+#include <iomanip>
 #include <sstream>
 
 NCL::GameInstance::GameInstance() = default;
@@ -82,6 +83,10 @@ bool NCL::GameInstance::IsServersReadyToStart() {
 std::string NCL::GameInstance::GetServerAreaString(int serverID) {
 	std::stringstream ss;
 	GameBorder* borders = mPhysicsServerBorderMap[serverID];
+	// Borders are doubles and are frequently fractional (world extent / grid
+	// dimension). The stream's default 6 significant digits silently rounds them,
+	// which reintroduces the region gaps that parsing them as ints used to cause.
+	ss << std::setprecision(9);
 	ss << borders->minX << "/" << borders->maxX << "|" << borders->minZ << "/" << borders->maxZ;
 	return ss.str();
 }

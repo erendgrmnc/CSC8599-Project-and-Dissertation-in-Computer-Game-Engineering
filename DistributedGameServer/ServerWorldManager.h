@@ -15,12 +15,17 @@ namespace NCL::CSC8503 {
 namespace NCL {
 	namespace DistributedGameServer {
 
+		// Borders are computed as doubles by GameInstance::CalculateServerBorders and
+		// serialised as text. These were ints, so any world extent not divisible by
+		// the row/column count truncated on arrival - opening gaps and overlaps
+		// between regions. Objects landing in a gap map to server -1 and never hand
+		// off. Keep these floating point so the server's regions match the manager's.
 		struct PhysicsServerBorderData {
-			int maxZVal;
-			int minZVal;
+			float maxZVal;
+			float minZVal;
 
-			int maxXVal;
-			int minXVal;
+			float maxXVal;
+			float minXVal;
 		};
 
 		class ServerWorldManager {
@@ -44,9 +49,63 @@ namespace NCL {
 
 			std::vector<CSC8503::TestObject*> GetTestObjects();
 			std::vector<CSC8503::NetworkObject*>* GetNetworkObjects();
+
+			// Seed for the deterministic world construction. Every server building an
+			// instance must use the same value or their object sets diverge.
+			void SetWorldSeed(unsigned int seed) {
+				mWorldSeed = seed;
+			}
+
+			unsigned int GetWorldSeed() const {
+				return mWorldSeed;
+			}
+
+			// Pins the physics substep rate. Required for reproducible measurement -
+			// see PhysicsSystem::SetFixedTimestep.
+			void SetFixedTimestep(bool state);
+
+			// Selects the initial-motion workload applied when the world is built.
+			//   ""        - none (default): objects fall and settle, never crossing a
+			//               region border, so the handoff path is never exercised
+			//   "shuttle" - deterministic lateral velocity, so objects traverse the
+			//               world and cross borders at a measurable rate
+			// Must be identical on every server: they each build the same object set
+			// independently, so a workload mismatch desynchronises the world.
+			void SetWorkload(const std::string& workload) {
+				mWorkload = workload;
+			}
+
+			const std::string& GetWorkload() const {
+				return mWorkload;
+			}
+
+			// Handoff parity counters (invariant I5): every StartSimulatingObjectPacket
+			// this server sends should be matched by exactly one successful
+			// StartHandlingObject somewhere. A drift between these totals across all
+			// servers means objects are being lost or duplicated in transit.
+			int GetHandoffsSent() const {
+				return mHandoffsSent;
+			}
+
+			int GetHandoffsReceived() const {
+				return mHandoffsReceived;
+			}
+
+			int GetHandoffsFailed() const {
+				return mHandoffsFailed;
+			}
+
+			void RecordHandoffSent() {
+				++mHandoffsSent;
+			}
 		protected:
 			int mNetworkIdBuffer;
 			int mServerID;
+			unsigned int mWorldSeed = 1u;
+			std::string mWorkload;
+			int mHandoffsSent = 0;
+			int mHandoffsReceived = 0;
+			int mHandoffsFailed = 0;
 			double mPhysicsTime = 0;
 			float mObjDebugTimer = 5.f;
 
@@ -67,7 +126,9 @@ namespace NCL {
 
 			int GetObjectServer(const Maths::Vector3& position) const;
 
-			const Maths::Vector3& CalculateIncomingObjectOffsetPosition(const Maths::Vector3& position);
+			Maths::Vector3 CalculateIncomingObjectOffsetPosition(const Maths::Vector3& position);
+
+			void ApplyWorkloadInitialState(CSC8503::GameObject& obj, int playerID, int objectIndex) const;
 		};
 	}
 }
