@@ -10,7 +10,10 @@ GameServer::GameServer(int onPort, int maxClients, bool isStartingServer) {
 	mClientMax = maxClients;
 	mClientCount = 0;
 	netHandle = nullptr;
-	mPeers = new int[20];
+	// Was a fixed new int[20] while the loop below (and AddPeer) run to mClientMax,
+	// which SetMaxClients can raise freely - a heap overflow for any configuration
+	// with more than 20 total peers.
+	mPeers = new int[mClientMax];
 	for (int i = 0; i < mClientMax; ++i) {
 		mPeers[i] = -1;
 	}
@@ -22,6 +25,8 @@ GameServer::GameServer(int onPort, int maxClients, bool isStartingServer) {
 
 GameServer::~GameServer() {
 	Shutdown();
+	delete[] mPeers;
+	mPeers = nullptr;
 }
 
 void GameServer::Shutdown() {
@@ -106,9 +111,13 @@ void GameServer::UpdateServer() {
 		}
 		else if (type == ENetEventType::ENET_EVENT_TYPE_DISCONNECT) {
 			std::cout << "Server: Client has disconnected" << std::endl;
-			for (int i = 0; i < 3; ++i) {
+			// Was a hardcoded 3, so peers in any slot past index 2 were never
+			// released and mClientCount never fell - the slot leaked for the rest of
+			// the run and eventually the table filled up.
+			for (int i = 0; i < mClientMax; ++i) {
 				if (mPeers[i] == peer + 1) {
 					mPeers[i] = -1;
+					mClientCount--;
 				}
 			}
 
@@ -123,6 +132,17 @@ void GameServer::UpdateServer() {
 }
 
 void GameServer::SetMaxClients(int maxClients) {
+	if (maxClients == mClientMax) {
+		return;
+	}
+	// The peer table must grow with the bound: every loop over mPeers runs to
+	// mClientMax, so raising the count without reallocating overflows the buffer.
+	int* resized = new int[maxClients];
+	for (int i = 0; i < maxClients; ++i) {
+		resized[i] = (i < mClientMax) ? mPeers[i] : -1;
+	}
+	delete[] mPeers;
+	mPeers = resized;
 	mClientMax = maxClients;
 }
 
