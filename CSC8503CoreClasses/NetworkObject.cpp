@@ -32,7 +32,7 @@ GameStartStatePacket::GameStartStatePacket(bool val, int gameInstanceId, const s
 
 	isGameStarted = val;
 	this->gameInstanceId = gameInstanceId;
-	this->levelSeed = seed;
+	CopyToPacketField(this->levelSeed, seed);
 }
 
 GameEndStatePacket::GameEndStatePacket(bool val, int winningPlayerId) {
@@ -260,14 +260,14 @@ playerNumber(-1) {
 	size = sizeof(DistributedClientGetGameInstanceDataPacket);
 }
 
-DistributedPhysicsClientConnectedToManagerPacket::DistributedPhysicsClientConnectedToManagerPacket(int port, int physicsServerID, int gameInstanceID, std::string ipAddress) {
+DistributedPhysicsClientConnectedToManagerPacket::DistributedPhysicsClientConnectedToManagerPacket(int port, int physicsServerID, int gameInstanceID, const std::string& ipAddress) {
 	type = BasicNetworkMessages::DistributedPhysicsClientConnectedToManager;
 	size = sizeof(DistributedPhysicsClientConnectedToManagerPacket);
 
 	this->physicsPacketDistributorPort = port;
 	this->physicsServerID = physicsServerID;
 	this->gameInstanceID = gameInstanceID;
-	this->ipAddress = ipAddress.c_str();
+	CopyToPacketField(this->ipAddress, ipAddress);
 }
 
 DistributedClientConnectToPhysicsServerPacket::DistributedClientConnectToPhysicsServerPacket(int port, int physicsServerID, const std::string& ipAddress, const std::string& borderStr) {
@@ -276,7 +276,7 @@ DistributedClientConnectToPhysicsServerPacket::DistributedClientConnectToPhysics
 
 	this->physicsPacketDistributorPort = port;
 	this->physicsServerID = physicsServerID;
-	this->ipAddress = ipAddress;
+	CopyToPacketField(this->ipAddress, ipAddress);
 
 	strncpy(this->borderStr, borderStr.c_str(), sizeof(this->borderStr) - 1);
 	this->borderStr[sizeof(this->borderStr) - 1] = '\0';
@@ -293,6 +293,13 @@ DistributedPhysicsServerAllClientsAreConnectedPacket::DistributedPhysicsServerAl
 DistributedClientsGameServersAreReadyPacket::DistributedClientsGameServersAreReadyPacket() {
 	type = BasicNetworkMessages::DistributedClientsGameServersAreReady;
 	size = sizeof(DistributedClientsGameServersAreReadyPacket);
+
+	// Fixed arrays are not zeroed by default, so an unset slot would put whatever
+	// was on the stack onto the wire.
+	for (int i = 0; i < 2; ++i) {
+		ipAddresses[i][0] = 0;
+		ports[i] = 0;
+	}
 }
 
 StartDistributedGameServerPacket::StartDistributedGameServerPacket(int serverManagerPort, int gameInstanceID, int maxClientCount, int objectsPerPlayer, std::vector<int> serverPorts, std::vector<std::string> serverIps, std::vector<int> connectedServerIds, const std::map<int, const std::string>& serverBorderMap) {
@@ -339,7 +346,7 @@ StartDistributedGameServerPacket::StartDistributedGameServerPacket(int serverMan
 
 	for (int i = 0; i < currentServerCount; i++) {
 		this->serverPorts[i] = serverPorts[i];
-		this->createdServerIPs[i] = serverIps[i];
+		CopyToPacketField(this->createdServerIPs[i], serverIps[i]);
 		// -1 rather than i: a receiver must never fall back to treating the array
 		// index as a server id, which is the bug this field exists to fix.
 		this->connectedServerIDs[i] =
@@ -402,7 +409,7 @@ PhysicsServerMiddlewareConnectedPacket::PhysicsServerMiddlewareConnectedPacket(c
 	type = BasicNetworkMessages::PhysicsServerMiddlewareConnected;
 	size = sizeof(PhysicsServerMiddlewareConnectedPacket);
 
-	this->ipAddress = ipAddress.c_str();
+	CopyToPacketField(this->ipAddress, ipAddress);
 }
 
 PhysicsServerMiddlewareDataPacket::PhysicsServerMiddlewareDataPacket(int peerID, int middlewareID) {

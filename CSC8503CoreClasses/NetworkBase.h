@@ -75,6 +75,25 @@ enum DistributedSystemServerType {
 	
 };
 
+// Copies a std::string into a fixed-size packet field, always null-terminating and
+// truncating rather than running off the end.
+//
+// Packets are memcpy'd onto the wire (GameClient::SendPacket), so a std::string
+// member only ever "worked" because short-string optimisation kept the bytes inline
+// AND both ends were the same MSVC x64 binary. A longer value, a different STL, or a
+// heap-allocated string would have put a pointer on the wire.
+template<size_t N>
+inline void CopyToPacketField(char (&dst)[N], const std::string& src) {
+	const size_t count = (src.size() < N - 1) ? src.size() : (N - 1);
+	if (count > 0) {
+		memcpy(dst, src.data(), count);
+	}
+	dst[count] = 0;
+}
+
+// Long enough for "255.255.255.255" plus a terminator.
+constexpr size_t PACKET_IP_LENGTH = 16;
+
 struct GamePacket {
 	short size;
 	short type;

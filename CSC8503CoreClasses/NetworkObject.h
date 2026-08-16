@@ -155,7 +155,8 @@ namespace NCL::CSC8503 {
 		bool isGameStarted = false;
 		int gameInstanceId;
 
-		std::string levelSeed;
+		// Fixed array, not std::string: this struct is memcpy'd onto the wire.
+		char levelSeed[64];
 		GameStartStatePacket(bool val, int gameInstanceId, const std::string& seed);
 	};
 
@@ -308,15 +309,15 @@ namespace NCL::CSC8503 {
 		int physicsServerID;
 		int physicsPacketDistributorPort;
 		int gameInstanceID;
-		std::string ipAddress;
+		char ipAddress[PACKET_IP_LENGTH];
 
-		DistributedPhysicsClientConnectedToManagerPacket(int port, int physicsServerID, int gameInstanceID, std::string ipAddress);
+		DistributedPhysicsClientConnectedToManagerPacket(int port, int physicsServerID, int gameInstanceID, const std::string& ipAddress);
 	};
 
 	struct DistributedClientConnectToPhysicsServerPacket : public GamePacket {
 		int physicsPacketDistributorPort;
 		int physicsServerID;
-		std::string ipAddress;
+		char ipAddress[PACKET_IP_LENGTH];
 		// The server's region as "minX/maxX|minZ/maxZ" (same format the manager ships to
 		// game servers in RunDistributedPhysicsServerInstancePacket). Lets the client draw
 		// which server owns which slice of the world. Fixed char array so it survives the
@@ -335,7 +336,7 @@ namespace NCL::CSC8503 {
 
 	struct DistributedClientsGameServersAreReadyPacket : public GamePacket {
 		//TODO(erendgrmnc: add ip and port information for clients to connect with additional required data)
-		std::string ipAddresses[2];
+		char ipAddresses[2][PACKET_IP_LENGTH];
 		int ports[2];
 
 		DistributedClientsGameServersAreReadyPacket();
@@ -361,7 +362,7 @@ namespace NCL::CSC8503 {
 		int serverIDs[20];
 		int serverPorts[20];
 		char borders[20][256];
-		std::string createdServerIPs[20];
+		char createdServerIPs[20][PACKET_IP_LENGTH];
 
 		// Indexed alongside serverPorts[] and createdServerIPs[], which are filled in
 		// the order servers registered with the manager - NOT by server ID. Without
@@ -428,7 +429,7 @@ namespace NCL::CSC8503 {
 	};
 
 	struct PhysicsServerMiddlewareConnectedPacket : public GamePacket {
-		std::string ipAddress;
+		char ipAddress[PACKET_IP_LENGTH];
 
 		PhysicsServerMiddlewareConnectedPacket(const std::string& ipAddress);
 	};
