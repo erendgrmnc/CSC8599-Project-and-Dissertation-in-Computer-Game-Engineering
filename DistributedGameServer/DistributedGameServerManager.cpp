@@ -95,6 +95,13 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 		mDistributedPacketSenderServer->UpdateServer();
 	}
 
+	// Published every update so the I4 accounting invariant can be checked from the
+	// @@STAT stream without any extra instrumentation.
+	Profiler::SetCommandsApplied(mCommandsApplied);
+	Profiler::SetCommandsRelayed(mCommandsRelayed);
+	Profiler::SetCommandsDuplicate(mCommandsDuplicate);
+	Profiler::SetCommandsRejected(mCommandsRejected);
+
 	for (auto& gameServerConnection : mDistributedPhysicsClients) {
 		gameServerConnection->client->UpdateClient();
 	}
@@ -146,6 +153,12 @@ void DistributedGameServer::DistributedGameServerManager::RegisterPacketSenderSe
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedClientConnectToPhysicsServer, this);
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::StartSimulatingObjectInServerReceived, this);
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedClientSnapshotAck, this);
+	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedClientCommand, this);
+	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedServerCommandRelay, this);
+
+	// One registration for the process. Adding a new interaction never touches
+	// ReceivePacket - that is the point of the registry.
+	NCL::Interaction::CommandRegistry::RegisterDefaults();
 
 	std::function<void()> onAllClientsConnectedCallback = std::bind(&DistributedGameServerManager::SendAllClientsAreConnectedToPacketSenderServerPacket, this);
 	mDistributedPacketSenderServer->RegisterOnAllClientsAreConnectedEvent(onAllClientsConnectedCallback);
@@ -246,6 +259,14 @@ void DistributedGameServer::DistributedGameServerManager::ReceivePacket(int type
 	case BasicNetworkMessages::GameStartState: {
 		GameStartStatePacket* packet = static_cast<GameStartStatePacket*>(payload);
 		HandleGameStarted(packet);
+		break;
+	}
+	case BasicNetworkMessages::DistributedClientCommand: {
+		HandleClientCommandPacket(static_cast<DistributedClientCommandPacket*>(payload));
+		break;
+	}
+	case BasicNetworkMessages::DistributedServerCommandRelay: {
+		HandleServerCommandRelayPacket(static_cast<DistributedServerCommandRelayPacket*>(payload));
 		break;
 	}
 	case BasicNetworkMessages::ClientPlayerInputState: {
@@ -519,6 +540,140 @@ void DistributedGameServer::DistributedGameServerManager::SendFinishTransactionP
 	mDistributedPacketSenderServer->SendGlobalReliablePacket(packet);
 }
 
+void DistributedGameServer::DistributedGameServerManager::HandleClientCommandPacket(
+	DistributedClientCommandPacket* packet) {
+	if (packet == nullptr) {
+		return;
+	}
+
+	const auto type = static_cast<NCL::Interaction::CommandType>(packet->commandType);
+	const NCL::Interaction::IInteractionCommand* command =
+		NCL::Interaction::CommandRegistry::Instance().Find(type);
+	if (command == nullptr) {
+		++mCommandsRejected;
+		SendCommandAck(packet->sequence, packet->args.playerID, packet->args.targetObjectID,
+			NCL::Interaction::CommandResult::Rejected, -1);
+		return;
+	}
+
+	// Continuous input is idempotent state, so it is deliberately NOT sequenced -
+	// dropping a duplicate axis update would be indistinguishable from dropping a
+	// real one and would stall movement.
+	const NCL::Interaction::CommandScope scope = command->GetScope(packet->args);
+	if (!scope.isContinuous) {
+		NCL::SequenceWindow& window = mClientCommandWindows[packet->args.playerID];
+		if (!window.Accept(packet->sequence)) {
+			++mCommandsDuplicate;
+			SendCommandAck(packet->sequence, packet->args.playerID, packet->args.targetObjectID,
+				NCL::Interaction::CommandResult::Duplicate, -1);
+			return;
+		}
+	}
+
+	DispatchCommand(type, packet->args, packet->args.playerID, packet->sequence);
+}
+
+void DistributedGameServer::DistributedGameServerManager::HandleServerCommandRelayPacket(
+	DistributedServerCommandRelayPacket* packet) {
+	if (packet == nullptr) {
+		return;
+	}
+
+	// A relay is never re-relayed. Anything with hops already on it is a routing
+	// loop, and dropping it loudly beats letting it circulate.
+	if (packet->hopCount > 0) {
+		++mCommandsRejected;
+		std::cout << "ERROR: dropping relay with hopCount " << packet->hopCount
+			<< " from server " << packet->originServerID << " - routing loop.\n";
+		return;
+	}
+
+	NCL::SequenceWindow& window = mRelayWindows[packet->originServerID];
+	if (!window.Accept(packet->originSequence)) {
+		++mCommandsDuplicate;
+		return;
+	}
+
+	DispatchCommand(static_cast<NCL::Interaction::CommandType>(packet->commandType),
+		packet->args, packet->playerID, packet->clientSequence);
+}
+
+void DistributedGameServer::DistributedGameServerManager::DispatchCommand(
+	NCL::Interaction::CommandType type, const NCL::Interaction::CommandArgs& args,
+	int playerID, int clientSequence) {
+	NCL::Interaction::IInteractionCommand* command =
+		NCL::Interaction::CommandRegistry::Instance().Find(type);
+	if (command == nullptr) {
+		++mCommandsRejected;
+		return;
+	}
+
+	ServerWorldManager* worldManager = GetServerWorldManager();
+	if (worldManager == nullptr) {
+		++mCommandsRejected;
+		return;
+	}
+
+	const NCL::Interaction::CommandResult result = command->Apply(*worldManager, args);
+
+	switch (result) {
+	case NCL::Interaction::CommandResult::Applied:  ++mCommandsApplied;  break;
+	case NCL::Interaction::CommandResult::Relayed:  ++mCommandsRelayed;  break;
+	default:                                        ++mCommandsRejected; break;
+	}
+
+	// Queued during Apply, sent now: a command must never re-enter the network layer
+	// from inside a packet handler.
+	DrainPendingRelays(playerID, clientSequence);
+
+	// Only the server that APPLIED the command acks the client. A relaying server
+	// stays silent so the client gets exactly one ack per command.
+	if (result != NCL::Interaction::CommandResult::Relayed) {
+		SendCommandAck(clientSequence, playerID, args.targetObjectID, result, -1);
+	}
+}
+
+void DistributedGameServer::DistributedGameServerManager::DrainPendingRelays(int playerID,
+	int clientSequence) {
+	ServerWorldManager* worldManager = GetServerWorldManager();
+	if (worldManager == nullptr) {
+		return;
+	}
+
+	ServerWorldManager::PendingRelay relay;
+	while (worldManager->PopPendingRelay(relay)) {
+		DistributedServerCommandRelayPacket packet(
+			static_cast<int>(relay.type),
+			mGameServerID,
+			++mRelaySequenceCounter,
+			playerID,
+			clientSequence,
+			relay.args);
+
+		// Directed send over the existing peer mesh - the same lookup
+		// SendTransactionHandshakePacket already does, so no new plumbing.
+		for (const auto* connection : mDistributedPhysicsClients) {
+			if (connection->serverID == relay.targetServerID && connection->client != nullptr) {
+				connection->client->SendReliablePacket(packet);
+				break;
+			}
+		}
+	}
+}
+
+void DistributedGameServer::DistributedGameServerManager::SendCommandAck(int sequence, int playerID,
+	int targetObjectID, NCL::Interaction::CommandResult result, int correctedServerID) {
+	DistributedCommandAckPacket packet(sequence, playerID, targetObjectID,
+		static_cast<int>(result), correctedServerID);
+
+	// Broadcast to this server's connected clients, matching how snapshots are sent.
+	// The client filters on playerID; a directed per-peer send needs retained
+	// ENetPeer* work that belongs with the late-join manifest.
+	if (mDistributedPacketSenderServer != nullptr) {
+		mDistributedPacketSenderServer->SendGlobalReliablePacket(packet);
+	}
+}
+
 void DistributedGameServer::DistributedGameServerManager::SendTransactionHandshakePacket(int senderServerID, int networkID) const {
 	StartSimulatingObjectReceivedPacket packet(networkID, mGameServerID);
 
@@ -542,6 +697,9 @@ DistributedGameServer::GameServerConnection* DistributedGameServer::DistributedG
 
 	if (isConnected) {
 		client->RegisterPacketHandler(BasicNetworkMessages::StartSimulatingObjectInServer, this);
+		// Without this, relayed commands arrive on the peer link and are silently
+		// dropped - the misroute path would look like it simply lost the command.
+		client->RegisterPacketHandler(BasicNetworkMessages::DistributedServerCommandRelay, this);
 	}
 
 	GameServerConnection* connection = new GameServerConnection(gameServerID, client);

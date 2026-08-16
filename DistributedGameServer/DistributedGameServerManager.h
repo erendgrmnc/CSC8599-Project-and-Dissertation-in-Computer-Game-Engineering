@@ -5,6 +5,7 @@
 #include "DistributedPhysicsServerClient.h"
 #include "NetworkBase.h"
 #include "NetworkObject.h"
+#include "DistributedSystemCommonFiles/SequenceWindow.h"
 
 namespace NCL::CSC8503 {
 	struct DistributedManagerAllGameServersAreConnectedPacket;
@@ -85,6 +86,22 @@ namespace NCL {
 			std::vector<CSC8503::NetworkObject*>* mNetworkObjects;
 
 			std::map<int, int> mStateIDs;
+
+			// (playerID, sequence) is the dedupe key for client commands. Per-player,
+			// because sequences are client-scoped and two clients will collide.
+			std::map<int, NCL::SequenceWindow> mClientCommandWindows;
+
+			// (originServerID, originSequence) for relays. A relayed area effect can
+			// reach one server through two different neighbours; without this an
+			// object inside both radii is pushed twice.
+			std::map<int, NCL::SequenceWindow> mRelayWindows;
+			int mRelaySequenceCounter = 0;
+
+			int mCommandsApplied = 0;
+			int mCommandsRelayed = 0;
+			int mCommandsDuplicate = 0;
+			int mCommandsRejected = 0;
+
 			std::map<const int, PhysicsServerBorderData*> mPhysicsServerBorderMap;
 
 			NCL::Networking::DistributedPhysicsServerClient* mThisDistributedPhysicsServer = nullptr;
@@ -101,6 +118,15 @@ namespace NCL {
 			void HandleObjectTransitions() const;
 			void SendFinishTransactionPacket(NetworkObject& obj) const;
 			void SendTransactionHandshakePacket(int senderServerID, int networkID) const;
+
+			// --- interaction command channel ---
+			void HandleClientCommandPacket(CSC8503::DistributedClientCommandPacket* packet);
+			void HandleServerCommandRelayPacket(CSC8503::DistributedServerCommandRelayPacket* packet);
+			void DispatchCommand(NCL::Interaction::CommandType type,
+				const NCL::Interaction::CommandArgs& args, int playerID, int clientSequence);
+			void DrainPendingRelays(int playerID, int clientSequence);
+			void SendCommandAck(int sequence, int playerID, int targetObjectID,
+				NCL::Interaction::CommandResult result, int correctedServerID);
 ;			GameServerConnection* ConnectServerToAnotherGameServer(char a, char b, char c, char d, int port, int gameServerID);
 		};
 	}
