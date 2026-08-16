@@ -1727,3 +1727,65 @@ being untested by accident:
 
 Reaching either deliberately would need fault injection (delayed or reordered links), which is
 Tier 2 soak/chaos territory and is not built. Recorded so neither reads as "verified".
+
+---
+
+## 15. Implementation notes — increments 7 and 8 (shipped 2026-08-16)
+
+### Increment 8 — directed peer send and late-join manifest
+
+- `GameServer::SendPacketToPeer(peerNumber, packet)` plus a retained
+  `std::map<int, _ENetPeer*> mPeerHandles`. `mPeers` holds peer *numbers*, not handles, so a
+  directed send was impossible without this.
+- `DistributedPacketSenderServer::RegisterOnPeerJoinedEvent` fires per peer, before the
+  all-connected event — a late joiner needs its manifest whether or not it happens to complete the
+  set.
+- `BuildOwnedObjectManifest()` returns one entry per object this server **owns**; peer-owned and
+  tombstoned entries are skipped, so the joiner receives the whole world exactly once across all
+  servers. Archetypes are now recorded for pre-seeded objects too, otherwise a joiner would be told
+  every existing object is the default shape.
+- `StartDistributedGameServerPacket` arrays are clamped to `MAX_SERVERS = 20` with a diagnostic.
+  Exceeding them was a buffer overflow, not a truncation.
+
+**A second copy of an already-fixed bug.** `DistributedPacketSenderServer::UpdateServer` duplicates
+`GameServer`'s ENet event loop, and that copy still carried the hardcoded `for (i = 0; i < 3; ++i)`
+disconnect loop — the exact bug fixed in the base class during Track 0 — **and never decremented
+`mClientCount` at all**. This is the server clients actually connect to, so its peer table filled
+up permanently over a long run. It also never stored the peer handle, which is why the first
+manifest attempt reported `manifestSent=0` while still printing "sent manifest": the sends were
+silently finding no destination. Both fixed.
+
+Verified: `manifestSent=800` (400 owned objects x 2 joining peers) with conservation, I4 and I5 all
+exact.
+
+### Increment 7 — player-controlled avatars
+
+The **only** wire-format change in the entire interaction design. Two fields are **appended** to
+`StartSimulatingObjectPacket` — `mControllerPlayerID` and `mMoveAxis` — so every existing offset is
+unchanged.
+
+Movement input is genuinely treated as *state*: `SetMoveAxis` now only records it on the object, and
+`ApplyControlForces()` re-applies it every tick before the integrator. Previously the force was
+applied once on receipt, which made movement depend on the client's packet rate rather than on the
+input. Because it is state and is never relayed or replayed, it has to travel with the object —
+hence the appended fields.
+
+Verified with `--drive-every`: one object driven along +X across the seam over 7200 ticks.
+
+| | server 0 | server 1 |
+|---|---|---|
+| MoveAxis applied | 262 | 2702 |
+| handoffs sent / received | 47 / 2 | 2 / 47 |
+
+- **I4 exact:** `2964 applied + 2 rejected = 2966` = `cmdSent`, gap 0.
+- **I5 exact:** 49 = 49, `hoFail = 0`. **Conservation exact:** 400.
+- The driven object kept moving after crossing (2702 applications on the server it moved to), and
+  only **2** commands out of 2966 hit `NotOwner` across 49 handoffs — that residual is the
+  crossing window itself, and it is counted rather than lost.
+
+### Status
+
+Increments 1-8 are complete. Of the two changes the design flagged as altering existing semantics,
+one (increment 2's border rule) shipped as planned and one (increment 6's load-bearing ack) proved
+**unnecessary** — the ordinary relay path covers it. The handoff protocol's behaviour is unchanged
+throughout; the single wire change is append-only.
