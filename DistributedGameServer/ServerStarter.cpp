@@ -93,10 +93,26 @@ int StartGameServer(int argc, char* argv[]) {
 	std::cout << "Parsed game instance ID: " << gameInstanceID << "\n";
 	std::cout << "Parsed server borders string: " << serverBorders << '\n';
 
+	const NCL::LaunchConfig config(argc, argv);
+
 	NCL::DistributedGameServer::DistributedGameServerManager* serverManager = new NCL::DistributedGameServer::DistributedGameServerManager(serverId, gameInstanceID, serverBorders);
+
+	// Determinism settings must be applied before the world is built and before the
+	// first physics tick. Every server in an instance must be given the same values
+	// or their object sets and trajectories diverge.
+	if (auto* worldManager = serverManager->GetServerWorldManager()) {
+		const bool fixedStep = config.Has("--fixed-step");
+		worldManager->SetFixedTimestep(fixedStep);
+		worldManager->SetWorldSeed(static_cast<unsigned int>(config.GetInt("--seed", 1)));
+		worldManager->SetWorkload(config.GetString("--workload", ""));
+		std::cout << "Determinism: fixed-step=" << (fixedStep ? "on" : "off")
+			<< " seed=" << worldManager->GetWorldSeed()
+			<< " workload=" << (worldManager->GetWorkload().empty() ? "(none)" : worldManager->GetWorkload())
+			<< "\n";
+	}
+
 	serverManager->StartDistributedGameServer(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], port);
 
-	const NCL::LaunchConfig config(argc, argv);
 	const bool headless = config.Has("--headless");
 
 	NCL::TelemetryReporter reporter(NCL::TelemetryRole::GameServer, serverId);

@@ -29,11 +29,19 @@ namespace NCL {
 		// and their stdout is forwarded to this midware's stdout (so the launcher sees
 		// it). Mirrors the midware's own run mode.
 		void SetHeadless(bool headless);
+
+		// Extra flags appended verbatim to every spawned game server's command line.
+		// Game servers are launched by this midware, not by the launcher, so any flag
+		// the servers understand is unreachable unless it is forwarded through here.
+		// Used for the determinism flags (--fixed-step, --seed) that reproducible
+		// measurement runs depend on.
+		void SetServerExtraArgs(const std::string& args);
 	protected:
 		std::string serverManagerIpAddress;
 		int distributedManagerPort;
 		int mMidwareID;
 		std::string mServerExePath;
+		std::string mServerExtraArgs;
 		bool mHeadless = false;
 		CSC8503::GameClient* mDistributedManagerClient;
 

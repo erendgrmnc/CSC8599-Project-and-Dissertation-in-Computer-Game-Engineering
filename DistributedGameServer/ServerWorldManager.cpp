@@ -16,6 +16,34 @@ using namespace NCL;
 namespace {
 	constexpr int NETWORK_ID_BUFFER = 10;
 	constexpr float PREDICTION_STEP = 1.0f;
+
+	// "shuttle" workload tuning. Linear damping is (1 - 0.4*dt) per substep, i.e. a
+	// velocity time-constant of ~2.5 s, so an object launched at V travels roughly
+	// 2.5*V before stopping. At 30-60 u/s that is 75-150 units of travel, which
+	// comfortably crosses a border in a +/-150 world.
+	constexpr float SHUTTLE_MIN_SPEED = 30.0f;
+	constexpr float SHUTTLE_MAX_SPEED = 60.0f;
+	constexpr float SHUTTLE_Z_SPREAD = 20.0f;
+
+	// Deterministic replacement for rand() when choosing an object's shape.
+	//
+	// Every server independently builds the identical object set, and agreement
+	// used to rest on rand() being unseeded (no srand call exists anywhere), so all
+	// processes happened to walk libc's default sequence in lockstep. That breaks the
+	// moment any process seeds the generator, calls rand() elsewhere, or builds the
+	// grid in a different order.
+	//
+	// Hashing the object's identity instead of drawing from a shared stream makes the
+	// choice independent of call order as well as reproducible across processes.
+	unsigned int DeterministicHash(unsigned int seed, int playerID, int objectIndex) {
+		unsigned int h = seed * 2654435761u;
+		h ^= static_cast<unsigned int>(playerID) + 0x9e3779b9u + (h << 6) + (h >> 2);
+		h ^= static_cast<unsigned int>(objectIndex) + 0x9e3779b9u + (h << 6) + (h >> 2);
+		h ^= h >> 16;
+		h *= 0x7feb352du;
+		h ^= h >> 15;
+		return h;
+	}
 }
 
 NCL::DistributedGameServer::ServerWorldManager::ServerWorldManager(int serverID, PhysicsServerBorderData& physcisServerBorderData, std::map<const int, PhysicsServerBorderData*>& borderMap) {
@@ -72,6 +100,45 @@ NCL::CSC8503::GameWorld* NCL::DistributedGameServer::ServerWorldManager::GetGame
 	return mGameWorld;
 }
 
+void NCL::DistributedGameServer::ServerWorldManager::SetFixedTimestep(bool state) {
+	mPhysics->SetFixedTimestep(state);
+}
+
+// Gives a freshly created object its initial motion. Without a workload the default
+// scene is purely ballistic - objects fall straight down and settle - so nothing ever
+// approaches a region border and the handoff protocol, which is the whole point of
+// the system, is never exercised.
+//
+// The velocity is derived from the same deterministic hash used for shape selection,
+// so every server computes the identical value for a given object without any
+// coordination, and a run repeats exactly for a given --seed.
+void NCL::DistributedGameServer::ServerWorldManager::ApplyWorkloadInitialState(
+	CSC8503::GameObject& obj, int playerID, int objectIndex) const {
+	if (mWorkload != "shuttle") {
+		return;
+	}
+
+	auto* physicsComp = obj.GetPhysicsObject();
+	if (physicsComp == nullptr) {
+		return;
+	}
+
+	const unsigned int h = DeterministicHash(mWorldSeed ^ 0xA5A5A5A5u, playerID, objectIndex);
+
+	// Lateral speed in [SHUTTLE_MIN_SPEED, SHUTTLE_MAX_SPEED], direction alternating
+	// by hash so traffic crosses the border in both directions rather than draining
+	// into one region.
+	const float span = SHUTTLE_MAX_SPEED - SHUTTLE_MIN_SPEED;
+	const float speed = SHUTTLE_MIN_SPEED + (static_cast<float>(h % 1000u) / 1000.0f) * span;
+	const float direction = (h & 1u) ? 1.0f : -1.0f;
+
+	// A small Z component spreads objects along the border instead of funnelling them
+	// through a single crossing point.
+	const float lateralZ = (static_cast<float>((h >> 8) % 200u) / 200.0f - 0.5f) * SHUTTLE_Z_SPREAD;
+
+	physicsComp->SetLinearVelocity(Vector3(speed * direction, 0.0f, lateralZ));
+}
+
 void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	std::chrono::steady_clock::time_point start;
 	std::chrono::steady_clock::time_point end;
@@ -111,6 +178,10 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	Profiler::SetPhysicsTime(timeTaken.count());
 
 	CheckPositionOutOfServerBoundaries();
+
+	Profiler::SetHandoffsSent(mHandoffsSent);
+	Profiler::SetHandoffsReceived(mHandoffsReceived);
+	Profiler::SetHandoffsFailed(mHandoffsFailed);
 }
 
 void NCL::DistributedGameServer::ServerWorldManager::AddNetworkObject(CSC8503::GameObject& objToAdd) {
@@ -163,7 +234,17 @@ void DistributedGameServer::ServerWorldManager::CheckPositionOutOfServerBoundari
 }
 
 bool DistributedGameServer::ServerWorldManager::StartHandlingObject(StartSimulatingObjectPacket* packet) {
-	if (GameObject* objectToHandle = mCreatedObjectPool.at(packet->objectID)) {
+	// std::map::at throws on an unknown key; an object present on the sender but
+	// absent from this server's pool would take the whole process down rather than
+	// reporting a failed handoff.
+	auto poolEntry = mCreatedObjectPool.find(packet->objectID);
+	if (poolEntry == mCreatedObjectPool.end()) {
+		++mHandoffsFailed;
+		std::cout << "ERROR: handoff for unknown object id " << packet->objectID
+			<< " - no pool entry on this server.\n";
+		return false;
+	}
+	if (GameObject* objectToHandle = poolEntry->second) {
 		objectToHandle->SetActive(false);
 		std::cout << "Added incoming network object with network id: " << packet->objectID << "/ Game world object count: " << mGameWorld->GetGameObjects().size() << "\n";
 
@@ -197,10 +278,13 @@ bool DistributedGameServer::ServerWorldManager::StartHandlingObject(StartSimulat
 		objectToHandle->SetActive(true);
 		objectToHandle->SetServerID(mServerID);
 
+		++mHandoffsReceived;
+
 		std::cout << "Starting simulating object: " << packet->objectID << "/ Game world object count: " << mGameWorld->GetGameObjects().size() << "\n";
 		return true;
 	}
 
+	++mHandoffsFailed;
 	return false;
 }
 
@@ -210,7 +294,12 @@ void DistributedGameServer::ServerWorldManager::HandleTransitionHandshakeReceive
 }
 
 void DistributedGameServer::ServerWorldManager::HandleOutgoingObject(int networkObjectID) {
-	if (auto* gameObj = mCreatedObjectPool.at(networkObjectID)) {
+	auto poolEntry = mCreatedObjectPool.find(networkObjectID);
+	if (poolEntry == mCreatedObjectPool.end()) {
+		std::cout << "ERROR: outgoing handoff for unknown object id " << networkObjectID << "\n";
+		return;
+	}
+	if (auto* gameObj = poolEntry->second) {
 		std::cout << "Removing object from server with network ID" << gameObj->GetNetworkObject()->GetNetworkID() << "\n";
 		gameObj->SetActive(false);
 		if (TestObject* testComp = dynamic_cast<TestObject*>(gameObj)) {
@@ -234,7 +323,7 @@ void DistributedGameServer::ServerWorldManager::CreateObjectGrid(int rowCount, i
 
 			GameObject* obj = nullptr;
 
-			if (rand() % 2) {
+			if (DeterministicHash(mWorldSeed, playerID, objCounter) & 1u) {
 				std::cout << "Creating Object at: " << transform.GetPosition() << "\n";
 				obj = AddCubeToWorld(transform, objCounter++, playerID);
 			}
@@ -245,6 +334,8 @@ void DistributedGameServer::ServerWorldManager::CreateObjectGrid(int rowCount, i
 			AddNetworkObject(*obj);
 			auto networkId = obj->GetNetworkObject()->GetNetworkID();
 			mCreatedObjectPool[networkId] = obj;
+
+			ApplyWorkloadInitialState(*obj, playerID, objCounter - 1);
 
 			if (IsObjectInBorder(transform.GetPosition())) {
 				std::cout << "Added object to world. Obj name: " << obj->GetName() << "/ Network Id: " << networkId << "\n";
@@ -295,7 +386,10 @@ int DistributedGameServer::ServerWorldManager::GetObjectServer(const Maths::Vect
 	return -1;
 }
 
-const Maths::Vector3& DistributedGameServer::ServerWorldManager::CalculateIncomingObjectOffsetPosition(const Maths::Vector3& position) {
+// NOTE: currently unreferenced. Kept because the incoming-object nudge it performs
+// is needed once ownership is decided by a single half-open rule, but it returned a
+// reference to this stack local (undefined behaviour) if it was ever called.
+Maths::Vector3 DistributedGameServer::ServerWorldManager::CalculateIncomingObjectOffsetPosition(const Maths::Vector3& position) {
 	Vector3 offsetPos = position;
 
 	if (position.x > mServerBorderData->maxXVal) {

@@ -34,6 +34,10 @@ void NCL::ServerMidwareManager::SetServerExePath(const std::string& path) {
 	}
 }
 
+void NCL::ServerMidwareManager::SetServerExtraArgs(const std::string& args) {
+	mServerExtraArgs = args;
+}
+
 void NCL::ServerMidwareManager::SetHeadless(bool headless) {
 	mHeadless = headless;
 }
@@ -115,6 +119,14 @@ void ServerMidwareManager::StartPhysicsServerInstance(int distributedManagerPort
 	// windowless and their stdout is forwarded to the launcher via this midware.
 	if (mHeadless) {
 		arguments += " --headless";
+	}
+
+	// Determinism and any other pass-through flags. Without this the game servers
+	// silently run with an adaptive timestep and an unseeded world even when the
+	// operator asked for a reproducible run, because nothing rejects the flags at
+	// the level they were set.
+	if (!mServerExtraArgs.empty()) {
+		arguments += " " + mServerExtraArgs;
 	}
 
 	std::cout << arguments << std::endl;

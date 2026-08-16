@@ -40,8 +40,27 @@ int StartMidware(int argc, char* argv[]) {
 
 	const bool headless = config.Has("--headless");
 
+	// Flags the game servers understand but that only this midware can deliver,
+	// since it is what spawns them. Anything added here must also be parsed by
+	// StartGameServer in DistributedGameServer/ServerStarter.cpp.
+	std::string serverExtraArgs;
+	if (config.Has("--fixed-step")) {
+		serverExtraArgs += " --fixed-step";
+	}
+	if (config.Has("--seed")) {
+		serverExtraArgs += " --seed " + std::to_string(config.GetInt("--seed", 1));
+	}
+	if (config.Has("--workload")) {
+		serverExtraArgs += " --workload " + config.GetString("--workload", "");
+	}
+	if (!serverExtraArgs.empty()) {
+		serverExtraArgs.erase(0, 1);
+		std::cout << "Forwarding to spawned game servers: " << serverExtraArgs << "\n";
+	}
+
 	ServerMidwareManager* midwareManager = new ServerMidwareManager();
 	midwareManager->SetServerExePath(serverExePath);
+	midwareManager->SetServerExtraArgs(serverExtraArgs);
 	midwareManager->SetHeadless(headless);
 	midwareManager->ConnectToDistributedManager(distributedManagerIpAddress, distributedManagerPort);
 
