@@ -5,6 +5,9 @@
 #include "NetworkBase.h"
 #include "NetworkState.h"
 #include "GameClient.h"
+#include "DistributedSystemCommonFiles/InteractionCommand.h"
+
+#include <type_traits>
 
 // Distributed manager/server/world headers reference NCL::CSC8503 packet and
 // object types unqualified; this directive (previously pulled in transitively
@@ -52,6 +55,51 @@ namespace NCL::CSC8503 {
 			this->gameServerID = gameServerID;
 		}
 	};
+
+	// Client -> owning game server. Reliable. One packet shape for every interaction;
+	// the payload is interpreted by the IInteractionCommand registered for commandType.
+	struct DistributedClientCommandPacket : public GamePacket {
+		int commandType;                        // NCL::Interaction::CommandType
+		int sequence;                           // per-client monotonic; dedupe + ack key
+		int hintServerID;                       // client's belief about the owner, -1 = unknown
+		NCL::Interaction::CommandArgs args;
+
+		DistributedClientCommandPacket(int commandType, int sequence, int hintServerID,
+			const NCL::Interaction::CommandArgs& args);
+	};
+	// Turns a future std::string member into a compile error rather than a wire
+	// corruption that only manifests across machines.
+	static_assert(std::is_trivially_copyable_v<DistributedClientCommandPacket>);
+
+	// Game server -> the issuing client. Reliable. Sent by whichever server APPLIED
+	// the command, which is not necessarily the one that received it.
+	struct DistributedCommandAckPacket : public GamePacket {
+		int sequence;
+		int playerID;
+		int targetObjectID;                     // so the client can correct mObjectOwner
+		int result;                             // NCL::Interaction::CommandResult
+		int correctedServerID;                  // on NotOwner: the true owner; else -1
+
+		DistributedCommandAckPacket(int sequence, int playerID, int targetObjectID, int result,
+			int correctedServerID);
+	};
+	static_assert(std::is_trivially_copyable_v<DistributedCommandAckPacket>);
+
+	// Game server -> game server. Carries the client's identity so the true owner can
+	// ack the client directly, and the relaying server's identity for the dedupe key.
+	struct DistributedServerCommandRelayPacket : public GamePacket {
+		int commandType;
+		int originServerID;
+		int originSequence;                     // (originServerID, originSequence) = dedupe key
+		int hopCount;                           // 0 on send; >0 on receive is a bug: drop + count
+		int playerID;
+		int clientSequence;                     // so the applying server can ack the client
+		NCL::Interaction::CommandArgs args;
+
+		DistributedServerCommandRelayPacket(int commandType, int originServerID, int originSequence,
+			int playerID, int clientSequence, const NCL::Interaction::CommandArgs& args);
+	};
+	static_assert(std::is_trivially_copyable_v<DistributedServerCommandRelayPacket>);
 
 	struct ClientPacket : public GamePacket {
 		int		lastID;

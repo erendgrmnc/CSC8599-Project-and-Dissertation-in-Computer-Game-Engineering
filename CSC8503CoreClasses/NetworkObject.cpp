@@ -682,4 +682,44 @@ void NetworkObject::UpdateStateHistory(int minID) {
 			++i;
 	}
 }
+
+DistributedClientCommandPacket::DistributedClientCommandPacket(int commandType, int sequence,
+	int hintServerID, const NCL::Interaction::CommandArgs& args) {
+	type = BasicNetworkMessages::DistributedClientCommand;
+	size = sizeof(DistributedClientCommandPacket) - sizeof(GamePacket);
+
+	this->commandType = commandType;
+	this->sequence = sequence;
+	this->hintServerID = hintServerID;
+	this->args = args;
+}
+
+DistributedCommandAckPacket::DistributedCommandAckPacket(int sequence, int playerID,
+	int targetObjectID, int result, int correctedServerID) {
+	type = BasicNetworkMessages::DistributedCommandAck;
+	size = sizeof(DistributedCommandAckPacket) - sizeof(GamePacket);
+
+	this->sequence = sequence;
+	this->playerID = playerID;
+	this->targetObjectID = targetObjectID;
+	this->result = result;
+	this->correctedServerID = correctedServerID;
+}
+
+DistributedServerCommandRelayPacket::DistributedServerCommandRelayPacket(int commandType,
+	int originServerID, int originSequence, int playerID, int clientSequence,
+	const NCL::Interaction::CommandArgs& args) {
+	type = BasicNetworkMessages::DistributedServerCommandRelay;
+	size = sizeof(DistributedServerCommandRelayPacket) - sizeof(GamePacket);
+
+	this->commandType = commandType;
+	this->originServerID = originServerID;
+	this->originSequence = originSequence;
+	// Always 0 on send. A relay is never re-relayed; the receiver drops any packet
+	// that arrives with hops already on it.
+	this->hopCount = 0;
+	this->playerID = playerID;
+	this->clientSequence = clientSequence;
+	this->args = args;
+}
 #endif

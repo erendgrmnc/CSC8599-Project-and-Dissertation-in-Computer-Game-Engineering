@@ -2,6 +2,7 @@
 
 #include "DistributedSystemCommonFiles/InteractionCommand.h"
 #include "DistributedSystemCommonFiles/SequenceWindow.h"
+#include "NetworkObject.h"
 
 #include <type_traits>
 
@@ -83,4 +84,63 @@ TEST(SequenceWindowRejectsBeyondWindow) {
 	}
 	CHECK(!window.Accept(1));
 	CHECK(!window.Accept(100));
+}
+
+// The size field convention is size = sizeof(T) - sizeof(GamePacket). Getting this
+// wrong truncates the payload on the wire and only shows up across machines.
+TEST(ClientCommandPacketHasCorrectLayout) {
+	CHECK(std::is_trivially_copyable_v<DistributedClientCommandPacket>);
+
+	CommandArgs args;
+	args.targetObjectID = 7;
+	args.magnitude = 12.5f;
+
+	DistributedClientCommandPacket packet(
+		static_cast<int>(CommandType::Impulse), 3, 1, args);
+
+	CHECK_EQ(packet.type, (short)BasicNetworkMessages::DistributedClientCommand);
+	CHECK_EQ((size_t)packet.size + sizeof(GamePacket),
+		sizeof(DistributedClientCommandPacket));
+	CHECK_EQ(packet.commandType, (int)CommandType::Impulse);
+	CHECK_EQ(packet.sequence, 3);
+	CHECK_EQ(packet.hintServerID, 1);
+	CHECK_EQ(packet.args.targetObjectID, 7);
+	CHECK_NEAR(packet.args.magnitude, 12.5f, 1e-6);
+}
+
+TEST(CommandAckPacketHasCorrectLayout) {
+	CHECK(std::is_trivially_copyable_v<DistributedCommandAckPacket>);
+
+	DistributedCommandAckPacket packet(
+		9, 2, 42, static_cast<int>(CommandResult::NotOwner), 1);
+
+	CHECK_EQ(packet.type, (short)BasicNetworkMessages::DistributedCommandAck);
+	CHECK_EQ((size_t)packet.size + sizeof(GamePacket),
+		sizeof(DistributedCommandAckPacket));
+	CHECK_EQ(packet.sequence, 9);
+	CHECK_EQ(packet.playerID, 2);
+	CHECK_EQ(packet.targetObjectID, 42);
+	CHECK_EQ(packet.result, (int)CommandResult::NotOwner);
+	CHECK_EQ(packet.correctedServerID, 1);
+}
+
+TEST(ServerCommandRelayPacketHasCorrectLayout) {
+	CHECK(std::is_trivially_copyable_v<DistributedServerCommandRelayPacket>);
+
+	CommandArgs args;
+	args.targetObjectID = 42;
+
+	DistributedServerCommandRelayPacket packet(
+		static_cast<int>(CommandType::Impulse), 0, 5, 2, 9, args);
+
+	CHECK_EQ(packet.type, (short)BasicNetworkMessages::DistributedServerCommandRelay);
+	CHECK_EQ((size_t)packet.size + sizeof(GamePacket),
+		sizeof(DistributedServerCommandRelayPacket));
+	CHECK_EQ(packet.originServerID, 0);
+	CHECK_EQ(packet.originSequence, 5);
+	CHECK_EQ(packet.playerID, 2);
+	CHECK_EQ(packet.clientSequence, 9);
+	// A relay must never be re-relayed; receiving one with hopCount > 0 is a bug.
+	CHECK_EQ(packet.hopCount, 0);
+	CHECK_EQ(packet.args.targetObjectID, 42);
 }

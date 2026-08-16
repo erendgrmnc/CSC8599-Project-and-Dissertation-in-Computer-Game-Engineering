@@ -54,7 +54,14 @@ enum BasicNetworkMessages {
 	// hold, so without this the server has no baseline and every delta is discarded.
 	// APPEND ONLY - the four roles are built and deployed separately, so inserting
 	// anywhere above silently renumbers the wire protocol.
-	DistributedClientSnapshotAck
+	DistributedClientSnapshotAck,
+	// Dynamic interaction types. One packet shape carries every interaction; the
+	// payload is interpreted by the IInteractionCommand registered for its
+	// commandType, so adding a new interaction adds NO message types.
+	// APPEND ONLY, for the same reason as above.
+	DistributedClientCommand,        // Client      -> Game Server
+	DistributedCommandAck,           // Game Server -> Client
+	DistributedServerCommandRelay    // Game Server -> Game Server
 };
 
 enum DistributedSystemClientType {
