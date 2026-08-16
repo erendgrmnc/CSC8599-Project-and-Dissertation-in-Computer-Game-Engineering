@@ -20,6 +20,7 @@ add_executable(InteractionTests
     "main.cpp"
     "TestHarness.h"
     "PhysicsRegistrationTests.cpp"
+    "CommandChannelTests.cpp"
 )
 
 # The engine headers assume these are already included - the role targets get them

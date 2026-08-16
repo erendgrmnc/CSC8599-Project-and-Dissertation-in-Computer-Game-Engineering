@@ -210,6 +210,9 @@ function(Create_CSC8503CoreClasses_Files_PC)
         "./DistributedSystemCommonFiles/TelemetryReporter.cpp"
         "./DistributedSystemCommonFiles/MetricSink.h"
         "./DistributedSystemCommonFiles/MetricSink.cpp"
+        "./DistributedSystemCommonFiles/SequenceWindow.h"
+        "./DistributedSystemCommonFiles/InteractionCommand.h"
+        "./DistributedSystemCommonFiles/InteractionCommand.cpp"
     )
     source_group("DistributedSystemCommonFiles" FILES ${distributed_system_common_files})
 
