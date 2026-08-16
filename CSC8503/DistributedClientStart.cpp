@@ -96,6 +96,13 @@ int RunDistributedClient(int argc, char* argv[]) {
 	// mid-handoff - so races W1..W4 are actually reached rather than argued about.
 	const int destroyEvery = config.GetInt("--destroy-every", 0);
 	int destroyTick = 0;
+
+	// Drives one object along +X every N ticks, so it crosses a border while under
+	// control. That is the only way to observe whether control state survives a
+	// handoff - the axis is continuous state and is never relayed or replayed.
+	const int driveEvery = config.GetInt("--drive-every", 0);
+	int driveTick = 0;
+	int drivenObjectId = -1;
 	int spawnTick = 0;
 	int spawnIndex = 0;
 	const float blastRadius = static_cast<float>(config.GetInt("--blast-radius", 40));
@@ -197,6 +204,21 @@ int RunDistributedClient(int argc, char* argv[]) {
 					kill.playerID = 0;
 					kill.targetObjectID = victim;
 					scene->SendCommand(NCL::Interaction::CommandType::Destroy, kill);
+				}
+			}
+		}
+
+		if (driveEvery > 0 && scene->IsGameStarted()) {
+			if ((driveTick++ % driveEvery) == 0) {
+				if (drivenObjectId < 0) {
+					drivenObjectId = scene->PickDestroyCandidate();   // any live replica
+				}
+				if (drivenObjectId >= 0) {
+					NCL::Interaction::CommandArgs drive;
+					drive.playerID = 0;
+					drive.targetObjectID = drivenObjectId;
+					drive.direction = NCL::Maths::Vector3(1, 0, 0);
+					scene->SendCommand(NCL::Interaction::CommandType::MoveAxis, drive);
 				}
 			}
 		}

@@ -36,6 +36,9 @@ param(
     # joins during bootstrap, before the world exists, so without this there is no
     # late joiner and the manifest path is never exercised.
     [int]$LateClientAfter = 0,
+    # Drives one object along +X every N client ticks so it crosses a border while
+    # under control. 0 disables.
+    [int]$DriveEvery = 0,
     [string]$OutDir = ""
 )
 $ErrorActionPreference = "Continue"
@@ -95,7 +98,7 @@ $serverRunSeconds = if ($Ticks -gt 0) { [Math]::Round($Ticks / 120.0) } else { $
 $clientSeconds = [Math]::Max(5, $serverRunSeconds - 15)
 
 $cli = Start-Process -PassThru -FilePath (Join-Path $deploy "Client\EntryPoint.exe") `
-    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --headless --impulse-test $ImpulseTest --misroute-every $MisrouteEvery --blast-every $BlastEvery --spawn-every $SpawnEvery --blast-offset-x $BlastOffsetX --destroy-every $DestroyEvery --run-seconds $clientSeconds" `
+    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --headless --impulse-test $ImpulseTest --misroute-every $MisrouteEvery --blast-every $BlastEvery --spawn-every $SpawnEvery --blast-offset-x $BlastOffsetX --destroy-every $DestroyEvery --drive-every $DriveEvery --run-seconds $clientSeconds" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\cli.log" -RedirectStandardError "$runDir\cli.err" -WindowStyle Hidden
 
 if ($LateClientAfter -gt 0) {
