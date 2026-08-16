@@ -1415,3 +1415,72 @@ the same reason — no partially-updated ticks to sample.
 ### Verdict
 
 Increment 1 is free: paced tick costs bracket each other, conservation holds exactly, `hoFail = 0`.
+
+---
+
+## 11. Implementation notes — increment 3 (shipped 2026-08-16)
+
+Plan: `docs/superpowers/plans/2026-08-16-interaction-command-channel.md`.
+
+### What shipped
+
+- `InteractionCommand.h/.cpp` — `CommandType`, `CommandResult`, `CommandArgs`, `CommandScope`,
+  `IInteractionCommand`, `ICommandContext`, `CommandRegistry`. Guard-free, so the client (which
+  does not define `DISTRIBUTEDSYSTEMACTIVE`) and the test target both include it.
+- `SequenceWindow.h` — high-water mark plus a 64-entry ring, for dedupe under out-of-order arrival.
+- `InteractionCommands.cpp` — `Impulse` (object-targeted, relays on misroute) and `MoveAxis`
+  (continuous state, dropped rather than relayed).
+- Three appended message types, three POD packets with `static_assert`s on trivial copyability and
+  size.
+- `ServerWorldManager` implements `ICommandContext`. `SpawnObject`/`DestroyObject` are honest
+  stubs returning `-1`/`false` pending the spawn and destroy increments.
+- `DistributedGameServerManager` dispatch, per-player and per-origin dedupe, ack, relay drain.
+- Client routing (`ResolveCommandTarget`), sending, and `NotOwner` owner-table correction.
+- `cmdApplied` / `cmdRelayed` / `cmdDup` / `cmdRejected` on servers and `cmdSent` on the client,
+  which is what makes I4 checkable from the `@@STAT` stream.
+
+### Corrections to the plan, found while building
+
+- **`BasicNetworkMessages` and `GamePacket` are at global scope**, not in `NCL` / `NCL::CSC8503`.
+  The plan's test code qualified them wrongly.
+- **The directed peer send already existed.** §0.8 describes the transfer as a broadcast, and the
+  plan hedged that a directed send might have to be invented. It does not:
+  `mDistributedPhysicsClients` holds `GameServerConnection*` and `SendTransactionHandshakePacket`
+  already does a directed lookup by server ID. The relay reuses it. It *did* need
+  `DistributedServerCommandRelay` registering on the outbound peer link in
+  `ConnectServerToAnotherGameServer`, which previously registered only
+  `StartSimulatingObjectInServer`.
+- **`RegisterDefaults()` must also run on the client**, not just the servers: `SendCommand` looks
+  the command up to derive its scope and to validate before routing.
+- **A command driver was required to verify anything.** A headless client has no input path, so
+  the channel was wired but never exercised and `cmdApplied` stayed 0. Added `--impulse-test N`
+  on the client (opt-in, off by default), fires one impulse every N ticks at a rotating object id.
+
+### Verification
+
+Reproducible run, 2 servers, 400 objects, 7200 ticks, seed 42, `--impulse-test 20`:
+
+| | server 0 | server 1 |
+|---|---|---|
+| objects owned | 357 | 43 |
+| integrated | 357 | 43 |
+| handoffs sent / received | 44 / 1 | 1 / 44 |
+| commands applied | 246 | 2 |
+| relayed / duplicate / rejected | 0 / 0 / 0 | 0 / 0 / 0 |
+
+- **I4 holds exactly.** At the aligned 2 Hz sample the client reports `cmdSent=248` and the
+  servers `246 + 2 + 0 + 0 = 248`. The client's final `cmdSent=253` is higher only because it
+  keeps sending after the servers took their last sample and exited.
+- **I5 holds exactly.** 45 sent, 45 received, `hoFail=0`.
+- **Conservation holds.** 357 + 43 = 400.
+- **Handoff is untouched**, as designed: 44/1 against the increment 1 baseline's 42/1, inside the
+  ±1-per-run event jitter that section 10 established is inherent without a global tick barrier.
+
+### Known gap
+
+**The relay path is implemented and unit-tested but was not exercised in the live run**
+(`cmdRelayed = 0`). The client's owner table is refreshed from 10 Hz full snapshots, so it was
+never stale at the moment a command was issued. Covering it live needs either a driver that
+deliberately targets a recently handed-off object, or artificial owner-table staleness. The
+unit tests (`ImpulseRelaysWhenNotOwner`, `ImpulseReportsUnknownWhenNoPositionKnown`,
+`MoveAxisDoesNotRelay`) cover the logic; end-to-end relay remains unverified.
