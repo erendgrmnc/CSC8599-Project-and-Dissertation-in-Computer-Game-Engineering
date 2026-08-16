@@ -77,6 +77,32 @@ The interesting domain logic lives in `ServerWorldManager` (border checks, objec
 > - **There is no cross-border collision.** Deactivated out-of-region objects are skipped by broadphase; there is no ghost/halo band. Objects on opposite sides of a boundary pass through each other.
 > - `docs/NETWORKING.md` and `docs/SPATIAL-PARTITIONING.md` are otherwise faithful on control flow, but are also wrong that world bounds are fixed at ±150 (now `--world`).
 
+## Interaction command channel
+
+Clients issue interactions (push an object, drive it along an axis) through **one** packet shape,
+`DistributedClientCommandPacket`. The payload is interpreted by an `IInteractionCommand` looked up
+in `CommandRegistry` by `CommandType`, so **adding a new interaction adds zero message types and
+touches zero switch statements** — write the command class, register it in `RegisterDefaultsInto`.
+
+- Types live in `CSC8503CoreClasses/DistributedSystemCommonFiles/InteractionCommand.h`, deliberately
+  free of `USEGL`/`DISTRIBUTEDSYSTEMACTIVE` guards because the servers, the client and the test
+  target all include it. `CommandArgs` must stay POD — packets are `memcpy`'d.
+- **Authority:** the client routes to whichever server it believes owns the object (`mObjectOwner`,
+  maintained from snapshots). A server that does not own it **relays** to the true owner rather
+  than rejecting; only the server that *applied* the command acks, so the client gets exactly one
+  ack. A `NotOwner` ack carries `correctedServerID`, which the client adopts.
+- **Dedupe** is by `(playerID, sequence)` via `SequenceWindow`: reliability does not compose across
+  a relay hop. Continuous commands (`MoveAxis`) are idempotent state — never sequenced, never
+  relayed, dropped if not owned.
+- `ServerWorldManager` implements `ICommandContext`, so commands never see the network layer and
+  the network layer never sees the world. `SpawnObject`/`DestroyObject` are **stubs** until the
+  spawn/destroy increments land.
+- `CommandRegistry::RegisterDefaults()` must be called on the **client too**, not just servers.
+- Accounting (invariant I4): `cmdApplied + cmdRejected + cmdDup` summed across servers must equal
+  the client's `cmdSent`; `cmdRelayed` is an internal hop counted separately. Compare *aligned*
+  2 Hz samples — the client keeps sending after the servers take their last one.
+- A headless client has no input path, so the channel is only exercised with `--impulse-test N`.
+
 ## Networking layer
 
 Built on **ENet** (`NetworkBase` wraps the opaque `_ENetHost`/`_ENetPeer`; the headers forward-declare these to avoid leaking the ENet include). Wire protocol:
@@ -124,7 +150,7 @@ The midware spawns `./DistributedPhysicsServer/EntryPoint.exe` **relative to its
 | Manager | `--servers N --clients N --objects N --port P --world minX,maxX,minZ,maxZ --midwares N --autostart [--headless]` |
 | Midware | `--manager-ip A.B.C.D --manager-port P --server-exe <path> [--headless] [--fixed-step] [--seed N] [--workload shuttle] [--metrics-dir <dir>] [--metrics-capacity N] [--run-seconds N] [--run-ticks N]` |
 | Game Server | `--headless`, `--fixed-step`, `--seed N`, `--workload`, `--metrics-dir`, `--metrics-capacity`, `--run-seconds`, `--run-ticks` — **not passed directly**, see below |
-| Client | `--manager-ip A.B.C.D --manager-port P [--game-instance N] [--render-deferred]` |
+| Client | `--manager-ip A.B.C.D --manager-port P [--game-instance N] [--render-deferred] [--impulse-test N]` |
 
 > **Game servers are spawned by the midware, not the launcher.** Their launch string is built in `ServerMidwareManager::StartPhysicsServerInstance`, so a flag the game server understands is unreachable unless the midware forwards it. `--fixed-step` and `--seed` are therefore given to the **midware**, which appends them to every server it spawns (`mServerExtraArgs`). Any new game-server flag needs adding in both `ServerStarter.cpp` (to parse it) and `PhysicsServerMidware/ProgramStart.cpp` (to forward it) — otherwise it is silently ignored with no error.
 >
