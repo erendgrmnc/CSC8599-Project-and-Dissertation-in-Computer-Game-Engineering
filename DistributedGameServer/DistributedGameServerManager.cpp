@@ -101,6 +101,7 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 	Profiler::SetCommandsRelayed(mCommandsRelayed);
 	Profiler::SetCommandsDuplicate(mCommandsDuplicate);
 	Profiler::SetCommandsRejected(mCommandsRejected);
+	Profiler::SetCommandsFannedOut(mCommandsFannedOut);
 
 	for (auto& gameServerConnection : mDistributedPhysicsClients) {
 		gameServerConnection->client->UpdateClient();
@@ -655,6 +656,13 @@ void DistributedGameServer::DistributedGameServerManager::DrainPendingRelays(int
 
 	ServerWorldManager::PendingRelay relay;
 	while (worldManager->PopPendingRelay(relay)) {
+		// A fan-out hop is not a misroute correction: it is an extra, intended
+		// application of one command in another region. Counted apart so the I4
+		// identity stays checkable.
+		if ((relay.args.flags & static_cast<int>(NCL::Interaction::CommandFlags::AlreadyFannedOut)) != 0) {
+			++mCommandsFannedOut;
+		}
+
 		DistributedServerCommandRelayPacket packet(
 			static_cast<int>(relay.type),
 			mGameServerID,

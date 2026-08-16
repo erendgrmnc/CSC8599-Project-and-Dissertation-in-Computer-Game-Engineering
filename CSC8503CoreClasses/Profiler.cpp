@@ -46,6 +46,7 @@ int Profiler::sCommandsRelayed = 0;
 int Profiler::sCommandsDuplicate = 0;
 int Profiler::sCommandsRejected = 0;
 int Profiler::sCommandsSent = 0;
+int Profiler::sCommandsFannedOut = 0;
 int Profiler::sIntegratedObjects = 0;
 int Profiler::sDeltasApplied = 0;
 int Profiler::sDeltasRejected = 0;
@@ -280,6 +281,14 @@ int Profiler::GetCommandsSent() {
 
 void Profiler::SetCommandsSent(int count) {
 	sCommandsSent = count;
+}
+
+int Profiler::GetCommandsFannedOut() {
+	return sCommandsFannedOut;
+}
+
+void Profiler::SetCommandsFannedOut(int count) {
+	sCommandsFannedOut = count;
 }
 
 int Profiler::GetIntegratedObjects() {

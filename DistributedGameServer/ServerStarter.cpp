@@ -186,6 +186,7 @@ int StartGameServer(int argc, char* argv[]) {
 			<< " cmdRelayed=" << Profiler::GetCommandsRelayed()
 			<< " cmdDup=" << Profiler::GetCommandsDuplicate()
 			<< " cmdRejected=" << Profiler::GetCommandsRejected()
+			<< " cmdFanout=" << Profiler::GetCommandsFannedOut()
 			<< "\n";
 		return 0;
 	}

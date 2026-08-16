@@ -107,6 +107,10 @@ namespace NCL {
 			int mCommandsRelayed = 0;
 			int mCommandsDuplicate = 0;
 			int mCommandsRejected = 0;
+			// Area-effect fan-out hops sent from this server. An area command applies
+			// once per overlapped region by design, so I4 only balances once these are
+			// subtracted from the applied total.
+			int mCommandsFannedOut = 0;
 
 			std::map<const int, PhysicsServerBorderData*> mPhysicsServerBorderMap;
 

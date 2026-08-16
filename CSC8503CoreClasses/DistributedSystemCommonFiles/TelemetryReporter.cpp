@@ -61,6 +61,7 @@ void TelemetryReporter::MaybeEmit(bool gameStarted) {
 			<< " cmdRelayed=" << Profiler::GetCommandsRelayed()
 			<< " cmdDup=" << Profiler::GetCommandsDuplicate()
 			<< " cmdRejected=" << Profiler::GetCommandsRejected()
+			<< " cmdFanout=" << Profiler::GetCommandsFannedOut()
 			<< " phys=" << F2(Profiler::GetPhysicsTime())
 			<< " world=" << F2(Profiler::GetWorldTime())
 			<< " predict=" << F2(Profiler::GetPhysicsPredictionTime())

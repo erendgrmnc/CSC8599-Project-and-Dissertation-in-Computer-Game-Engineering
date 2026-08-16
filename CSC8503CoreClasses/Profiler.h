@@ -103,6 +103,12 @@ namespace NCL {
 		static int GetCommandsSent();
 		static void SetCommandsSent(int count);
 
+		// Area-effect fan-out hops. One area command legitimately applies once per
+		// overlapped region, so I4 only balances after subtracting these from the
+		// applied total.
+		static int GetCommandsFannedOut();
+		static void SetCommandsFannedOut(int count);
+
 		// Objects this server actually integrated on the last tick, versus the number
 		// it owns. These must match: a gap means the integrator is touching objects
 		// outside this server's region, which flattens the scaling curve.
@@ -161,6 +167,7 @@ namespace NCL {
 		static int sCommandsDuplicate;
 		static int sCommandsRejected;
 		static int sCommandsSent;
+		static int sCommandsFannedOut;
 		static int sIntegratedObjects;
 		static int sDeltasApplied;
 		static int sDeltasRejected;
