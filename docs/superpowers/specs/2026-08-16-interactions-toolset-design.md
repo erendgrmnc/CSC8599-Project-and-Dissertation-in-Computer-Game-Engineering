@@ -1533,3 +1533,59 @@ is processed before they exit, and both ends print exact `@@FINAL` totals rather
 - 495 relays, **0** dropped for a missing peer link, **0** routing loops.
 
 The relay path is now covered end to end, not just by unit test.
+
+---
+
+## 12. Implementation notes — increment 2 (shipped 2026-08-16)
+
+### What shipped
+
+`DistributedSystemCommonFiles/RegionOwnership.h` — a guard-free header holding POD `RegionBounds`
+and `OwningServerFor(regions, point)`. Regions are half-open on **both** axes,
+`[minX, maxX) x [minZ, maxZ)`, with only the world's outer maximum closed (derived from the regions
+themselves, so a caller cannot supply an extent that disagrees with the partition).
+
+All three former copies of the rule now delegate to it:
+
+- `ServerWorldManager::GetObjectServer` — the single ownership authority.
+- `ServerWorldManager::IsObjectInBorder` — now `GetObjectServer(p) == mServerID`, so it *cannot*
+  disagree.
+- `DistributedMultiplayerGameScene::ResolveCommandTarget` — the client calls the **same function**
+  rather than reimplementing the same rule, which is what stops client and server drifting.
+
+`GetObjectServer` runs once per object per tick, so the region list is cached
+(`mCachedRegions`, lazily rebuilt when the border map's size changes — the map is populated after
+construction, when the manager's start packet arrives, so a one-shot copy in the constructor would
+have been empty).
+
+### Verification
+
+- **7 new unit tests**, 36 total, all passing. `EveryPointMapsToExactlyOneServer` sweeps a grid that
+  lands exactly on both interior seams and both outer edges of a 2x2 world and asserts every point
+  is claimed by exactly one server — never zero, never two. That is the property the increment
+  exists to establish.
+- `SharedBorderBelongsToTheHigherRegion` pins the semantic change: the point `(0,0,0)` on a shared
+  seam previously went to server **0** (closed on both axes, lowest id wins by `std::map` order)
+  and now goes to server **1**.
+- **2-server live run** (7200 ticks, seed 42, with command traffic): I4 gap **0**
+  (1487 applied + 14 rejected = 1501 sent), I5 exact (38 = 38), `hoFail = 0`, conservation
+  362 + 38 = 400.
+- **4-server live run** (3600 ticks, seams on both axes): conservation exact (328 + 3 + 31 + 38 =
+  400), I5 exact (88 = 88), `hoFail = 0`.
+
+### Honest limitation of the live evidence
+
+The spec's stated demo for this increment is "per-server pre-seed counts sum exactly to the total
+(they may not today, on exact-border rows)". Read from the per-tick CSVs at tick 0, the 4-server
+run gives `400 + 0 + 0 + 0` — exactly 400, **but** because the default world spawns every object
+inside one region. No object lands on a seam at pre-seed in this workload, so the live check passes
+*vacuously*: it confirms no regression, not that the old bug was triggered and fixed.
+
+The real evidence is the unit tests. Demonstrating the old defect live would need a workload that
+deliberately seeds objects on `x = 0` / `z = 0`; worth adding when the evaluation workloads are
+built out, and cheap once `--workload` grows a second mode.
+
+Note the old `IsObjectInBorder` was closed on Z (`z <= maxZ`), so on a 4-server grid an object at
+exactly `z = 0` would have been accepted as in-border by **both** the region below and the region
+above — activated twice, integrated twice, and broadcast by two servers. The half-open rule removes
+that class of bug by construction rather than by testing for it.
