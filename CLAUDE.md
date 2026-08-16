@@ -113,13 +113,19 @@ The midware spawns `./DistributedPhysicsServer/EntryPoint.exe` **relative to its
 | Role | Flags |
 |---|---|
 | Manager | `--servers N --clients N --objects N --port P --world minX,maxX,minZ,maxZ --midwares N --autostart [--headless]` |
-| Midware | `--manager-ip A.B.C.D --manager-port P --server-exe <path> [--headless] [--fixed-step] [--seed N]` |
-| Game Server | `--headless`, `--fixed-step`, `--seed N` — **not passed directly**, see below |
+| Midware | `--manager-ip A.B.C.D --manager-port P --server-exe <path> [--headless] [--fixed-step] [--seed N] [--workload shuttle] [--metrics-dir <dir>] [--metrics-capacity N] [--run-seconds N]` |
+| Game Server | `--headless`, `--fixed-step`, `--seed N`, `--workload`, `--metrics-dir`, `--metrics-capacity`, `--run-seconds` — **not passed directly**, see below |
 | Client | `--manager-ip A.B.C.D --manager-port P [--game-instance N] [--render-deferred]` |
 
 > **Game servers are spawned by the midware, not the launcher.** Their launch string is built in `ServerMidwareManager::StartPhysicsServerInstance`, so a flag the game server understands is unreachable unless the midware forwards it. `--fixed-step` and `--seed` are therefore given to the **midware**, which appends them to every server it spawns (`mServerExtraArgs`). Any new game-server flag needs adding in both `ServerStarter.cpp` (to parse it) and `PhysicsServerMidware/ProgramStart.cpp` (to forward it) — otherwise it is silently ignored with no error.
 >
 > `--fixed-step` pins the physics substep rate (otherwise `mRealHZ`/`mRealDT` adapt to measured frame cost, so servers under different load integrate with different `dt`). `--seed` drives deterministic world construction. **Both are required for any measurement run whose numbers are meant to be comparable.**
+>
+> `--workload shuttle` gives objects an initial X velocity so they cross borders; without it a default world spawns everything inside one region and produces zero handoffs.
+
+**Per-tick metrics.** `--metrics-dir <dir>` makes each game server buffer one `TickSample` per tick and write `<dir>/ticks-server<N>.csv` on exit (`DistributedSystemCommonFiles/MetricSink`). Samples are appended to a pre-reserved vector (`--metrics-capacity`, default 200000) so recording never allocates mid-tick; overflow is dropped and counted, and the drop count is printed at flush. **The CSV is only written on a clean exit**, so pair it with `--run-seconds N`, which makes the headless loop return after N seconds — a force-killed server loses its whole buffer.
+
+> The `@@STAT` telemetry line is a *last-sample* reading at ~2 Hz, not an average: on a 60 s two-server run the server-0 tick cost had `p50=0.017 ms` but `mean=0.384 ms` and `p99=2.18 ms`, so a 2 Hz sample lands anywhere between p50 and p99 by luck. Telemetry is for watching a run live; the CSV is what evaluation numbers come from. Servers also tick at *different rates* (they carry different loads), so aggregating per-tick stats across servers needs time-weighting.
 
 **Run model:** `--headless` swaps the OpenGL `ProfilerRenderer` window for a `GameTimer` loop (`DistributedSystemCommonFiles/HeadlessRunner`). Every role prints a `@@STAT role=... key=val ...` line to stdout ~2 Hz (`TelemetryReporter`); a headless midware spawns its game servers windowless (pipe-redirected, no `CREATE_NEW_CONSOLE`) and forwards their stdout tagged `[server N]`. The launcher parses both into a live dashboard + per-entity log tabs, so a headless run shows **one window**. Clients always run windowed. Untick **Headless** for the per-role profiler windows used in evaluation visuals.
 
