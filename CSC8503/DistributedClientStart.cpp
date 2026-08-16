@@ -81,6 +81,14 @@ int RunDistributedClient(int argc, char* argv[]) {
 	// and cannot be hit reliably from outside, so without this the relay path is
 	// never exercised end to end. 0 disables.
 	const int misrouteEvery = config.GetInt("--misroute-every", 0);
+
+	// Fires a radial impulse centred exactly on a region seam every N ticks, so the
+	// blast necessarily spans two regions and the cross-border fan-out is exercised.
+	// 0 disables.
+	const int blastEvery = config.GetInt("--blast-every", 0);
+	const float blastRadius = static_cast<float>(config.GetInt("--blast-radius", 40));
+	int blastTick = 0;
+
 	int driverTick = 0;
 	int driverObjectId = 0;
 	int driverCommandIndex = 0;
@@ -120,6 +128,23 @@ int RunDistributedClient(int argc, char* argv[]) {
 
 				const int replicas = static_cast<int>(scene->GetReplicaCount());
 				driverObjectId = (replicas > 0) ? ((driverObjectId + 1) % replicas) : 0;
+			}
+		}
+
+		if (blastEvery > 0 && scene->IsGameStarted()) {
+			if ((blastTick++ % blastEvery) == 0) {
+				// Centre the blast on the seam between the first two regions, so it
+				// always spans a border rather than depending on where objects are.
+				float minX = 0.0f, maxX = 0.0f, minZ = 0.0f, maxZ = 0.0f;
+				if (scene->GetWorldBounds(minX, maxX, minZ, maxZ)) {
+					NCL::Interaction::CommandArgs blast;
+					blast.playerID = 0;
+					blast.worldPoint = NCL::Maths::Vector3((minX + maxX) * 0.5f, 0.0f,
+						(minZ + maxZ) * 0.5f);
+					blast.magnitude = 25.0f;
+					blast.radius = blastRadius;
+					scene->SendCommand(NCL::Interaction::CommandType::Impulse, blast);
+				}
 			}
 		}
 
