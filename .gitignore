@@ -122,3 +122,9 @@ tools/DistributedLauncher/obj/
 /EntryPoint/EntryPointManager.vcxproj*
 /EntryPoint/EntryPointMidware.vcxproj*
 /EntryPoint/EntryPointServer.vcxproj*
+
+# Release build intermediates (Debug variants already listed above)
+DistributedGameServer/DistributedGameServer.dir/
+DistributedPhysicsManager/DistributedPhysicsManager.dir/
+PhysicsServerMidware/PhysicsServerMidware.dir/
+PhysicsServerMidware/Release/
