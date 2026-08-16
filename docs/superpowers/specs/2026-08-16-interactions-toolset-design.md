@@ -1657,3 +1657,73 @@ receives the same deterministic lateral velocity a pre-seeded one does. Without 
 fell and settled, so it could never cross a border and the twin path stayed unexercised — three
 earlier runs showed 52 twins created but **0** runtime handoffs, which would have read as "verified"
 if only the twin count had been checked.
+
+---
+
+## 14. Implementation notes — increment 6 (shipped 2026-08-16)
+
+### The risky change turned out to be avoidable
+
+§4.3 W2 called for making the transition ack **load-bearing**: retain `mNewServerID` until the ack
+arrives, so a destroy that lands after the object was released can be forwarded to the new owner.
+The spec flags this as one of only two changes in the whole design that alter existing handoff
+semantics, and warns that a lost ack would leak transition state.
+
+**It was not needed.** `Destroy` is object-targeted, and a server that has already handed an object
+away still holds that object's last known transform — a position which, by definition, lies inside
+the **new** owner's region (that is why the handoff happened). So the ordinary relay-on-not-owner
+path from increment 3 forwards the destroy to exactly the right server with no protocol change, no
+retained state, and no new failure mode. Covered by `DestroyRelaysAfterHandoff` and observed live.
+
+The handoff protocol is therefore **untouched by this increment too** — all of increments 1-6 are
+purely additive to it.
+
+### What shipped
+
+- `NetworkObject::CancelPendingTransition()` — race W1. The tick order runs the network pump before
+  `HandleObjectTransitions`, so a destroy arriving after the transition flag is set but before
+  dispatch is the common case, and destroy wins. A pure local state reset.
+- **Tombstones**, kept forever. IDs are never recycled (that would need distributed agreement on
+  when every server *and* client has retired one — a distributed GC problem), which is exactly what
+  makes a permanent tombstone cheap and safe. The pool entry is nulled rather than erased, so a late
+  relayed command resolves to `ObjectDestroyed` rather than `ObjectUnknown`.
+- **Deferred teardown.** `SetActive(false)` → `UnregisterObject` → `RemoveGameObject(obj, false)` →
+  queue for deletion. Objects are freed at the **end** of the next tick, after `mPhysics->Update`
+  has run `FlushPendingUnregisters` and purged every raw pointer to them. My first attempt freed at
+  the *top* of `Update`, which is wrong: the physics purge runs later in the same tick, so the
+  collision containers would have held a dangling pointer for the rest of it.
+- Race W3 — a destroy that beats the object to its new owner is held in
+  `mPendingDestroyOnArrival`; `StartHandlingObject` then drops the object instead of activating it.
+- Race W4 — destroy is idempotent: a second destroy observes the tombstone and reports success.
+- Client-side tombstones plus a resurrection guard in `SpawnReplica` (invariant I3).
+
+### Verification
+
+High-churn reproducible run (7200 ticks, 507 spawns, 758 destroys, 662 handoffs):
+
+| Invariant | Result |
+|---|---|
+| **I2** conservation | `400 + 507 - 758 = 149` = owned 149 — **exact** |
+| **I3** no resurrection | 0 attempts |
+| **I4** command accounting | `1265 applied + 1 rejected = 1266` = `cmdSent` — **gap 0** |
+| **I5** handoff parity | 662 = 662, `hoFail = 0` |
+
+The hop guard also fired once for real: a destroy relayed to a server that also did not own the
+object tried to relay again and was dropped as a routing loop, counted as `cmdRejected` — which is
+why I4 still balances.
+
+### Honest limits of the live evidence
+
+Two guards hold but were **not exercised**, and both have a legitimate explanation rather than
+being untested by accident:
+
+- **I3's resurrection guard: 0 attempts.** The server tears the object down and broadcasts the
+  despawn in the same tick, and snapshots travel the same reliable link, so every snapshot
+  containing the object necessarily *precedes* its despawn. The guard is defensive against the
+  cross-server case (object handed off, then destroyed by the new owner while the old owner's
+  snapshot is still in flight), which this workload does not produce.
+- **Race W3: 0 occurrences.** It needs the despawn broadcast to overtake the handoff packet on a
+  different link. Possible, but rare enough not to appear in 662 handoffs.
+
+Reaching either deliberately would need fault injection (delayed or reordered links), which is
+Tier 2 soak/chaos territory and is not built. Recorded so neither reads as "verified".
