@@ -147,14 +147,16 @@ int DistributedMultiplayerGameScene::ResolveCommandTarget(
 	}
 
 	if (scope.targetsPoint) {
+		// The SAME function the servers use, not a re-implementation of the same
+		// rule: a client that disagreed about a border would misroute every command
+		// issued on it, and the disagreement would be invisible until it happened.
+		std::vector<NCL::Interaction::RegionBounds> regions;
+		regions.reserve(mServerRegions.size());
 		for (const ServerRegion& region : mServerRegions) {
-			// Half-open on both axes, matching the server-side rule. A different rule
-			// here would misroute every command issued on a border.
-			if (args.worldPoint.x >= region.minX && args.worldPoint.x < region.maxX &&
-				args.worldPoint.z >= region.minZ && args.worldPoint.z < region.maxZ) {
-				return region.serverId;
-			}
+			regions.push_back(NCL::Interaction::RegionBounds{
+				region.serverId, region.minX, region.maxX, region.minZ, region.maxZ });
 		}
+		return NCL::Interaction::OwningServerFor(regions, args.worldPoint);
 	}
 
 	// Deliberately no broadcast fallback: N servers would each apply the command.

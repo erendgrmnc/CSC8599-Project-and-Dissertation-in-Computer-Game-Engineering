@@ -1,6 +1,7 @@
 #pragma once
 #include "NetworkBase.h"
 #include "NetworkObject.h"
+#include "DistributedSystemCommonFiles/RegionOwnership.h"
 #include "Vector4.h"
 
 #include <map>
