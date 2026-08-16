@@ -79,6 +79,7 @@ bool DistributedMultiplayerGameScene::ConnectClientToDistributedGameServer(char 
 		client->RegisterPacketHandler(Player_Disconnected, this);
 		client->RegisterPacketHandler(String_Message, this);
 		client->RegisterPacketHandler(DistributedCommandAck, this);
+		client->RegisterPacketHandler(DistributedObjectDespawned, this);
 	}
 
 	mDistributedPhysicsClients.push_back({ client, serverId });
@@ -112,6 +113,21 @@ void DistributedMultiplayerGameScene::ReceivePacket(int type, GamePacket* payloa
 	}
 	case BasicNetworkMessages::Delta_State: {
 		HandleDeltaPacket(static_cast<DeltaPacket*>(payload));
+		break;
+	}
+	case BasicNetworkMessages::DistributedObjectDespawned: {
+		auto* despawn = static_cast<DistributedObjectDespawnedPacket*>(payload);
+		mTombstones.insert(despawn->objectID);
+
+		// Tear the replica down locally. Ids are never recycled, so the tombstone is
+		// permanently safe and a later snapshot for this id can be rejected outright.
+		for (auto it = mNetworkObjects.begin(); it != mNetworkObjects.end(); ++it) {
+			if ((*it)->GetNetworkID() == despawn->objectID) {
+				mNetworkObjects.erase(it);
+				break;
+			}
+		}
+		mObjectOwner.erase(despawn->objectID);
 		break;
 	}
 	case BasicNetworkMessages::DistributedCommandAck: {
@@ -160,6 +176,22 @@ int DistributedMultiplayerGameScene::ResolveCommandTarget(
 	}
 
 	// Deliberately no broadcast fallback: N servers would each apply the command.
+	return -1;
+}
+
+int DistributedMultiplayerGameScene::PickDestroyCandidate() {
+	if (mNetworkObjects.empty()) {
+		return -1;
+	}
+	// Rotate rather than always taking the first: otherwise the driver would keep
+	// re-targeting an object it has already destroyed and measure nothing.
+	for (size_t attempt = 0; attempt < mNetworkObjects.size(); ++attempt) {
+		mDestroyCursor = (mDestroyCursor + 1) % mNetworkObjects.size();
+		const int id = mNetworkObjects[mDestroyCursor]->GetNetworkID();
+		if (mTombstones.find(id) == mTombstones.end()) {
+			return id;
+		}
+	}
 	return -1;
 }
 
@@ -244,6 +276,15 @@ NetworkObject* DistributedMultiplayerGameScene::FindNetworkObject(int objectID) 
 // before. The transform is set by the incoming snapshot (ReadPacket); we only
 // pick a visible scale + colour here.
 NetworkObject* DistributedMultiplayerGameScene::SpawnReplica(int objectID) {
+	// Invariant I3, no resurrection: a snapshot for a destroyed object must never
+	// recreate it. Snapshots already in flight when the despawn was sent will arrive
+	// afterwards, so this is the normal case, not an error - it is counted rather
+	// than logged so the rate stays visible.
+	if (mTombstones.find(objectID) != mTombstones.end()) {
+		++mResurrectionAttempts;
+		return nullptr;
+	}
+
 	// Replica STATE is created unconditionally; only the visual representation
 	// depends on render resources.
 	//

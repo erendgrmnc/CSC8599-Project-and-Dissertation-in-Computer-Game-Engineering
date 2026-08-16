@@ -90,6 +90,12 @@ int RunDistributedClient(int argc, char* argv[]) {
 	// Spawns an object every N ticks, alternating sides of the seam so both the
 	// local-owner path and the relay-to-owner path are covered. 0 disables.
 	const int spawnEvery = config.GetInt("--spawn-every", 0);
+
+	// Destroys a replica every N ticks. Deliberately picks objects the client has
+	// seen recently, which under the shuttle workload means objects that may be
+	// mid-handoff - so races W1..W4 are actually reached rather than argued about.
+	const int destroyEvery = config.GetInt("--destroy-every", 0);
+	int destroyTick = 0;
 	int spawnTick = 0;
 	int spawnIndex = 0;
 	const float blastRadius = static_cast<float>(config.GetInt("--blast-radius", 40));
@@ -183,6 +189,18 @@ int RunDistributedClient(int argc, char* argv[]) {
 			}
 		}
 
+		if (destroyEvery > 0 && scene->IsGameStarted()) {
+			if ((destroyTick++ % destroyEvery) == 0) {
+				const int victim = scene->PickDestroyCandidate();
+				if (victim >= 0) {
+					NCL::Interaction::CommandArgs kill;
+					kill.playerID = 0;
+					kill.targetObjectID = victim;
+					scene->SendCommand(NCL::Interaction::CommandType::Destroy, kill);
+				}
+			}
+		}
+
 		Profiler::SetCommandsSent(scene->GetCommandsSent());
 		Profiler::Update();
 		reporter.MaybeEmit(scene->IsGameStarted());
@@ -206,7 +224,9 @@ int RunDistributedClient(int argc, char* argv[]) {
 		NCL::RunHeadlessLoop(tick, clientRun);
 
 		// Final totals, so accounting does not depend on catching a 2 Hz sample.
-		std::cout << "@@FINAL role=client cmdSent=" << scene->GetCommandsSent() << "\n";
+		std::cout << "@@FINAL role=client cmdSent=" << scene->GetCommandsSent()
+			<< " tombstones=" << scene->GetTombstoneCount()
+			<< " resurrectAttempts=" << scene->GetResurrectionAttempts() << "\n";
 		delete scene;
 		return 0;
 	}

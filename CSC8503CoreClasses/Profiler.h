@@ -114,6 +114,9 @@ namespace NCL {
 		static int GetObjectsSpawned();
 		static void SetObjectsSpawned(int count);
 
+		static int GetObjectsDestroyed();
+		static void SetObjectsDestroyed(int count);
+
 		// Objects this server actually integrated on the last tick, versus the number
 		// it owns. These must match: a gap means the integrator is touching objects
 		// outside this server's region, which flattens the scaling curve.
@@ -174,6 +177,7 @@ namespace NCL {
 		static int sCommandsSent;
 		static int sCommandsFannedOut;
 		static int sObjectsSpawned;
+		static int sObjectsDestroyed;
 		static int sIntegratedObjects;
 		static int sDeltasApplied;
 		static int sDeltasRejected;

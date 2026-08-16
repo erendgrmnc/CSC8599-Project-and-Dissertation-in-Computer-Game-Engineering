@@ -7,6 +7,7 @@
 #include <map>
 #include <vector>
 #include <unordered_map>
+#include <set>
 
 namespace NCL {
 	namespace Rendering { class Mesh; class Texture; class Shader; }
@@ -78,6 +79,14 @@ public:
 
 	int GetCommandsSent() const { return mCommandsSent; }
 
+	// Returns a live (non-tombstoned) replica id to destroy, or -1. Rotates so the
+	// driver does not keep re-targeting the same already-destroyed object.
+	int PickDestroyCandidate();
+
+	// Invariant I3: snapshots accepted for a tombstoned object must be zero.
+	int GetResurrectionAttempts() const { return mResurrectionAttempts; }
+	int GetTombstoneCount() const { return static_cast<int>(mTombstones.size()); }
+
 	void UpdateGame(float dt);
 	void UpdateDistributedManagerClient(float dt);
 	void ReceivePacket(int type, GamePacket* payload, int source) override;
@@ -143,6 +152,13 @@ protected:
 	int mNextCommandSequence = 1;
 	int mCommandsSent = 0;
 	std::map<int, int> mAckResultCounts;   // CommandResult -> count, for the I4 invariant
+
+	// Destroyed object ids. Ids are never recycled, so a tombstone is permanently
+	// safe - which is what lets a late snapshot be rejected rather than resurrecting
+	// an object the client has already torn down.
+	std::set<int> mTombstones;
+	int mResurrectionAttempts = 0;
+	size_t mDestroyCursor = 0;
 
 	std::map<int, int> mLastFullStateIdPerServer;
 	std::map<int, int> mLastAckedStateIdPerServer;
