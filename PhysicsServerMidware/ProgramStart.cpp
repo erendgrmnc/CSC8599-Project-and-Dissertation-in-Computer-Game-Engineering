@@ -65,6 +65,12 @@ int StartMidware(int argc, char* argv[]) {
 	if (config.Has("--handoff-delay-ticks")) {
 		serverExtraArgs += " --handoff-delay-ticks " + std::to_string(config.GetInt("--handoff-delay-ticks", 0));
 	}
+	if (config.Has("--handoff-lookahead")) {
+		serverExtraArgs += " --handoff-lookahead " + std::to_string(config.GetInt("--handoff-lookahead", 0));
+	}
+	if (config.Has("--epoch-align-us")) {
+		serverExtraArgs += " --epoch-align-us " + std::to_string(config.GetInt("--epoch-align-us", 0));
+	}
 	if (config.Has("--run-ticks")) {
 		serverExtraArgs += " --run-ticks " + std::to_string(config.GetInt("--run-ticks", 0));
 	}

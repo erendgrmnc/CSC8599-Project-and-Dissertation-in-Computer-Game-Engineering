@@ -42,6 +42,11 @@ param(
     # Fault injection: delays each handoff packet by N ticks so races W3 and the
     # client resurrection guard are actually reached. Must be 0 for measurement.
     [int]$HandoffDelayTicks = 0,
+    # Schedules incoming handoffs at senderTick + N instead of on arrival, making
+    # handoff application deterministic. 0 keeps apply-on-arrival.
+    [int]$HandoffLookahead = 0,
+    # Aligns every server's tick 0 to a shared monotonic-clock boundary (us).
+    [int]$EpochAlignUs = 0,
     [string]$OutDir = ""
 )
 $ErrorActionPreference = "Continue"
@@ -91,7 +96,7 @@ $mgr = Start-Process -PassThru -FilePath (Join-Path $deploy "Manager\EntryPoint.
 Start-Sleep -Seconds 3
 
 $mid = Start-Process -PassThru -FilePath (Join-Path $deploy "Midware\EntryPoint.exe") `
-    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" --handoff-delay-ticks $HandoffDelayTicks $bound" `
+    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" --handoff-delay-ticks $HandoffDelayTicks --handoff-lookahead $HandoffLookahead --epoch-align-us $EpochAlignUs $bound" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\mid.log" -RedirectStandardError "$runDir\mid.err" -WindowStyle Hidden
 Start-Sleep -Seconds 4
 

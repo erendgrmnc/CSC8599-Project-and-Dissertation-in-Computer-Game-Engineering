@@ -42,6 +42,7 @@ namespace NCL {
 		class ServerWorldManager : public NCL::Interaction::ICommandContext {
 		public:
 			ServerWorldManager(int serverID, PhysicsServerBorderData& physcisServerBorderData, std::map<const int, PhysicsServerBorderData*>& map);
+			~ServerWorldManager();
 			NCL::CSC8503::GameWorld* GetGameWorld() const;
 
 			CSC8503::GameObject* AddDistributedControllableObject(const CSC8503::Transform& transform,int playerID) const;
@@ -165,6 +166,28 @@ namespace NCL {
 			//
 			// Measurement runs must leave this at 0: it deliberately changes handoff
 			// timing.
+			uint64_t GetTickCounter() const {
+				return mTickCounter;
+			}
+
+			// Schedules an incoming handoff for a deterministic tick instead of
+			// applying it the instant the packet lands. 0 keeps the original
+			// apply-on-arrival behaviour.
+			void SetHandoffLookaheadTicks(int ticks) {
+				mHandoffLookaheadTicks = ticks;
+			}
+
+			int GetHandoffLookaheadTicks() const {
+				return mHandoffLookaheadTicks;
+			}
+
+			// Handoffs that arrived too late to hit their scheduled tick. Non-zero
+			// means the lookahead is too small for the link, and that the run is not
+			// reproducible - so it is reported rather than silently absorbed.
+			int GetHandoffsLate() const {
+				return mHandoffsLate;
+			}
+
 			void SetHandoffDelayTicks(int ticks) {
 				mHandoffDelayTicks = ticks;
 			}
@@ -219,6 +242,25 @@ namespace NCL {
 			int mHandoffsReceived = 0;
 			int mHandoffsFailed = 0;
 			int mHandoffDelayTicks = 0;
+			int mHandoffLookaheadTicks = 0;
+			int mHandoffsLate = 0;
+
+			// Handoffs waiting for their scheduled tick. Buffered by value: the packet
+			// is a POD copy, so nothing here depends on the network buffer surviving.
+			// Held by pointer, not value: this header only forward-declares the packet
+			// (including NetworkObject.h here would drag the whole USEGL-guarded
+			// networking layer into every translation unit that touches the world).
+			// The out-of-line destructor below is what lets unique_ptr work with an
+			// incomplete type here.
+			struct ScheduledHandoff {
+				std::unique_ptr<CSC8503::StartSimulatingObjectPacket> packet;
+				uint64_t applyAtTick = 0;
+			};
+			std::vector<ScheduledHandoff> mScheduledHandoffs;
+			void FlushScheduledHandoffs();
+
+			// The part of StartHandlingObject that actually installs the object.
+			bool ApplyIncomingObject(CSC8503::StartSimulatingObjectPacket* packet);
 			double mPhysicsTime = 0;
 			float mObjDebugTimer = 5.f;
 

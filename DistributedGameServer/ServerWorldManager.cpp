@@ -111,6 +111,10 @@ NCL::DistributedGameServer::ServerWorldManager::ServerWorldManager(int serverID,
 	mPhysics->UseGravity(true);
 }
 
+// Defined here, where StartSimulatingObjectPacket is complete, so the scheduled
+// handoff buffer's unique_ptr deleter can be instantiated.
+NCL::DistributedGameServer::ServerWorldManager::~ServerWorldManager() = default;
+
 NCL::CSC8503::GameWorld* NCL::DistributedGameServer::ServerWorldManager::GetGameWorld() const {
 	return mGameWorld;
 }
@@ -599,6 +603,10 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	timeTaken = end - start;
 	Profiler::SetPhysicsPredictionTime(timeTaken.count());
 
+	// Before the integrator: an object scheduled to arrive this tick must be part of
+	// this tick's simulation, not the next one.
+	FlushScheduledHandoffs();
+
 	// Before the integrator, so this tick's control input contributes to this tick's
 	// motion rather than arriving a frame late.
 	ApplyControlForces();
@@ -620,6 +628,7 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	Profiler::SetHandoffsSent(mHandoffsSent);
 	Profiler::SetHandoffsReceived(mHandoffsReceived);
 	Profiler::SetHandoffsFailed(mHandoffsFailed);
+	Profiler::SetHandoffsLate(mHandoffsLate);
 
 	// Per-tick record. The @@STAT line above is a 2 Hz instantaneous sample and
 	// cannot describe a distribution; this is what the paper's timing figures are
@@ -712,6 +721,47 @@ void DistributedGameServer::ServerWorldManager::CheckPositionOutOfServerBoundari
 }
 
 bool DistributedGameServer::ServerWorldManager::StartHandlingObject(StartSimulatingObjectPacket* packet) {
+	if (packet == nullptr) {
+		return false;
+	}
+
+	// Apply on arrival unless a lookahead is configured.
+	if (mHandoffLookaheadTicks <= 0) {
+		return ApplyIncomingObject(packet);
+	}
+
+	// The sender released the object on a deterministic tick, so scheduling the
+	// application relative to THAT rather than to arrival time makes the handoff
+	// land on the same tick in every run - no barrier, no inter-server coordination.
+	const uint64_t applyAt =
+		static_cast<uint64_t>(packet->mSenderTick) + static_cast<uint64_t>(mHandoffLookaheadTicks);
+
+	if (applyAt <= mTickCounter) {
+		// Arrived too late to make its slot. Applied immediately so the object is not
+		// lost, but counted: a non-zero total means this run is NOT reproducible.
+		++mHandoffsLate;
+		return ApplyIncomingObject(packet);
+	}
+
+	ScheduledHandoff scheduled;
+	scheduled.packet = std::make_unique<StartSimulatingObjectPacket>(*packet);
+	scheduled.applyAtTick = applyAt;
+	mScheduledHandoffs.push_back(std::move(scheduled));
+	return true;
+}
+
+void DistributedGameServer::ServerWorldManager::FlushScheduledHandoffs() {
+	for (auto entry = mScheduledHandoffs.begin(); entry != mScheduledHandoffs.end(); ) {
+		if (entry->applyAtTick > mTickCounter) {
+			++entry;
+			continue;
+		}
+		ApplyIncomingObject(entry->packet.get());
+		entry = mScheduledHandoffs.erase(entry);
+	}
+}
+
+bool DistributedGameServer::ServerWorldManager::ApplyIncomingObject(StartSimulatingObjectPacket* packet) {
 	// std::map::at throws on an unknown key; an object present on the sender but
 	// absent from this server's pool would take the whole process down rather than
 	// reporting a failed handoff.

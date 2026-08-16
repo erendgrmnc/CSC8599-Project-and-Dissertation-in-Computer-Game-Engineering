@@ -108,6 +108,9 @@ int StartGameServer(int argc, char* argv[]) {
 		// Fault injection, off by default. Deliberately changes handoff timing, so it
 		// must stay 0 for any measurement run.
 		worldManager->SetHandoffDelayTicks(config.GetInt("--handoff-delay-ticks", 0));
+		// Deterministic handoff application. Removes the last run-to-run variation
+		// without any inter-server barrier; 0 keeps apply-on-arrival.
+		worldManager->SetHandoffLookaheadTicks(config.GetInt("--handoff-lookahead", 0));
 		std::cout << "Determinism: fixed-step=" << (fixedStep ? "on" : "off")
 			<< " seed=" << worldManager->GetWorldSeed()
 			<< " workload=" << (worldManager->GetWorkload().empty() ? "(none)" : worldManager->GetWorkload())
@@ -157,6 +160,10 @@ int StartGameServer(int argc, char* argv[]) {
 			}
 		}
 
+		// Only meaningful alongside --handoff-lookahead, which interprets a sender's
+		// tick number in the receiver's frame. Default 0 keeps the old behaviour.
+		runOptions.epochAlignMicros = static_cast<long long>(config.GetInt("--epoch-align-us", 0));
+
 		// Bootstrap ticks pump the network before the world exists; charging them to
 		// the budget would end the run before the first object is ever simulated.
 		runOptions.countTicksWhen = [serverManager]() {
@@ -185,6 +192,7 @@ int StartGameServer(int argc, char* argv[]) {
 			<< " hoSent=" << Profiler::GetHandoffsSent()
 			<< " hoRecv=" << Profiler::GetHandoffsReceived()
 			<< " hoFail=" << Profiler::GetHandoffsFailed()
+			<< " hoLate=" << Profiler::GetHandoffsLate()
 			<< " cmdApplied=" << Profiler::GetCommandsApplied()
 			<< " cmdRelayed=" << Profiler::GetCommandsRelayed()
 			<< " cmdDup=" << Profiler::GetCommandsDuplicate()

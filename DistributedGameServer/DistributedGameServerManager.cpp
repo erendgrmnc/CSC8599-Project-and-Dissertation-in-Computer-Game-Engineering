@@ -573,6 +573,10 @@ void DistributedGameServer::DistributedGameServerManager::SendFinishTransactionP
 	// crossing until the client's next axis update reached the new owner.
 	packet.mControllerPlayerID = gameObjectComp.GetControllerPlayerID();
 	packet.mMoveAxis = gameObjectComp.GetMoveAxis();
+	// The tick this release happened on. The receiver schedules application relative
+	// to this rather than to arrival, which is what makes the handoff land on the
+	// same tick in every run.
+	packet.mSenderTick = static_cast<long long>(mServerWorldManager->GetTickCounter());
 
 	const int delay = mServerWorldManager->GetHandoffDelayTicks();
 	if (delay > 0) {
