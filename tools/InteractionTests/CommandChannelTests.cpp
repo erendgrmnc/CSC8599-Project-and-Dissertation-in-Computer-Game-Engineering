@@ -144,3 +144,215 @@ TEST(ServerCommandRelayPacketHasCorrectLayout) {
 	CHECK_EQ(packet.hopCount, 0);
 	CHECK_EQ(packet.args.targetObjectID, 42);
 }
+
+namespace {
+	// Records what a command asked the world to do, so command logic can be tested
+	// with no GameWorld, no PhysicsSystem and no sockets.
+	class FakeContext : public ICommandContext {
+	public:
+		int serverID = 0;
+		int owningServerResult = 0;
+		bool objectIsActiveHere = true;
+		Maths::Vector3 lastKnownPosition{ 0, 0, 0 };
+		bool hasLastKnownPosition = true;
+
+		struct ImpulseCall { int objectID; Maths::Vector3 impulse; };
+		struct MoveAxisCall { int objectID; int playerID; Maths::Vector3 axis; };
+		struct RelayCall { int serverID; CommandType type; };
+
+		std::vector<ImpulseCall> impulses;
+		std::vector<MoveAxisCall> moveAxes;
+		std::vector<RelayCall> relays;
+
+		int GetServerID() const override { return serverID; }
+		int GetOwningServer(const Maths::Vector3&) const override { return owningServerResult; }
+
+		CSC8503::GameObject* FindActiveObject(int) const override {
+			// Non-null only matters as a yes/no here; commands must not dereference it.
+			return objectIsActiveHere ? reinterpret_cast<CSC8503::GameObject*>(1) : nullptr;
+		}
+
+		bool TryGetLastKnownPosition(int, Maths::Vector3& out) const override {
+			if (!hasLastKnownPosition) {
+				return false;
+			}
+			out = lastKnownPosition;
+			return true;
+		}
+
+		int SpawnObject(int, const Maths::Vector3&, int) override { return -1; }
+		bool DestroyObject(int, DespawnReason, int) override { return false; }
+
+		void ApplyImpulse(int objectID, const Maths::Vector3& impulse) override {
+			impulses.push_back({ objectID, impulse });
+		}
+		void ApplyRadialImpulse(const Maths::Vector3&, float, float) override {}
+		void SetMoveAxis(int objectID, int playerID, const Maths::Vector3& axis) override {
+			moveAxes.push_back({ objectID, playerID, axis });
+		}
+		void RelayToServer(int serverID, CommandType type, const CommandArgs&) override {
+			relays.push_back({ serverID, type });
+		}
+		void GetOverlappedServers(const Maths::Vector3&, float, std::vector<int>&) const override {}
+	};
+}
+
+TEST(RegisterDefaultsProvidesMoveAxisAndImpulse) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+	CHECK(registry.Find(CommandType::MoveAxis) != nullptr);
+	CHECK(registry.Find(CommandType::Impulse) != nullptr);
+}
+
+TEST(ImpulseAppliesToOwnedObject) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+	IInteractionCommand* impulse = registry.Find(CommandType::Impulse);
+
+	FakeContext ctx;
+	ctx.objectIsActiveHere = true;
+
+	CommandArgs args;
+	args.targetObjectID = 5;
+	args.direction = Maths::Vector3(1, 0, 0);
+	args.magnitude = 10.0f;
+
+	const CommandResult result = impulse->Apply(ctx, args);
+
+	CHECK(result == CommandResult::Applied);
+	CHECK_EQ((int)ctx.impulses.size(), 1);
+	if (!ctx.impulses.empty()) {
+		CHECK_EQ(ctx.impulses[0].objectID, 5);
+		CHECK_NEAR(ctx.impulses[0].impulse.x, 10.0f, 1e-5);
+	}
+}
+
+// The core of the authority model: a server that does not own the object forwards
+// rather than rejecting, so a stale client owner-table still results in the push
+// happening.
+TEST(ImpulseRelaysWhenNotOwner) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+	IInteractionCommand* impulse = registry.Find(CommandType::Impulse);
+
+	FakeContext ctx;
+	ctx.serverID = 0;
+	ctx.objectIsActiveHere = false;          // not ours
+	ctx.hasLastKnownPosition = true;
+	ctx.lastKnownPosition = Maths::Vector3(80, 0, 0);
+	ctx.owningServerResult = 1;              // ...it belongs to server 1
+
+	CommandArgs args;
+	args.targetObjectID = 5;
+	args.direction = Maths::Vector3(1, 0, 0);
+	args.magnitude = 10.0f;
+
+	const CommandResult result = impulse->Apply(ctx, args);
+
+	CHECK(result == CommandResult::Relayed);
+	CHECK_EQ((int)ctx.impulses.size(), 0);
+	CHECK_EQ((int)ctx.relays.size(), 1);
+	if (!ctx.relays.empty()) {
+		CHECK_EQ(ctx.relays[0].serverID, 1);
+	}
+}
+
+// No last-known position means nowhere to forward to. Reporting ObjectUnknown is
+// what lets the I4 accounting invariant balance.
+TEST(ImpulseReportsUnknownWhenNoPositionKnown) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+	IInteractionCommand* impulse = registry.Find(CommandType::Impulse);
+
+	FakeContext ctx;
+	ctx.objectIsActiveHere = false;
+	ctx.hasLastKnownPosition = false;
+
+	CommandArgs args;
+	args.targetObjectID = 5;
+	args.direction = Maths::Vector3(1, 0, 0);
+	args.magnitude = 10.0f;
+
+	CHECK(impulse->Apply(ctx, args) == CommandResult::ObjectUnknown);
+	CHECK_EQ((int)ctx.relays.size(), 0);
+}
+
+// A zero direction would be a no-op impulse; rejecting it keeps the accounting
+// honest rather than counting it as applied.
+TEST(ImpulseRejectsZeroDirection) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+	IInteractionCommand* impulse = registry.Find(CommandType::Impulse);
+
+	CommandArgs args;
+	args.targetObjectID = 5;
+	args.direction = Maths::Vector3(0, 0, 0);
+	args.magnitude = 10.0f;
+
+	CHECK(!impulse->Validate(args));
+}
+
+TEST(ImpulseScopeTargetsObject) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+
+	CommandArgs args;
+	args.targetObjectID = 5;
+	const CommandScope scope = registry.Find(CommandType::Impulse)->GetScope(args);
+
+	CHECK(scope.targetsObject);
+	CHECK(!scope.isContinuous);
+}
+
+// MoveAxis is continuous state, not an event: it must never be sequenced or relayed.
+TEST(MoveAxisScopeIsContinuous) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+
+	CommandArgs args;
+	args.targetObjectID = 5;
+	const CommandScope scope = registry.Find(CommandType::MoveAxis)->GetScope(args);
+
+	CHECK(scope.isContinuous);
+	CHECK(scope.targetsObject);
+}
+
+TEST(MoveAxisAppliesToOwnedObject) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+
+	FakeContext ctx;
+	ctx.objectIsActiveHere = true;
+
+	CommandArgs args;
+	args.targetObjectID = 5;
+	args.playerID = 2;
+	args.direction = Maths::Vector3(0, 0, 1);
+
+	CHECK(registry.Find(CommandType::MoveAxis)->Apply(ctx, args) == CommandResult::Applied);
+	CHECK_EQ((int)ctx.moveAxes.size(), 1);
+	if (!ctx.moveAxes.empty()) {
+		CHECK_EQ(ctx.moveAxes[0].playerID, 2);
+	}
+}
+
+// Continuous state is dropped, never forwarded: a relayed axis would arrive stale
+// and fight the owner's own input stream.
+TEST(MoveAxisDoesNotRelay) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+
+	FakeContext ctx;
+	ctx.objectIsActiveHere = false;
+	ctx.hasLastKnownPosition = true;
+	ctx.owningServerResult = 1;
+
+	CommandArgs args;
+	args.targetObjectID = 5;
+	args.playerID = 2;
+	args.direction = Maths::Vector3(0, 0, 1);
+
+	CHECK(registry.Find(CommandType::MoveAxis)->Apply(ctx, args) == CommandResult::NotOwner);
+	CHECK_EQ((int)ctx.relays.size(), 0);
+	CHECK_EQ((int)ctx.moveAxes.size(), 0);
+}

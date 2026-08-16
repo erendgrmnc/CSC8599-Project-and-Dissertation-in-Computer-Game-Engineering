@@ -213,6 +213,7 @@ function(Create_CSC8503CoreClasses_Files_PC)
         "./DistributedSystemCommonFiles/SequenceWindow.h"
         "./DistributedSystemCommonFiles/InteractionCommand.h"
         "./DistributedSystemCommonFiles/InteractionCommand.cpp"
+        "./DistributedSystemCommonFiles/InteractionCommands.cpp"
     )
     source_group("DistributedSystemCommonFiles" FILES ${distributed_system_common_files})
 
