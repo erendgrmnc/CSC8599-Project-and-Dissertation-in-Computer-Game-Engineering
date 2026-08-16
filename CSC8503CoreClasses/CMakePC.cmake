@@ -211,6 +211,7 @@ function(Create_CSC8503CoreClasses_Files_PC)
         "./DistributedSystemCommonFiles/MetricSink.h"
         "./DistributedSystemCommonFiles/MetricSink.cpp"
         "./DistributedSystemCommonFiles/SequenceWindow.h"
+        "./DistributedSystemCommonFiles/RegionOwnership.h"
         "./DistributedSystemCommonFiles/InteractionCommand.h"
         "./DistributedSystemCommonFiles/InteractionCommand.cpp"
         "./DistributedSystemCommonFiles/InteractionCommands.cpp"
