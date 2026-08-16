@@ -6,6 +6,7 @@
 #include "Constraint.h"
 #include "CollisionDetection.h"
 #include "Debug.h"
+#include "Profiler.h"
 #include "Window.h"
 #include <functional>
 using namespace NCL;
@@ -15,10 +16,16 @@ namespace {
 	constexpr float SAFETY_FACTOR = 0.90f;
 }
 
+//This is the fixed timestep we'd LIKE to have
+const int   idealHZ = 120;
+const float idealDT = 1.0f / idealHZ;
+
 PhysicsSystem::PhysicsSystem(GameWorld& g) : mGameWorld(g) {
 	mApplyGravity = false;
 	mDTOffset = 0.0f;
 	mGlobalDamping = 0.995f;
+	mRealHZ = idealHZ;
+	mRealDT = idealDT;
 	SetGravity(Vector3(0.0f, -9.8f, 0.0f));
 	mStaticTree = QuadTree<GameObject*>(Vector2(mBroadphaseX, mBroadphaseZ), 7, 6);
 }
@@ -67,19 +74,6 @@ bool useSimpleContainer = false;
 
 int constraintIterationCount = 10;
 
-//This is the fixed timestep we'd LIKE to have
-const int   idealHZ = 120;
-const float idealDT = 1.0f / idealHZ;
-
-/*
-This is the fixed update we actually have...
-If physics takes too long it starts to kill the framerate, it'll drop the
-iteration count down until the FPS stabilises, even if that ends up
-being at a low rate.
-*/
-int realHZ = idealHZ;
-float realDT = idealDT;
-
 void PhysicsSystem::Update(float dt) {
 	mDTOffset += dt; //We accumulate time delta here - there might be remainders from previous frame!
 
@@ -90,8 +84,8 @@ void PhysicsSystem::Update(float dt) {
 		UpdateObjectAABBs();
 	}
 	int iteratorCount = 0;
-	while (mDTOffset > realDT) {
-		IntegrateAccel(realDT); //Update accelerations from external forces
+	while (mDTOffset > mRealDT) {
+		IntegrateAccel(mRealDT); //Update accelerations from external forces
 		if (mUseBroadPhase) {
 			BroadPhase();
 			NarrowPhase();
@@ -103,13 +97,13 @@ void PhysicsSystem::Update(float dt) {
 		//This is our simple iterative solver - 
 		//we just run things multiple times, slowly moving things forward
 		//and then rechecking that the constraints have been met		
-		float constraintDt = realDT / (float)constraintIterationCount;
+		float constraintDt = mRealDT / (float)constraintIterationCount;
 		for (int i = 0; i < constraintIterationCount; ++i) {
 			UpdateConstraints(constraintDt);
 		}
-		IntegrateVelocity(realDT); //update positions from new velocity changes
+		IntegrateVelocity(mRealDT); //update positions from new velocity changes
 
-		mDTOffset -= realDT;
+		mDTOffset -= mRealDT;
 		iteratorCount++;
 	}
 
@@ -120,23 +114,29 @@ void PhysicsSystem::Update(float dt) {
 	t.Tick();
 	float updateTime = t.GetTimeDeltaSeconds();
 
-	//Uh oh, physics is taking too long...
-	if (updateTime > realDT) {
-		realHZ /= 2;
-		realDT *= 2;
-		//std::cout << "Dropping iteration count due to long physics time...(now " << realHZ << ")\n";
+	// Measurement runs pin the substep rate so that servers under different load
+	// still integrate with the same dt (see SetFixedTimestep).
+	if (mFixedTimestep) {
+		return;
 	}
-	else if (dt * 2 < realDT) { //we have plenty of room to increase iteration count!
-		int temp = realHZ;
-		realHZ *= 2;
-		realDT /= 2;
 
-		if (realHZ > idealHZ) {
-			realHZ = idealHZ;
-			realDT = idealDT;
+	//Uh oh, physics is taking too long...
+	if (updateTime > mRealDT) {
+		mRealHZ /= 2;
+		mRealDT *= 2;
+		//std::cout << "Dropping iteration count due to long physics time...(now " << mRealHZ << ")\n";
+	}
+	else if (dt * 2 < mRealDT) { //we have plenty of room to increase iteration count!
+		int temp = mRealHZ;
+		mRealHZ *= 2;
+		mRealDT /= 2;
+
+		if (mRealHZ > idealHZ) {
+			mRealHZ = idealHZ;
+			mRealDT = idealDT;
 		}
-		if (temp != realHZ) {
-			//std::cout << "Raising iteration count due to short physics time...(now " << realHZ << ")\n";
+		if (temp != mRealHZ) {
+			//std::cout << "Raising iteration count due to short physics time...(now " << mRealHZ << ")\n";
 		}
 	}
 }
@@ -220,10 +220,16 @@ void PhysicsSystem::PredictFuturePositions(float dt) {
 	// Adjust time step
 	dt = std::min(dt, maxDt);
 
+	// The handoff lookahead horizon. This is the quantity the predictive-handoff
+	// correctness argument is stated in terms of, so it is a declared parameter
+	// rather than a literal at the call site. Note the clamped dt above is
+	// deliberately NOT used: the horizon must cover the transfer latency, not the
+	// local substep.
+	const float horizon = mPredictionHorizon;
 
 	for (auto& obj : mDynamicObjectList) {
 		if (obj->GetPhysicsObject() != nullptr && obj->IsNetworkActive()) {
-			PredictFutureStateOfObject(*obj->GetPhysicsObject(), 0.1f);
+			PredictFutureStateOfObject(*obj->GetPhysicsObject(), horizon);
 		}
 	}
 }
@@ -533,10 +539,19 @@ based on any forces that have been accumulated in the objects during
 the course of the previous game frame.
 */
 void PhysicsSystem::IntegrateAccel(float dt) {
+	int integrated = 0;
 	for (int i = 0; i < mDynamicObjectList.size(); i++) {
+		// Skip deactivated objects, matching BroadPhase. In the distributed build
+		// every server pre-seeds the whole world and deactivates the objects outside
+		// its own region; without this test each server integrated every object in
+		// the world, so per-server physics cost scaled with total world size instead
+		// of region occupancy.
+		if (!mDynamicObjectList[i]->HasPhysics())
+			continue;
 		PhysicsObject* object = mDynamicObjectList[i]->GetPhysicsObject();
 		if (object == nullptr)
 			continue;
+		++integrated;
 		// inverse mass for multiplication instead of division and unmoving object
 		float inverseMass = object->GetInverseMass();
 
@@ -564,6 +579,9 @@ void PhysicsSystem::IntegrateAccel(float dt) {
 		angVel += angAccel * dt;
 		object->SetAngularVelocity(angVel);
 	}
+	// Compared against the owned-object count in telemetry: a mismatch means this
+	// server is integrating objects outside its own region.
+	Profiler::SetIntegratedObjects(integrated);
 }
 
 /*
@@ -575,6 +593,9 @@ the world, looking for collisions.
 void PhysicsSystem::IntegrateVelocity(float dt) {
 	float frameLinearDampening = 1.0f - (0.4f * dt);
 	for (int i = 0; i < mDynamicObjectList.size(); i++) {
+		// See IntegrateAccel: only objects this server owns are integrated.
+		if (!mDynamicObjectList[i]->HasPhysics())
+			continue;
 		PhysicsObject* object = mDynamicObjectList[i]->GetPhysicsObject();
 		if (object == nullptr)
 			continue;
@@ -610,6 +631,11 @@ ones in the next 'game' frame.
 void PhysicsSystem::ClearForces() {
 	mGameWorld.OperateOnContents(
 		[](GameObject* o) {
+			// Objects without a PhysicsObject are legal in the world (and will be
+			// more common once objects can be spawned at runtime); IntegrateAccel
+			// already guards for this.
+			if (o->GetPhysicsObject() == nullptr)
+				return;
 			o->GetPhysicsObject()->ClearForces();
 		}
 	);

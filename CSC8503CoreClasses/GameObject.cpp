@@ -30,6 +30,11 @@ GameObject::GameObject(CollisionLayer collisionLayer, const std::string& objectN
 	mWorldID = -1;
 	mIsRendered = true;
 	mHasPhysics = true;
+	// Objects are not network-active until they are given a NetworkObject
+	// (SetNetworkObject sets this). Leaving it uninitialised made the flag
+	// indeterminate for non-replicated objects such as the floor, which gates
+	// the handoff border check and snapshot broadcast.
+	mIsNetworkActive = false;
 	mBoundingVolume = nullptr;
 	mPhysicsObject = nullptr;
 	mRenderObject = nullptr;

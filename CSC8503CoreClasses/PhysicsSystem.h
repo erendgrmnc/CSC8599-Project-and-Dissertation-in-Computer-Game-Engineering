@@ -25,6 +25,29 @@ namespace NCL {
 			void SetGravity(const Vector3& g);
 
 			void SetNewBroadphaseSize(const Vector3& levelSize);
+
+			// Pins the substep rate to idealHZ instead of halving/doubling it from
+			// measured frame cost. Required for reproducible measurement: with
+			// adaptation on, two servers under different load run different
+			// timesteps, and the per-substep damping term (1 - 0.4*dt) then makes
+			// identical initial conditions diverge.
+			void SetFixedTimestep(bool state) {
+				mFixedTimestep = state;
+			}
+
+			int GetSubstepHZ() const {
+				return mRealHZ;
+			}
+
+			// Lookahead horizon used when extrapolating an object's state for handoff,
+			// in seconds. Must cover the server-to-server transfer latency.
+			void SetPredictionHorizon(float seconds) {
+				mPredictionHorizon = seconds;
+			}
+
+			float GetPredictionHorizon() const {
+				return mPredictionHorizon;
+			}
 		protected:
 			bool AreBothCollidersStatic(const CollisionDetection::CollisionInfo info);
 			bool IsEitherColliderNoCollide(const CollisionDetection::CollisionInfo& info);
@@ -90,6 +113,15 @@ namespace NCL {
 			int mNumCollisionFrames	= 5;
 			int mBroadphaseX = 256;
 			int mBroadphaseZ = 256;
+
+			// The substep rate actually in use. Previously file-scope globals, which
+			// meant every PhysicsSystem in a process shared one adaptive timestep.
+			int   mRealHZ;
+			float mRealDT;
+			bool  mFixedTimestep = false;
+
+			// Was a hardcoded 0.1f at the PredictFutureStateOfObject call site.
+			float mPredictionHorizon = 0.1f;
 		};
 	}
 }
