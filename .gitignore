@@ -137,3 +137,6 @@ tools/InteractionTests/Debug/
 tools/InteractionTests/Release/
 tools/InteractionTests/CMakeFiles/
 tools/InteractionTests/cmake_install.cmake
+
+# Measurement run outputs
+runs/
