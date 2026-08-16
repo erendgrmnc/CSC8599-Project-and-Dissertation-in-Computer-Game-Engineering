@@ -40,6 +40,20 @@ namespace NCL {
 		// manager/midware/client handshake and exits before the world is even built:
 		// 7200 ticks elapse in ~25ms when nothing is sleeping.
 		std::function<bool()> countTicksWhen;
+
+		// Aligns tick 0 to a shared wall-clock boundary, in microseconds. 0 disables.
+		//
+		// Every server counts ticks from its own game-start, so a sender's tick number
+		// is only meaningful to a receiver if both started on the same tick. The
+		// game-start broadcast arrives with a spread of a few milliseconds, which at
+		// 120 Hz is enough to shift epochs by a tick and make handoff scheduling differ
+		// between runs. Waiting for the next common boundary on the monotonic clock -
+		// which QPC makes consistent across processes on one machine - removes that
+		// without any inter-server message.
+		//
+		// Cross-machine this needs real clock synchronisation; on one machine it is
+		// exact.
+		long long epochAlignMicros = 0;
 	};
 
 	// Runs a loop calling tick(dt). Used by the distributed roles in --headless mode,

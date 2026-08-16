@@ -1,6 +1,7 @@
 #include "HeadlessRunner.h"
 
 #include "GameTimer.h"
+#include "MetricSink.h"
 
 #include <thread>
 #include <chrono>
@@ -54,7 +55,18 @@ void NCL::RunHeadlessLoop(const std::function<void(float dt)>& tick, const Headl
 		const bool counting = (!options.countTicksWhen || options.countTicksWhen());
 
 		float dt;
-		if (reproducible && counting) {
+		// Note the condition is `reproducible`, NOT `reproducible && counting`.
+		//
+		// `counting` is evaluated before tick(), so on the single tick where the game
+		// starts *during* tick() it is still false - and the world manager would
+		// receive one MEASURED dt. That seeds PhysicsSystem::mDTOffset differently in
+		// every run, shifting every subsequent substep boundary and making the tick on
+		// which an object crosses a border vary. One tick of measured dt is enough to
+		// destroy reproducibility for the whole run.
+		//
+		// Bootstrap ticks are unaffected in practice: the world manager is not updated
+		// at all until the game starts.
+		if (reproducible) {
 			// Deliberately ignores the clock. This is what makes the run deterministic:
 			// every tick advances the simulation by exactly the same amount regardless
 			// of how long it actually took to compute.
@@ -73,6 +85,17 @@ void NCL::RunHeadlessLoop(const std::function<void(float dt)>& tick, const Headl
 
 		if (counting) {
 			if (ticksRun == 0) {
+				if (options.epochAlignMicros > 0) {
+					// Spin to the next shared boundary so every server's tick 0 lands
+					// on the same instant of the monotonic clock.
+					const long long now = NCL::MonotonicMicros();
+					const long long boundary =
+						((now / options.epochAlignMicros) + 1) * options.epochAlignMicros;
+					while (NCL::MonotonicMicros() < boundary) {
+						std::this_thread::yield();
+					}
+					std::cout << "Tick epoch aligned to " << boundary << "us.\n";
+				}
 				countingStarted = std::chrono::steady_clock::now();
 			}
 			++ticksRun;
