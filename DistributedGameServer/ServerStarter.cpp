@@ -139,14 +139,37 @@ int StartGameServer(int argc, char* argv[]) {
 		// A bounded run is what makes an unattended experiment comparable, and it is
 		// the only path on which buffered metrics get written - a force-killed
 		// process loses them.
-		const double runSeconds = static_cast<double>(config.GetInt("--run-seconds", 0));
+		NCL::HeadlessRunOptions runOptions;
+		runOptions.runSeconds = static_cast<double>(config.GetInt("--run-seconds", 0));
+		runOptions.runTicks = static_cast<long long>(config.GetInt("--run-ticks", 0));
+
+		// --fixed-step pins the physics substep rate. On its own that is NOT enough
+		// for a reproducible run: the loop still feeds Update a measured wall-clock
+		// dt, so the tick count over a fixed wall-clock window varies with machine
+		// load and per-tick work such as the border check lands at different
+		// simulated times. Pinning the loop dt as well is what closes that gap.
+		if (config.Has("--fixed-step")) {
+			if (auto* worldManager = serverManager->GetServerWorldManager()) {
+				runOptions.fixedDt = worldManager->GetFixedTimestepDt();
+			}
+		}
+
+		// Bootstrap ticks pump the network before the world exists; charging them to
+		// the budget would end the run before the first object is ever simulated.
+		runOptions.countTicksWhen = [serverManager]() {
+			return serverManager->GetGameStarted();
+		};
+
 		std::cout << "Running headless (server " << serverId << ")";
-		if (runSeconds > 0.0) {
-			std::cout << " for " << runSeconds << "s";
+		if (runOptions.runTicks > 0) {
+			std::cout << " for " << runOptions.runTicks << " ticks";
+		}
+		else if (runOptions.runSeconds > 0.0) {
+			std::cout << " for " << runOptions.runSeconds << "s";
 		}
 		std::cout << ".\n";
 
-		NCL::RunHeadlessLoop(tick, runSeconds);
+		NCL::RunHeadlessLoop(tick, runOptions);
 
 		if (auto* worldManager = serverManager->GetServerWorldManager()) {
 			worldManager->FlushMetrics();

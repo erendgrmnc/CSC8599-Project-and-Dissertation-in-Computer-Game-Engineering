@@ -115,6 +115,11 @@ void NCL::DistributedGameServer::ServerWorldManager::SetFixedTimestep(bool state
 	mPhysics->SetFixedTimestep(state);
 }
 
+float NCL::DistributedGameServer::ServerWorldManager::GetFixedTimestepDt() const {
+	const int hz = mPhysics->GetSubstepHZ();
+	return (hz > 0) ? (1.0f / static_cast<float>(hz)) : 0.0f;
+}
+
 void NCL::DistributedGameServer::ServerWorldManager::EnableMetrics(const std::string& outputPath, size_t capacity) {
 	mMetrics = std::make_unique<NCL::MetricSink>(outputPath, capacity);
 	std::cout << "Per-tick metrics -> " << outputPath << " (capacity " << capacity << " samples)\n";

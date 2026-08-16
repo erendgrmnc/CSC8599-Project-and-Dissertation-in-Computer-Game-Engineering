@@ -62,6 +62,9 @@ int StartMidware(int argc, char* argv[]) {
 	if (config.Has("--run-seconds")) {
 		serverExtraArgs += " --run-seconds " + std::to_string(config.GetInt("--run-seconds", 0));
 	}
+	if (config.Has("--run-ticks")) {
+		serverExtraArgs += " --run-ticks " + std::to_string(config.GetInt("--run-ticks", 0));
+	}
 	if (!serverExtraArgs.empty()) {
 		serverExtraArgs.erase(0, 1);
 		std::cout << "Forwarding to spawned game servers: " << serverExtraArgs << "\n";

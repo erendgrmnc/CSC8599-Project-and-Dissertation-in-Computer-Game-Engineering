@@ -69,6 +69,11 @@ namespace NCL {
 			// see PhysicsSystem::SetFixedTimestep.
 			void SetFixedTimestep(bool state);
 
+			// The pinned substep length, in seconds. Feeding this to the headless loop
+			// as its dt makes each tick perform exactly one substep, which is what
+			// turns a run deterministic.
+			float GetFixedTimestepDt() const;
+
 			// Selects the initial-motion workload applied when the world is built.
 			//   ""        - none (default): objects fall and settle, never crossing a
 			//               region border, so the handoff path is never exercised
