@@ -53,6 +53,19 @@ public:
 	void SetRenderResources(NCL::CSC8503::GameWorld* world, NCL::Rendering::Mesh* mesh,
 		NCL::Rendering::Texture* albedo, NCL::Rendering::Texture* normal, NCL::Rendering::Shader* shader);
 
+	// --- Interaction commands -------------------------------------------------
+	// Returns the serverId a command must be sent to, or -1 if it cannot be
+	// resolved. There is deliberately no broadcast fallback: a broadcast command
+	// would be applied once per server.
+	int ResolveCommandTarget(const NCL::Interaction::CommandArgs& args,
+		const NCL::Interaction::CommandScope& scope) const;
+
+	// Routes and sends. False means the command was rejected locally and never
+	// left the machine.
+	bool SendCommand(NCL::Interaction::CommandType type, NCL::Interaction::CommandArgs args);
+
+	int GetCommandsSent() const { return mCommandsSent; }
+
 	void UpdateGame(float dt);
 	void UpdateDistributedManagerClient(float dt);
 	void ReceivePacket(int type, GamePacket* payload, int source) override;
@@ -113,6 +126,12 @@ protected:
 	// Snapshot acknowledgement, keyed by physics server ID. Sent once per pump rather
 	// than per packet: a full snapshot is one packet per object.
 	void SendSnapshotAcks();
+	// One global sequence across every server link, not one per link: (playerID,
+	// sequence) must be unique whichever server ends up applying the command.
+	int mNextCommandSequence = 1;
+	int mCommandsSent = 0;
+	std::map<int, int> mAckResultCounts;   // CommandResult -> count, for the I4 invariant
+
 	std::map<int, int> mLastFullStateIdPerServer;
 	std::map<int, int> mLastAckedStateIdPerServer;
 	void HandleDeltaPacket(NCL::CSC8503::DeltaPacket* packet);

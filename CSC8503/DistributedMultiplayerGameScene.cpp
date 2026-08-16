@@ -18,6 +18,10 @@ DistributedMultiplayerGameScene::DistributedMultiplayerGameScene() {
 	mClientSideLastFullID = 0;
 	mServerSideLastFullID = 0;
 
+	// The client needs the same registry the servers have: SendCommand looks up the
+	// command to derive its scope and run client-side validation before routing.
+	NCL::Interaction::CommandRegistry::RegisterDefaults();
+
 	NetworkBase::Initialise();
 }
 
@@ -74,6 +78,7 @@ bool DistributedMultiplayerGameScene::ConnectClientToDistributedGameServer(char 
 		client->RegisterPacketHandler(Player_Connected, this);
 		client->RegisterPacketHandler(Player_Disconnected, this);
 		client->RegisterPacketHandler(String_Message, this);
+		client->RegisterPacketHandler(DistributedCommandAck, this);
 	}
 
 	mDistributedPhysicsClients.push_back({ client, serverId });
@@ -109,10 +114,94 @@ void DistributedMultiplayerGameScene::ReceivePacket(int type, GamePacket* payloa
 		HandleDeltaPacket(static_cast<DeltaPacket*>(payload));
 		break;
 	}
+	case BasicNetworkMessages::DistributedCommandAck: {
+		auto* ack = static_cast<DistributedCommandAckPacket*>(payload);
+		++mAckResultCounts[ack->result];
+
+		// A NotOwner ack carries the true owner. Adopting it immediately is what
+		// stops a stale owner table from misrouting every subsequent command for
+		// this object.
+		if (ack->result == static_cast<int>(NCL::Interaction::CommandResult::NotOwner) &&
+			ack->correctedServerID >= 0 && ack->targetObjectID >= 0) {
+			mObjectOwner[ack->targetObjectID] = ack->correctedServerID;
+		}
+		break;
+	}
 	default:
 		std::cout << "Received unknown packet. Type: " << payload->type << std::endl;
 		break;
 	}
+}
+
+int DistributedMultiplayerGameScene::ResolveCommandTarget(
+	const NCL::Interaction::CommandArgs& args,
+	const NCL::Interaction::CommandScope& scope) const {
+
+	if (scope.targetsObject && args.targetObjectID >= 0) {
+		const auto owner = mObjectOwner.find(args.targetObjectID);
+		if (owner != mObjectOwner.end()) {
+			return owner->second;
+		}
+		// Fall through: the object may still be resolvable by position even if the
+		// owner table has not seen it yet.
+	}
+
+	if (scope.targetsPoint) {
+		for (const ServerRegion& region : mServerRegions) {
+			// Half-open on both axes, matching the server-side rule. A different rule
+			// here would misroute every command issued on a border.
+			if (args.worldPoint.x >= region.minX && args.worldPoint.x < region.maxX &&
+				args.worldPoint.z >= region.minZ && args.worldPoint.z < region.maxZ) {
+				return region.serverId;
+			}
+		}
+	}
+
+	// Deliberately no broadcast fallback: N servers would each apply the command.
+	return -1;
+}
+
+bool DistributedMultiplayerGameScene::SendCommand(NCL::Interaction::CommandType type,
+	NCL::Interaction::CommandArgs args) {
+
+	NCL::Interaction::IInteractionCommand* command =
+		NCL::Interaction::CommandRegistry::Instance().Find(type);
+	if (command == nullptr) {
+		return false;
+	}
+
+	// Client-side validation is an optimisation only - the server validates again.
+	if (!command->Validate(args)) {
+		return false;
+	}
+
+	const NCL::Interaction::CommandScope scope = command->GetScope(args);
+	const int targetServerId = ResolveCommandTarget(args, scope);
+	if (targetServerId < 0) {
+		std::cout << "Command dropped: no server resolved for object "
+			<< args.targetObjectID << ".\n";
+		return false;
+	}
+
+	GameClient* link = nullptr;
+	for (const PhysicsServerLink& serverLink : mDistributedPhysicsClients) {
+		if (serverLink.serverId == targetServerId) {
+			link = serverLink.client;
+			break;
+		}
+	}
+	if (link == nullptr) {
+		return false;
+	}
+
+	// Continuous input is state and is re-sent every tick, so it is not sequenced;
+	// giving it a sequence would consume the dedupe window in a few seconds.
+	const int sequence = scope.isContinuous ? 0 : mNextCommandSequence++;
+
+	DistributedClientCommandPacket packet(static_cast<int>(type), sequence, targetServerId, args);
+	link->SendReliablePacket(packet);
+	++mCommandsSent;
+	return true;
 }
 
 void DistributedMultiplayerGameScene::SetRenderResources(NCL::CSC8503::GameWorld* world, NCL::Rendering::Mesh* mesh,
