@@ -120,6 +120,18 @@ namespace NCL::CSC8503 {
 	};
 	static_assert(std::is_trivially_copyable_v<DistributedObjectSpawnedPacket>);
 
+	// Owning game server -> peers and clients. An EXPLICIT despawn rather than
+	// "absence from a snapshot": absence already means "not mine", so overloading it
+	// would make a destroyed object indistinguishable from a handed-off one.
+	struct DistributedObjectDespawnedPacket : public GamePacket {
+		int objectID;
+		int reason;                   // NCL::Interaction::DespawnReason
+		int destroyerPlayerID;        // -1 for system despawns
+
+		DistributedObjectDespawnedPacket(int objectID, int reason, int destroyerPlayerID);
+	};
+	static_assert(std::is_trivially_copyable_v<DistributedObjectDespawnedPacket>);
+
 	struct ClientPacket : public GamePacket {
 		int		lastID;
 		char	buttonstates[8];
@@ -437,6 +449,20 @@ namespace NCL::CSC8503 {
 
 		void FinishTransitionToNewServer(int newServerID);
 		void HandleTransitionComplete();
+
+		// Destroy wins over a not-yet-dispatched handoff (race W1). The tick order
+		// runs the network pump before HandleObjectTransitions, so this is the common
+		// case and it is cleanly winnable: a pure local state reset, no wire change
+		// and no change to the handoff protocol itself.
+		void CancelPendingTransition() {
+			mIsActualPosOutServer = false;
+			mIsWaitingHandshake = false;
+			mNewServerID = -1;
+		}
+
+		bool IsPendingTransition() const {
+			return mIsActualPosOutServer || mIsWaitingHandshake;
+		}
 		void OnTransitionHandshakeReceived();
 		void AddReceivedObjectLastPacket(const NetworkState& state);
 

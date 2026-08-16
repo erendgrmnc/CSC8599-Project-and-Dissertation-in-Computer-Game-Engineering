@@ -62,7 +62,8 @@ enum BasicNetworkMessages {
 	DistributedClientCommand,        // Client      -> Game Server
 	DistributedCommandAck,           // Game Server -> Client
 	DistributedServerCommandRelay,   // Game Server -> Game Server
-	DistributedObjectSpawned         // Game Server -> peers + clients
+	DistributedObjectSpawned,        // Game Server -> peers + clients
+	DistributedObjectDespawned       // Game Server -> peers + clients
 };
 
 enum DistributedSystemClientType {

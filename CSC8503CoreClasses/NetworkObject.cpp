@@ -738,4 +738,14 @@ DistributedObjectSpawnedPacket::DistributedObjectSpawnedPacket(int objectID, int
 	this->spawnerPlayerID = spawnerPlayerID;
 	this->position = position;
 }
+
+DistributedObjectDespawnedPacket::DistributedObjectDespawnedPacket(int objectID, int reason,
+	int destroyerPlayerID) {
+	type = BasicNetworkMessages::DistributedObjectDespawned;
+	size = sizeof(DistributedObjectDespawnedPacket) - sizeof(GamePacket);
+
+	this->objectID = objectID;
+	this->reason = reason;
+	this->destroyerPlayerID = destroyerPlayerID;
+}
 #endif
