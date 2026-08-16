@@ -193,12 +193,61 @@ namespace NCL::Interaction {
 				return (spawnedID >= 0) ? CommandResult::Applied : CommandResult::Rejected;
 			}
 		};
+
+		// Destroys an object. Object-targeted, so it follows the object rather than a
+		// point - and that is also what covers race W2 without any protocol change:
+		// a server that has already handed the object away still holds its last known
+		// position, which by definition lies in the NEW owner's region, so the normal
+		// relay-on-not-owner path forwards the destroy to exactly the right server.
+		class DestroyCommand : public IInteractionCommand {
+		public:
+			CommandType GetType() const override { return CommandType::Destroy; }
+
+			CommandScope GetScope(const CommandArgs&) const override {
+				CommandScope scope;
+				scope.targetsObject = true;
+				return scope;
+			}
+
+			bool Validate(const CommandArgs& args) const override {
+				return args.targetObjectID >= 0;
+			}
+
+			CommandResult Apply(ICommandContext& ctx, const CommandArgs& args) override {
+				if (!Validate(args)) {
+					return CommandResult::Rejected;
+				}
+
+				if (ctx.FindActiveObject(args.targetObjectID) != nullptr) {
+					const bool destroyed = ctx.DestroyObject(args.targetObjectID,
+						DespawnReason::Destroyed, args.playerID);
+					return destroyed ? CommandResult::Applied : CommandResult::ObjectUnknown;
+				}
+
+				// Not active here. It may have been handed off, or already destroyed.
+				Maths::Vector3 lastKnown;
+				if (!ctx.TryGetLastKnownPosition(args.targetObjectID, lastKnown)) {
+					// No pool entry at all, or the entry is a tombstone. Either way
+					// there is nothing left to destroy and nowhere to forward to.
+					return CommandResult::ObjectDestroyed;
+				}
+
+				const int owner = ctx.GetOwningServer(lastKnown);
+				if (owner < 0 || owner == ctx.GetServerID()) {
+					return CommandResult::ObjectUnknown;
+				}
+
+				ctx.RelayToServer(owner, GetType(), args);
+				return CommandResult::Relayed;
+			}
+		};
 	}
 
 	void CommandRegistry::RegisterDefaultsInto(CommandRegistry& registry) {
 		registry.Register(std::make_unique<ImpulseCommand>());
 		registry.Register(std::make_unique<MoveAxisCommand>());
 		registry.Register(std::make_unique<SpawnCommand>());
+		registry.Register(std::make_unique<DestroyCommand>());
 	}
 
 	void CommandRegistry::RegisterDefaults() {

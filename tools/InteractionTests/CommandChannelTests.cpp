@@ -476,3 +476,82 @@ TEST(AreaEffectWithNoOverlapStillApplies) {
 	CHECK(registry.Find(CommandType::Impulse)->Apply(ctx, args) == CommandResult::Applied);
 	CHECK_EQ((int)ctx.relays.size(), 0);
 }
+
+// --- Destroy ---------------------------------------------------------------
+
+namespace {
+	class DestroyFakeContext : public FakeContext {
+	public:
+		std::vector<int> destroyed;
+		bool destroySucceeds = true;
+
+		bool DestroyObject(int objectID, DespawnReason, int) override {
+			destroyed.push_back(objectID);
+			return destroySucceeds;
+		}
+	};
+}
+
+TEST(DestroyAppliesToOwnedObject) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+
+	DestroyFakeContext ctx;
+	ctx.objectIsActiveHere = true;
+
+	CommandArgs args;
+	args.targetObjectID = 7;
+
+	CHECK(registry.Find(CommandType::Destroy)->Apply(ctx, args) == CommandResult::Applied);
+	CHECK_EQ((int)ctx.destroyed.size(), 1);
+}
+
+// Race W2 without any protocol change: a server that already handed the object
+// away still holds its last known position, which lies in the NEW owner's region,
+// so the ordinary relay path forwards the destroy to exactly the right server.
+TEST(DestroyRelaysAfterHandoff) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+
+	DestroyFakeContext ctx;
+	ctx.serverID = 0;
+	ctx.objectIsActiveHere = false;
+	ctx.hasLastKnownPosition = true;
+	ctx.lastKnownPosition = Maths::Vector3(80, 0, 0);
+	ctx.owningServerResult = 1;
+
+	CommandArgs args;
+	args.targetObjectID = 7;
+
+	CHECK(registry.Find(CommandType::Destroy)->Apply(ctx, args) == CommandResult::Relayed);
+	CHECK_EQ((int)ctx.relays.size(), 1);
+	CHECK_EQ((int)ctx.destroyed.size(), 0);
+}
+
+// A tombstoned entry reports no last known position, so the destroy resolves to
+// ObjectDestroyed - a materially more useful ack than ObjectUnknown, and it keeps
+// the I4 tally balanced for a duplicate destroy (race W4).
+TEST(DestroyOnTombstoneReportsAlreadyDestroyed) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+
+	DestroyFakeContext ctx;
+	ctx.objectIsActiveHere = false;
+	ctx.hasLastKnownPosition = false;
+
+	CommandArgs args;
+	args.targetObjectID = 7;
+
+	CHECK(registry.Find(CommandType::Destroy)->Apply(ctx, args) == CommandResult::ObjectDestroyed);
+	CHECK_EQ((int)ctx.relays.size(), 0);
+}
+
+TEST(DestroyRejectsMissingTarget) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+
+	CommandArgs args;
+	args.targetObjectID = -1;
+
+	CHECK(!registry.Find(CommandType::Destroy)->Validate(args));
+}
