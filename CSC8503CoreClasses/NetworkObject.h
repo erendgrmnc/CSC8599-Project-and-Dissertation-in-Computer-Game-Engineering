@@ -408,6 +408,16 @@ namespace NCL::CSC8503 {
 		int mControllerPlayerID;      // -1 when nothing is driving this object
 		Vector3 mMoveAxis;            // last applied movement axis
 
+		// --- appended for deterministic handoff application ---
+		//
+		// The tick on which the sender released the object. Handoff SENDS are already
+		// deterministic (fixed dt + deterministic positions mean the border check
+		// fires on the same tick every run); only the moment of APPLICATION varies,
+		// because it depends on when the packet happens to arrive. Scheduling
+		// application at senderTick + lookahead removes that last source of run-to-run
+		// variation without any inter-server barrier.
+		long long mSenderTick;
+
 		StartSimulatingObjectPacket(int objectID, int newServerID, int senderServerID, NetworkState lastFullState, PhysicsObject& physicsObj);
 	};
 

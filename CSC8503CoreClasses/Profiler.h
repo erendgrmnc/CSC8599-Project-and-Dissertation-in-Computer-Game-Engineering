@@ -82,6 +82,11 @@ namespace NCL {
 		static int GetHandoffsFailed();
 		static void SetHandoffsFailed(int count);
 
+		// Handoffs that missed their scheduled application tick. Non-zero means the
+		// configured lookahead is too small and the run is not reproducible.
+		static int GetHandoffsLate();
+		static void SetHandoffsLate(int count);
+
 		// Interaction command accounting (invariant I4). Summed across all servers,
 		// commands sent by clients must equal applied + rejected + duplicate; relayed
 		// is an internal hop and is counted separately so it is not double-charged.
@@ -174,6 +179,7 @@ namespace NCL {
 		static int sHandoffsSent;
 		static int sHandoffsReceived;
 		static int sHandoffsFailed;
+		static int sHandoffsLate;
 		static int sCommandsApplied;
 		static int sCommandsRelayed;
 		static int sCommandsDuplicate;

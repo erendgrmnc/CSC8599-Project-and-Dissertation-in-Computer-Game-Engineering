@@ -41,6 +41,7 @@ float Profiler::sLastFullSnapshotTime = 0.f;
 int Profiler::sHandoffsSent = 0;
 int Profiler::sHandoffsReceived = 0;
 int Profiler::sHandoffsFailed = 0;
+int Profiler::sHandoffsLate = 0;
 int Profiler::sCommandsApplied = 0;
 int Profiler::sCommandsRelayed = 0;
 int Profiler::sCommandsDuplicate = 0;
@@ -244,6 +245,14 @@ int Profiler::GetHandoffsFailed() {
 
 void Profiler::SetHandoffsFailed(int count) {
 	sHandoffsFailed = count;
+}
+
+int Profiler::GetHandoffsLate() {
+	return sHandoffsLate;
+}
+
+void Profiler::SetHandoffsLate(int count) {
+	sHandoffsLate = count;
 }
 
 int Profiler::GetCommandsApplied() {
