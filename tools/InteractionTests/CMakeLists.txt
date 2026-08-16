@@ -22,6 +22,7 @@ add_executable(InteractionTests
     "PhysicsRegistrationTests.cpp"
     "CommandChannelTests.cpp"
     "RegionOwnershipTests.cpp"
+    "NetworkIdSpaceTests.cpp"
 )
 
 # The engine headers assume these are already included - the role targets get them
