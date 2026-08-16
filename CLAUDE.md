@@ -101,7 +101,19 @@ touches zero switch statements** — write the command class, register it in `Re
 - Accounting (invariant I4): `cmdApplied + cmdRejected + cmdDup` summed across servers must equal
   the client's `cmdSent`; `cmdRelayed` is an internal hop counted separately. Compare *aligned*
   2 Hz samples — the client keeps sending after the servers take their last one.
-- A headless client has no input path, so the channel is only exercised with `--impulse-test N`.
+- A headless client has no input path, so the channel is only exercised with `--impulse-test N`;
+  `--misroute-every N` additionally forces the relay path by sending every Nth command to a server
+  that does not own the object. Both roles print an exact `@@FINAL` line at the end of a bounded
+  run — use those, not the 2 Hz samples, for invariant checks.
+
+> **Peer links are labelled by server id, not array index.** `StartDistributedGameServerPacket`
+> carries two differently-indexed families: `serverIDs[]`/`borders[]` are indexed **by server id**
+> (length `totalServerCount`), while `serverPorts[]`/`createdServerIPs[]` are in **registration
+> order** (length `currentServerCount`). `connectedServerIDs[]` maps the second family back to real
+> ids and is what `HandleStartGameServerPacketReceived` must use. Using the index instead mislabels
+> every peer link whenever servers register out of id order, which silently breaks *both*
+> `DrainPendingRelays` and `SendTransactionHandshakePacket` — the latter being one concrete reason
+> the transition ack never worked.
 
 ## Networking layer
 
