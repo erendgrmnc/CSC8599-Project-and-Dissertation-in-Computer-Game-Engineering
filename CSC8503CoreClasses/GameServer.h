@@ -22,6 +22,13 @@ namespace NCL {
 			bool SendVariableUpdatePacket(VariablePacket& packet);
 			bool GetPeer(int peerNumber, int& peerId) const;
 
+			// Directed send to one peer. Needed for a late-join manifest: broadcasting
+			// it would make every already-connected client re-receive the whole world
+			// each time anyone joins. mPeers holds peer NUMBERS, not handles, so the
+			// ENetPeer* has to be retained separately - which is why this could not
+			// simply be written in terms of the existing peer table.
+			bool SendPacketToPeer(int peerNumber, GamePacket& packet);
+
 			std::string GetIpAddress() const;
 
 			virtual void UpdateServer();
@@ -32,6 +39,10 @@ namespace NCL {
 			int			mClientMax;
 			int			mClientCount;
 			int*        mPeers;
+			// Parallel to mPeers: the ENet handle for each peer number, so a directed
+			// send can find its destination. Kept as a map rather than an array so it
+			// cannot fall out of step with mClientMax.
+			std::map<int, _ENetPeer*> mPeerHandles;
 			GameWorld*	mGameWorld;
 
 			int mIncomingDataRate;

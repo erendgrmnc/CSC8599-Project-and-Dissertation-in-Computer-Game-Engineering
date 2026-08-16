@@ -107,6 +107,10 @@ void GameServer::UpdateServer() {
 
 		if (type == ENetEventType::ENET_EVENT_TYPE_CONNECT) {
 			std::cout << "Server: New client has connected" << std::endl;
+			// Retain the handle before AddPeer runs: a subclass override may want to
+			// send this peer a directed packet (the late-join manifest does exactly
+			// that), and without the handle there is nothing to send to.
+			mPeerHandles[peer + 1] = p;
 			AddPeer(peer + 1);
 		}
 		else if (type == ENetEventType::ENET_EVENT_TYPE_DISCONNECT) {
@@ -120,6 +124,7 @@ void GameServer::UpdateServer() {
 					mClientCount--;
 				}
 			}
+			mPeerHandles.erase(peer + 1);
 
 		}
 		else if (type == ENetEventType::ENET_EVENT_TYPE_RECEIVE) {
@@ -148,6 +153,17 @@ void GameServer::SetMaxClients(int maxClients) {
 
 void GameServer::SetGameWorld(GameWorld& g) {
 	mGameWorld = &g;
+}
+
+bool GameServer::SendPacketToPeer(int peerNumber, GamePacket& packet) {
+	const auto entry = mPeerHandles.find(peerNumber);
+	if (entry == mPeerHandles.end() || entry->second == nullptr) {
+		return false;
+	}
+
+	ENetPacket* dataPacket = enet_packet_create(&packet, packet.GetTotalSize(),
+		ENET_PACKET_FLAG_RELIABLE);
+	return enet_peer_send(entry->second, 0, dataPacket) == 0;
 }
 
 void GameServer::AddPeer(int peerNumber) {
