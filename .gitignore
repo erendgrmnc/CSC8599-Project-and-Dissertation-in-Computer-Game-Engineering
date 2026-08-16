@@ -128,3 +128,12 @@ DistributedGameServer/DistributedGameServer.dir/
 DistributedPhysicsManager/DistributedPhysicsManager.dir/
 PhysicsServerMidware/PhysicsServerMidware.dir/
 PhysicsServerMidware/Release/
+
+# CMake-generated project files for the test target
+tools/InteractionTests/*.vcxproj
+tools/InteractionTests/*.vcxproj.filters
+tools/InteractionTests/*.dir/
+tools/InteractionTests/Debug/
+tools/InteractionTests/Release/
+tools/InteractionTests/CMakeFiles/
+tools/InteractionTests/cmake_install.cmake

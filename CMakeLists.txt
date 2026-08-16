@@ -75,6 +75,10 @@ add_subdirectory(Recast)
 add_subdirectory(DebugUtils)
 add_subdirectory(DetourTileCache)
 
+# Tier 0 unit tests. Built in both configures; it links libraries only, never a
+# role entry point, so it cannot change what the four shipped binaries contain.
+add_subdirectory(tools/InteractionTests)
+
 
 if ("${CMAKE_VS_PLATFORM_NAME}" STREQUAL "x64")
     add_subdirectory(OpenGLRendering)
