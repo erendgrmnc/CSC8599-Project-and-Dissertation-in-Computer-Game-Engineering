@@ -111,6 +111,7 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 	}
 
 	if (mIsGameStarted) {
+		FlushDelayedHandoffs();
 		HandleObjectTransitions();
 
 		mTimeToNextPacket -= dt;
@@ -573,6 +574,15 @@ void DistributedGameServer::DistributedGameServerManager::SendFinishTransactionP
 	packet.mControllerPlayerID = gameObjectComp.GetControllerPlayerID();
 	packet.mMoveAxis = gameObjectComp.GetMoveAxis();
 
+	const int delay = mServerWorldManager->GetHandoffDelayTicks();
+	if (delay > 0) {
+		// Held back deliberately. The object is still released locally on this tick,
+		// so for the next `delay` ticks it exists on neither server - which is what
+		// lets a destroy reach the new owner before the object does.
+		mDelayedHandoffs.push_back(DelayedHandoff{ packet, delay });
+		return;
+	}
+
 	mDistributedPacketSenderServer->SendGlobalReliablePacket(packet);
 }
 
@@ -793,6 +803,21 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectDespawnedP
 	}
 
 	worldManager->ApplyRemoteDespawn(packet->objectID, packet->reason, packet->destroyerPlayerID);
+}
+
+void DistributedGameServer::DistributedGameServerManager::FlushDelayedHandoffs() {
+	if (mDelayedHandoffs.empty() || mDistributedPacketSenderServer == nullptr) {
+		return;
+	}
+
+	for (auto entry = mDelayedHandoffs.begin(); entry != mDelayedHandoffs.end(); ) {
+		if (--entry->ticksRemaining > 0) {
+			++entry;
+			continue;
+		}
+		mDistributedPacketSenderServer->SendGlobalReliablePacket(entry->packet);
+		entry = mDelayedHandoffs.erase(entry);
+	}
 }
 
 void DistributedGameServer::DistributedGameServerManager::SendManifestToPeer(int peerNumber) {

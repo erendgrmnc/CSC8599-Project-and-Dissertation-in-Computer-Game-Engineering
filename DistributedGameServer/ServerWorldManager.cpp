@@ -722,6 +722,23 @@ bool DistributedGameServer::ServerWorldManager::StartHandlingObject(StartSimulat
 			<< " - no pool entry on this server.\n";
 		return false;
 	}
+	// The object was destroyed while in flight (races W3/W4). Accepting it would
+	// resurrect it. Counted as received - the sender genuinely did release it, so
+	// dropping it silently would break handoff parity (I5) instead.
+	if (IsTombstoned(packet->objectID) ||
+		mPendingDestroyOnArrival.find(packet->objectID) != mPendingDestroyOnArrival.end()) {
+		mPendingDestroyOnArrival.erase(packet->objectID);
+		mTombstones.insert(packet->objectID);
+		if (poolEntry->second != nullptr) {
+			TeardownObject(poolEntry->second);
+			poolEntry->second = nullptr;
+		}
+		++mHandoffsReceived;
+		std::cout << "Handoff for destroyed object " << packet->objectID
+			<< " - dropped rather than resurrected.\n";
+		return true;
+	}
+
 	if (GameObject* objectToHandle = poolEntry->second) {
 		objectToHandle->SetActive(false);
 		std::cout << "Added incoming network object with network id: " << packet->objectID << "/ Game world object count: " << mGameWorld->GetGameObjects().size() << "\n";

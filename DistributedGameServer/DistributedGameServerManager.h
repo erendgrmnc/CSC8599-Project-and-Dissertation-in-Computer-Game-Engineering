@@ -130,6 +130,16 @@ namespace NCL {
 			void HandleStartGameServerPacketReceived(StartDistributedGameServerPacket* packet);
 			void HandleObjectTransitions() const;
 			void SendFinishTransactionPacket(NetworkObject& obj) const;
+
+			// Fault injection (see ServerWorldManager::SetHandoffDelayTicks). The
+			// object is released locally at the normal moment; only the transfer
+			// packet is held back, which is precisely the window race W3 needs.
+			struct DelayedHandoff {
+				CSC8503::StartSimulatingObjectPacket packet;
+				int ticksRemaining = 0;
+			};
+			mutable std::vector<DelayedHandoff> mDelayedHandoffs;
+			void FlushDelayedHandoffs();
 			void SendTransactionHandshakePacket(int senderServerID, int networkID) const;
 
 			// --- interaction command channel ---

@@ -39,6 +39,9 @@ param(
     # Drives one object along +X every N client ticks so it crosses a border while
     # under control. 0 disables.
     [int]$DriveEvery = 0,
+    # Fault injection: delays each handoff packet by N ticks so races W3 and the
+    # client resurrection guard are actually reached. Must be 0 for measurement.
+    [int]$HandoffDelayTicks = 0,
     [string]$OutDir = ""
 )
 $ErrorActionPreference = "Continue"
@@ -88,7 +91,7 @@ $mgr = Start-Process -PassThru -FilePath (Join-Path $deploy "Manager\EntryPoint.
 Start-Sleep -Seconds 3
 
 $mid = Start-Process -PassThru -FilePath (Join-Path $deploy "Midware\EntryPoint.exe") `
-    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" $bound" `
+    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" --handoff-delay-ticks $HandoffDelayTicks $bound" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\mid.log" -RedirectStandardError "$runDir\mid.err" -WindowStyle Hidden
 Start-Sleep -Seconds 4
 

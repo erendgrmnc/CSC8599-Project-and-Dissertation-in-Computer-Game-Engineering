@@ -157,6 +157,22 @@ namespace NCL {
 			//               world and cross borders at a measurable rate
 			// Must be identical on every server: they each build the same object set
 			// independently, so a workload mismatch desynchronises the world.
+			// Fault injection: delays each outgoing handoff by N ticks while the object
+			// is already released. Real links reorder rarely enough that race W3 (a
+			// destroy reaching the new owner BEFORE the object does) and the client's
+			// resurrection guard were never reached in ordinary runs - so both held
+			// but were untested. This widens the window deterministically.
+			//
+			// Measurement runs must leave this at 0: it deliberately changes handoff
+			// timing.
+			void SetHandoffDelayTicks(int ticks) {
+				mHandoffDelayTicks = ticks;
+			}
+
+			int GetHandoffDelayTicks() const {
+				return mHandoffDelayTicks;
+			}
+
 			void SetWorkload(const std::string& workload) {
 				mWorkload = workload;
 			}
@@ -202,6 +218,7 @@ namespace NCL {
 			int mHandoffsSent = 0;
 			int mHandoffsReceived = 0;
 			int mHandoffsFailed = 0;
+			int mHandoffDelayTicks = 0;
 			double mPhysicsTime = 0;
 			float mObjDebugTimer = 5.f;
 

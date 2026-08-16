@@ -105,6 +105,9 @@ int StartGameServer(int argc, char* argv[]) {
 		worldManager->SetFixedTimestep(fixedStep);
 		worldManager->SetWorldSeed(static_cast<unsigned int>(config.GetInt("--seed", 1)));
 		worldManager->SetWorkload(config.GetString("--workload", ""));
+		// Fault injection, off by default. Deliberately changes handoff timing, so it
+		// must stay 0 for any measurement run.
+		worldManager->SetHandoffDelayTicks(config.GetInt("--handoff-delay-ticks", 0));
 		std::cout << "Determinism: fixed-step=" << (fixedStep ? "on" : "off")
 			<< " seed=" << worldManager->GetWorldSeed()
 			<< " workload=" << (worldManager->GetWorkload().empty() ? "(none)" : worldManager->GetWorkload())

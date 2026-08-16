@@ -62,6 +62,9 @@ int StartMidware(int argc, char* argv[]) {
 	if (config.Has("--run-seconds")) {
 		serverExtraArgs += " --run-seconds " + std::to_string(config.GetInt("--run-seconds", 0));
 	}
+	if (config.Has("--handoff-delay-ticks")) {
+		serverExtraArgs += " --handoff-delay-ticks " + std::to_string(config.GetInt("--handoff-delay-ticks", 0));
+	}
 	if (config.Has("--run-ticks")) {
 		serverExtraArgs += " --run-ticks " + std::to_string(config.GetInt("--run-ticks", 0));
 	}
