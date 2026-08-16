@@ -1860,3 +1860,34 @@ flight when the run ended: released by the sender, transfer never delivered. Thi
 ownership gap — the sender deactivates on send and the transfer is unacknowledged — now *measured*
 rather than argued. It is the paper's clearest quantification of the protocol's known weakness, and
 it is reproducible on demand with one flag.
+
+### 6. The 4-server bootstrap race — FIXED
+
+A 4-server instance intermittently failed to start: one server built its whole object set
+(`total=400`) but never received `GameStartState`, so `game=0` and it produced no metrics at all.
+
+**Root cause — two bugs, both in the readiness test.**
+
+1. `DistributedPacketSenderServer::AddPeer` fired the all-connected event only on
+   `mClientCount == mClientMax`, an **exact** match, and only when a peer joined. But the expected
+   count is not known until the manager's `StartDistributedGameServerPacket` arrives and calls
+   `SetMaxClients`. Until then the bound sits at its constructor value of 19
+   (`TEST_MAX_CLIENT + TEST_MAX_GAME_SERVER - 1`). If the last peer connected **before** that packet
+   arrived — routine at 4 servers, where each server waits on 3 peers plus a client — the counts
+   became equal with nothing left to re-check, and the equality was simply stepped over.
+2. `GameServer::SetMaxClients` shrinking the bound from 19 to 4 dropped any peer sitting in a slot
+   past the new end but left `mClientCount` untouched, so the count could permanently disagree with
+   the table.
+
+**Fix.** `SetMaxClients` is now virtual, recomputes `mClientCount` from the retained table, and the
+sender server overrides it to re-evaluate readiness whenever the bound changes. The test itself
+became `>=` with a one-shot guard, so it cannot be stepped over.
+
+Verified: **three consecutive 4-server runs, 4/4 servers reporting**, pre-seed ownership
+`100 + 100 + 100 + 100 = 400` exactly in every one — with objects sitting on **both** interior seams
+of a 2x2 partition, which is the strongest available check of the half-open rule. A full-feature
+2-server run (spawn, destroy, impulses, misroutes, blasts) shows no regression: I2, I4 and I5 all
+exact.
+
+This also unblocks the 4-server scaling experiments, which would otherwise have silently produced
+three-server data.
