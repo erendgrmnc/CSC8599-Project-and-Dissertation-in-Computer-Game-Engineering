@@ -109,6 +109,13 @@ int StartGameServer(int argc, char* argv[]) {
 			<< " seed=" << worldManager->GetWorldSeed()
 			<< " workload=" << (worldManager->GetWorkload().empty() ? "(none)" : worldManager->GetWorkload())
 			<< "\n";
+
+		// Per-tick metrics. One file per server so runs never interleave writes.
+		const std::string metricsDir = config.GetString("--metrics-dir", "");
+		if (!metricsDir.empty()) {
+			const std::string path = metricsDir + "/ticks-server" + std::to_string(serverId) + ".csv";
+			worldManager->EnableMetrics(path, static_cast<size_t>(config.GetInt("--metrics-capacity", 200000)));
+		}
 	}
 
 	serverManager->StartDistributedGameServer(ipOctets[0], ipOctets[1], ipOctets[2], ipOctets[3], port);
@@ -129,8 +136,21 @@ int StartGameServer(int argc, char* argv[]) {
 	};
 
 	if (headless) {
-		std::cout << "Running headless (server " << serverId << ").\n";
-		NCL::RunHeadlessLoop(tick);
+		// A bounded run is what makes an unattended experiment comparable, and it is
+		// the only path on which buffered metrics get written - a force-killed
+		// process loses them.
+		const double runSeconds = static_cast<double>(config.GetInt("--run-seconds", 0));
+		std::cout << "Running headless (server " << serverId << ")";
+		if (runSeconds > 0.0) {
+			std::cout << " for " << runSeconds << "s";
+		}
+		std::cout << ".\n";
+
+		NCL::RunHeadlessLoop(tick, runSeconds);
+
+		if (auto* worldManager = serverManager->GetServerWorldManager()) {
+			worldManager->FlushMetrics();
+		}
 		return 0;
 	}
 

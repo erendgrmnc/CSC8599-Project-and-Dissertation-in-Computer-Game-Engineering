@@ -53,6 +53,15 @@ int StartMidware(int argc, char* argv[]) {
 	if (config.Has("--workload")) {
 		serverExtraArgs += " --workload " + config.GetString("--workload", "");
 	}
+	if (config.Has("--metrics-dir")) {
+		serverExtraArgs += " --metrics-dir " + config.GetString("--metrics-dir", "");
+	}
+	if (config.Has("--metrics-capacity")) {
+		serverExtraArgs += " --metrics-capacity " + std::to_string(config.GetInt("--metrics-capacity", 200000));
+	}
+	if (config.Has("--run-seconds")) {
+		serverExtraArgs += " --run-seconds " + std::to_string(config.GetInt("--run-seconds", 0));
+	}
 	if (!serverExtraArgs.empty()) {
 		serverExtraArgs.erase(0, 1);
 		std::cout << "Forwarding to spawned game servers: " << serverExtraArgs << "\n";
