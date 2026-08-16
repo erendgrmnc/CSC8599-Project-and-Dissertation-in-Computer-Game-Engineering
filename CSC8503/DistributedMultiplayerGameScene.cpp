@@ -3,6 +3,7 @@
 #include "GameClient.h"
 #include "GameWorld.h"
 #include "GameObject.h"
+#include "Profiler.h"
 #include "RenderObject.h"
 #include "DistributedSystemCommonFiles/DistributedUtils.h"
 
@@ -26,6 +27,13 @@ DistributedMultiplayerGameScene::~DistributedMultiplayerGameScene() {
 	for (const auto& link : mDistributedPhysicsClients) {
 		link.client->Disconnect();
 	}
+
+	// Replicas created without a GameWorld are owned here (see SpawnReplica); the
+	// rendered path's objects belong to the world and are freed with it.
+	for (auto* obj : mHeadlessReplicas) {
+		delete obj;
+	}
+	mHeadlessReplicas.clear();
 }
 
 bool DistributedMultiplayerGameScene::ConnectClientToDistributedManager(char a, char b, char c, char d, int port) {
@@ -129,25 +137,39 @@ NetworkObject* DistributedMultiplayerGameScene::FindNetworkObject(int objectID) 
 // before. The transform is set by the incoming snapshot (ReadPacket); we only
 // pick a visible scale + colour here.
 NetworkObject* DistributedMultiplayerGameScene::SpawnReplica(int objectID) {
-	if (!mWorld || !mObjMesh || !mObjShader) {
-		return nullptr; // headless / no render resources - receive only.
-	}
-
-	std::cout << "Spawning replica for network object " << objectID << "..." << std::endl;
+	// Replica STATE is created unconditionally; only the visual representation
+	// depends on render resources.
+	//
+	// This used to bail out entirely when there was no renderer, which silently
+	// disabled the client's whole network path in headless mode: no NetworkObject
+	// meant no full snapshot was ever applied, so no snapshot acknowledgement was
+	// ever sent, so the server had no delta baseline and every delta the client
+	// received was discarded. A headless client consumed bandwidth and measured
+	// nothing - which would have quietly invalidated any unattended experiment run.
 	auto* obj = new GameObject(NoSpecialFeatures, "NetObject " + std::to_string(objectID));
 	const float scale = 4.0f;
 	obj->GetTransform().SetScale(Vector3(scale, scale, scale));
 
-	const float cullRadius = scale * 1.75f;
-	obj->SetRenderObject(new RenderObject(&obj->GetTransform(), mObjMesh, mObjAlbedo, mObjNormal, mObjShader, cullRadius));
-	obj->GetRenderObject()->SetColour(Vector4(0.30f, 0.70f, 1.00f, 1.0f));
+	const bool canRender = (mWorld != nullptr && mObjMesh != nullptr && mObjShader != nullptr);
+	if (canRender) {
+		const float cullRadius = scale * 1.75f;
+		obj->SetRenderObject(new RenderObject(&obj->GetTransform(), mObjMesh, mObjAlbedo, mObjNormal, mObjShader, cullRadius));
+		obj->GetRenderObject()->SetColour(Vector4(0.30f, 0.70f, 1.00f, 1.0f));
+	}
 
 	auto* netObj = new NetworkObject(*obj, objectID);
 	obj->SetNetworkObject(netObj);
 	mNetworkObjects.push_back(netObj);
-	mWorld->AddGameObject(obj);
 
-	std::cout << "Spawned client replica for network object " << objectID << std::endl;
+	// Only the rendered path needs the object in the GameWorld; headless keeps it
+	// alive through mNetworkObjects alone.
+	if (mWorld) {
+		mWorld->AddGameObject(obj);
+	}
+	else {
+		mHeadlessReplicas.push_back(obj);
+	}
+
 	return netObj;
 }
 
@@ -157,16 +179,36 @@ void DistributedMultiplayerGameScene::HandleFullPacket(FullPacket* packet) {
 		netObj = SpawnReplica(packet->objectID);
 	}
 	if (netObj) {
-		netObj->ReadPacket(*packet);
+		if (netObj->ReadPacket(*packet)) {
+			Profiler::RecordFullApplied();
+		}
 		ApplyOwnerColour(netObj, mActiveServerId);
+
+		// A full snapshot arrives as one packet per object, so record the newest
+		// state we have applied here and acknowledge it once per pump in
+		// UpdatePhysicsClients - acking per packet would send one ack per object.
+		if (mActiveServerId >= 0) {
+			int& newest = mLastFullStateIdPerServer[mActiveServerId];
+			newest = std::max(newest, packet->fullState.stateID);
+		}
 	}
 }
 
 void DistributedMultiplayerGameScene::HandleDeltaPacket(DeltaPacket* packet) {
 	NetworkObject* netObj = FindNetworkObject(packet->objectID);
 	if (netObj) {
-		netObj->ReadPacket(*packet);
+		// ReadPacket's return value was being discarded, which is why deltas silently
+		// failing to apply went unnoticed for so long. Count both outcomes.
+		if (netObj->ReadPacket(*packet)) {
+			Profiler::RecordDeltaApplied();
+		}
+		else {
+			Profiler::RecordDeltaRejected();
+		}
 		ApplyOwnerColour(netObj, mActiveServerId);
+	}
+	else {
+		Profiler::RecordDeltaRejected();
 	}
 }
 
@@ -179,6 +221,29 @@ void DistributedMultiplayerGameScene::UpdatePhysicsClients(float dt) {
 		link.client->UpdateClient();
 	}
 	mActiveServerId = -1;
+
+	SendSnapshotAcks();
+}
+
+// Tells each physics server which full snapshot we have applied. The server encodes
+// its deltas against the oldest state still unacknowledged across all clients, so
+// without these acks it has no baseline and every delta it sends is discarded.
+void DistributedMultiplayerGameScene::SendSnapshotAcks() {
+	for (const auto& link : mDistributedPhysicsClients) {
+		auto newest = mLastFullStateIdPerServer.find(link.serverId);
+		if (newest == mLastFullStateIdPerServer.end()) {
+			continue;
+		}
+
+		int& lastAcked = mLastAckedStateIdPerServer[link.serverId];
+		if (newest->second <= lastAcked) {
+			continue;
+		}
+
+		DistributedClientSnapshotAckPacket packet(newest->second, link.serverId);
+		link.client->SendPacket(packet);
+		lastAcked = newest->second;
+	}
 }
 
 void DistributedMultiplayerGameScene::HandleOnConnectToDistributedPhysicsServerPacketReceived(

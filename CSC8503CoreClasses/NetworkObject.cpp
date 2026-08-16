@@ -436,15 +436,24 @@ bool NetworkObject::WritePacket(GamePacket** p, bool deltaFrame, int stateID, in
 
 //Client objects recieve these packets
 bool NetworkObject::ReadDeltaPacket(DeltaPacket& p) {
-	// if the delta packets full state is not the same as the last examined full state we discard it
-	if (p.fullID != lastFullState.stateID)
+	// Resolve the state this delta is encoded against. Matching only against the
+	// NEWEST full state is too strict: the server encodes deltas against the oldest
+	// state still unacknowledged across all clients, so any client running ahead of
+	// the slowest one would reject every delta it was sent. The full states we have
+	// already applied are retained in stateHistory precisely so we can look one up.
+	NetworkState baseState;
+	if (p.fullID == lastFullState.stateID) {
+		baseState = lastFullState;
+	}
+	else if (!GetNetworkState(p.fullID, baseState)) {
+		// The base state has already been pruned, or was never received.
 		return false;
-	UpdateStateHistory(p.fullID);
+	}
 
-	Vector3 fullPos = lastFullState.position;
-	Vector3 predictedPos = lastFullState.predictedPosition;
+	Vector3 fullPos = baseState.position;
+	Vector3 predictedPos = baseState.predictedPosition;
 
-	Quaternion fullOrientation = lastFullState.orientation;
+	Quaternion fullOrientation = baseState.orientation;
 
 	fullPos.x += p.pos[0];
 	fullPos.y += p.pos[1];
@@ -458,6 +467,11 @@ bool NetworkObject::ReadDeltaPacket(DeltaPacket& p) {
 	object.GetTransform().SetPosition(fullPos);
 	object.GetTransform().SetOrientation(fullOrientation);
 	object.GetTransform().SetPredictedPosition(predictedPos);
+
+	// Anything older than the state the server is still encoding against can go.
+	// Done after the delta is applied, so the base state is not pruned out from
+	// under this call.
+	UpdateStateHistory(p.fullID);
 	return true;
 }
 
@@ -477,6 +491,7 @@ bool NetworkObject::ReadFullPacket(FullPacket& p) {
 	object.SetServerID(p.serverID);
 
 	stateHistory.emplace_back(lastFullState);
+	TrimStateHistory();
 
 	return true;
 }
@@ -541,6 +556,7 @@ bool NetworkObject::WriteFullPacket(GamePacket** p, int gameServerID) {
 	fp->fullState.stateID = lastFullState.stateID++;
 	fp->serverID = gameServerID;
 	stateHistory.emplace_back(fp->fullState);
+	TrimStateHistory();
 	*p = fp;
 
 	return true;
@@ -587,6 +603,7 @@ NetworkState& NetworkObject::GetLatestNetworkState() {
 void NetworkObject::SetLatestNetworkState(NetworkState& lastState) {
 	lastFullState = lastState;
 	stateHistory.push_back(lastFullState);
+	TrimStateHistory();
 }
 
 void NetworkObject::FinishTransitionToNewServer(int newServerID) {
@@ -634,6 +651,23 @@ bool NetworkObject::GetNetworkState(int stateID, NetworkState& state) {
 
 int NetworkObject::GetNewServerID() const {
 	return mNewServerID;
+}
+
+// Backstop against unbounded growth. Normal pruning is driven by client
+// acknowledgements (UpdateStateHistory), but a server with no connected clients, or
+// a client whose deltas are all being rejected, never prunes - and stateHistory then
+// grows for the whole run, one entry per object per full snapshot. That is a leak in
+// its own right and it also inflates the linear scan in GetNetworkState.
+//
+// The cap is generous relative to the 10Hz full-snapshot rate: several seconds of
+// history, far more than any in-flight delta can reference.
+void NetworkObject::TrimStateHistory() {
+	constexpr size_t kMaxStateHistory = 64;
+	if (stateHistory.size() <= kMaxStateHistory) {
+		return;
+	}
+	const size_t excess = stateHistory.size() - kMaxStateHistory;
+	stateHistory.erase(stateHistory.begin(), stateHistory.begin() + excess);
 }
 
 void NetworkObject::UpdateStateHistory(int minID) {

@@ -38,6 +38,21 @@ namespace NCL::CSC8503 {
 		}
 	};
 
+	// Client -> game server acknowledgement of snapshot progress. Sent whenever the
+	// client applies a full snapshot; the server keeps the minimum acked ID across
+	// all connected clients as the delta baseline and prunes state history to it.
+	struct DistributedClientSnapshotAckPacket : public GamePacket {
+		int lastFullStateID = -1;
+		int gameServerID = -1;
+
+		DistributedClientSnapshotAckPacket(int lastFullStateID, int gameServerID) {
+			type = DistributedClientSnapshotAck;
+			size = sizeof(DistributedClientSnapshotAckPacket) - sizeof(GamePacket);
+			this->lastFullStateID = lastFullStateID;
+			this->gameServerID = gameServerID;
+		}
+	};
+
 	struct ClientPacket : public GamePacket {
 		int		lastID;
 		char	buttonstates[8];
@@ -339,6 +354,8 @@ namespace NCL::CSC8503 {
 		int GetNewServerID() const;
 
 		void UpdateStateHistory(int minID);
+		// Hard cap on stateHistory, independent of acknowledgement-driven pruning.
+		void TrimStateHistory();
 
 		NetworkState& GetLatestNetworkState();
 		void SetLatestNetworkState(NetworkState& lastState);

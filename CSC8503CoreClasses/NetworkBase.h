@@ -48,7 +48,13 @@ enum BasicNetworkMessages {
 	DistributedClientGetGameInstanceData,
 	PhysicsServerMiddlewareConnected,
 	PhysicsServerMiddlewareData,
-	AddTestObjectsToTheWorld
+	AddTestObjectsToTheWorld,
+	// Client -> game server: acknowledges the newest full snapshot the client has
+	// applied. Deltas are encoded relative to a full state every client is known to
+	// hold, so without this the server has no baseline and every delta is discarded.
+	// APPEND ONLY - the four roles are built and deployed separately, so inserting
+	// anywhere above silently renumbers the wire protocol.
+	DistributedClientSnapshotAck
 };
 
 enum DistributedSystemClientType {

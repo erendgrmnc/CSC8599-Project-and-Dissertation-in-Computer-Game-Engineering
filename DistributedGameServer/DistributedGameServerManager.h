@@ -51,6 +51,7 @@ namespace NCL {
 			void RegisterPacketSenderServerPackets();
 			void UpdateMinimumState();
 			void HandleClientPlayerInputPacket(ClientPlayerInputPacket* packet, int playerPeerID);
+			void HandleClientSnapshotAckPacket(CSC8503::DistributedClientSnapshotAckPacket* packet, int source);
 			void ReceivePacket(int type, GamePacket* payload, int source) override;
 			void BroadcastSnapshot(bool deltaFrame);
 			void SendPacketsThread();

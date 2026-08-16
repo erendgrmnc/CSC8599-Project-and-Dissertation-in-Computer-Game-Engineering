@@ -145,6 +145,7 @@ void DistributedGameServer::DistributedGameServerManager::RegisterPacketSenderSe
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::ClientInit, this);
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedClientConnectToPhysicsServer, this);
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::StartSimulatingObjectInServerReceived, this);
+	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedClientSnapshotAck, this);
 
 	std::function<void()> onAllClientsConnectedCallback = std::bind(&DistributedGameServerManager::SendAllClientsAreConnectedToPacketSenderServerPacket, this);
 	mDistributedPacketSenderServer->RegisterOnAllClientsAreConnectedEvent(onAllClientsConnectedCallback);
@@ -155,10 +156,36 @@ void DistributedGameServer::DistributedGameServerManager::UpdateMinimumState() {
 	int minID = INT_MAX;
 	int maxID = 0; //we could use this to see if a player is lagging behind?
 
+	// With no acknowledgements yet there is no safe baseline: pruning to INT_MAX
+	// would discard the whole history and pinning the baseline to a state some
+	// client has not seen would make its deltas unusable.
+	if (mStateIDs.empty()) {
+		mServerSideLastFullID = 0;
+		return;
+	}
+
 	for (auto i : mStateIDs) {
-		minID = std::min(minID, i.second);
 		maxID = std::max(maxID, i.second);
 	}
+
+	// A client that stops acknowledging - because it disconnected without a clean
+	// teardown, or has stalled - must not pin the baseline forever. Ignoring it costs
+	// that client nothing permanent: it rejects deltas only until the next full
+	// snapshot re-syncs its baseline, which happens at 10Hz.
+	constexpr int kMaxAckLag = 30;
+	for (auto i : mStateIDs) {
+		if (maxID - i.second > kMaxAckLag) {
+			continue;
+		}
+		minID = std::min(minID, i.second);
+	}
+	if (minID == INT_MAX) {
+		minID = maxID;
+	}
+
+	// Deltas are broadcast to every client, so they must be encoded against a full
+	// state that ALL of them hold - hence the minimum, not the newest.
+	mServerSideLastFullID = minID;
 	//every client has acknowledged reaching at least state minID
 	//so we can get rid of any old states!
 	std::vector<GameObject*>::const_iterator first;
@@ -179,15 +206,34 @@ void DistributedGameServer::DistributedGameServerManager::HandleClientPlayerInpu
 	//auto* playerToHandle = mServerPlayers[playerIndex];
 
 	//playerToHandle->SetPlayerInput(clientPlayerInputPacket->playerInputs);
-	mServerSideLastFullID = packet->lastId;
-	mStateIDs[0] = mServerSideLastFullID;
-	UpdateMinimumState();
+	// Snapshot acknowledgement no longer piggybacks here: it keyed every client to
+	// mStateIDs[0], so one arbitrary client's progress stood in for all of them.
+	// See HandleClientSnapshotAckPacket.
 
 	for (const auto& testObj : mServerWorldManager->GetTestObjects()) {
 		if (testObj->GetPlayerID() == packet->playerID) {
 			testObj->ReceiveClientInputs(packet);
 		}
 	}
+}
+
+void DistributedGameServer::DistributedGameServerManager::HandleClientSnapshotAckPacket(
+	DistributedClientSnapshotAckPacket* packet, int source) {
+	if (packet->gameServerID != mGameServerID) {
+		// The client broadcasts on a per-server link, but guard anyway: crediting
+		// another server's snapshot IDs here would corrupt this server's baseline.
+		return;
+	}
+
+	// Acks can arrive out of order on an unreliable path; never move a client's
+	// high-water mark backwards.
+	auto existing = mStateIDs.find(source);
+	if (existing != mStateIDs.end() && existing->second >= packet->lastFullStateID) {
+		return;
+	}
+	mStateIDs[source] = packet->lastFullStateID;
+
+	UpdateMinimumState();
 }
 
 void DistributedGameServer::DistributedGameServerManager::ReceivePacket(int type, GamePacket* payload, int source) {
@@ -205,6 +251,11 @@ void DistributedGameServer::DistributedGameServerManager::ReceivePacket(int type
 	case BasicNetworkMessages::ClientPlayerInputState: {
 		ClientPlayerInputPacket* packet = (ClientPlayerInputPacket*)payload;
 		HandleClientPlayerInputPacket(packet, packet->playerID);
+		break;
+	}
+	case BasicNetworkMessages::DistributedClientSnapshotAck: {
+		auto* packet = static_cast<DistributedClientSnapshotAckPacket*>(payload);
+		HandleClientSnapshotAckPacket(packet, source);
 		break;
 	}
 	case BasicNetworkMessages::StartDistributedPhysicsServer: {
@@ -376,13 +427,14 @@ CreatePhysicsServerBorders(const std::string& borderString) {
 		return nullptr;
 	}
 
-	// Parse the minXVal and maxXVal
-	borderData->minXVal = std::stoi(xPart.substr(0, xSeparatorPos));
-	borderData->maxXVal = std::stoi(xPart.substr(xSeparatorPos + 1));
+	// stof, not stoi: the manager emits fractional borders whenever the world extent
+	// is not divisible by the grid dimensions, and truncating them here desynchronised
+	// this server's idea of its region from the manager's.
+	borderData->minXVal = std::stof(xPart.substr(0, xSeparatorPos));
+	borderData->maxXVal = std::stof(xPart.substr(xSeparatorPos + 1));
 
-	// Parse the minZVal and maxZVal
-	borderData->minZVal = std::stoi(zPart.substr(0, zSeparatorPos));
-	borderData->maxZVal = std::stoi(zPart.substr(zSeparatorPos + 1));
+	borderData->minZVal = std::stof(zPart.substr(0, zSeparatorPos));
+	borderData->maxZVal = std::stof(zPart.substr(zSeparatorPos + 1));
 
 	return borderData;
 }
@@ -448,6 +500,7 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectTransition
 		if (networkObj->GetIsActualPosOutOfServer()) {
 			std::cout << "Sending Finish Transition Packet to server: " << networkObj->GetNewServerID() << "\n";
 			SendFinishTransactionPacket(*networkObj);
+			mServerWorldManager->RecordHandoffSent();
 			networkObj->HandleTransitionComplete();
 			mServerWorldManager->HandleOutgoingObject(networkObj->GetNetworkID());
 		}

@@ -3,12 +3,13 @@
 #include "NetworkObject.h"
 #include "Vector4.h"
 
+#include <map>
 #include <vector>
 #include <unordered_map>
 
 namespace NCL {
 	namespace Rendering { class Mesh; class Texture; class Shader; }
-	namespace CSC8503 { class GameWorld; }
+	namespace CSC8503 { class GameWorld; class GameObject; }
 }
 
 // One physics server the client is connected to, paired with its server ID so an
@@ -104,6 +105,16 @@ protected:
 	std::unordered_map<int, int> mObjectOwner;
 
 	void HandleFullPacket(NCL::CSC8503::FullPacket* packet);
+
+	// Replicas created with no GameWorld to own them (headless). Held so they are
+	// not leaked and can be torn down with the scene.
+	std::vector<NCL::CSC8503::GameObject*> mHeadlessReplicas;
+
+	// Snapshot acknowledgement, keyed by physics server ID. Sent once per pump rather
+	// than per packet: a full snapshot is one packet per object.
+	void SendSnapshotAcks();
+	std::map<int, int> mLastFullStateIdPerServer;
+	std::map<int, int> mLastAckedStateIdPerServer;
 	void HandleDeltaPacket(NCL::CSC8503::DeltaPacket* packet);
 	NCL::CSC8503::NetworkObject* FindNetworkObject(int objectID);
 	NCL::CSC8503::NetworkObject* SpawnReplica(int objectID);
