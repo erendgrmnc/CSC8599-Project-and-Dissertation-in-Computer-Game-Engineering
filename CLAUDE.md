@@ -102,6 +102,12 @@ touches zero switch statements** — write the command class, register it in `Re
 - Accounting (invariant I4): `cmdApplied + cmdRejected + cmdDup` summed across servers must equal
   the client's `cmdSent`; `cmdRelayed` is an internal hop counted separately. Compare *aligned*
   2 Hz samples — the client keeps sending after the servers take their last one.
+**Runtime spawn and destroy.** Runtime object ids come from `NetworkIdSpace.h` — bit 30 marks a runtime id, bits 29..22 the origin server, 21..0 a per-server counter, so no server can mint another's id and no central allocator is needed. A spawn is **broadcast**: peers build a *deactivated twin* and the owner an active object, reproducing the pre-seed model at runtime, which is what lets handoff work unchanged. Destroy leaves a **permanent tombstone** (ids are never recycled) with the pool entry nulled rather than erased, so a late command resolves to `ObjectDestroyed` rather than `ObjectUnknown`. Objects are freed at the **end** of the next tick, after `mPhysics->Update` has purged the collision sets — freeing earlier leaves a dangling pointer in them for the rest of the tick.
+
+**Late-join manifest.** `GameServer::SendPacketToPeer` (backed by retained `ENetPeer*` handles) plus `RegisterOnPeerJoinedEvent` send a joining peer one spawned-packet per object the server owns. Note `DistributedPacketSenderServer::UpdateServer` **duplicates** `GameServer`'s ENet event loop — a fix in one is not a fix in the other, which is how a hardcoded `i < 3` disconnect loop survived there long after the base class was corrected.
+
+**Avatars.** Movement input is *state*, not an event: `SetMoveAxis` records it and `ApplyControlForces()` re-applies it every tick before the integrator. `mControllerPlayerID`/`mMoveAxis` are **appended** to `StartSimulatingObjectPacket` — the only wire-format change in the interaction design — so control survives a handoff instead of stalling until the client's next update.
+
 - A headless client has no input path, so the channel is only exercised with `--impulse-test N`;
   `--misroute-every N` additionally forces the relay path by sending every Nth command to a server
   that does not own the object. Both roles print an exact `@@FINAL` line at the end of a bounded
@@ -163,7 +169,7 @@ The midware spawns `./DistributedPhysicsServer/EntryPoint.exe` **relative to its
 | Manager | `--servers N --clients N --objects N --port P --world minX,maxX,minZ,maxZ --midwares N --autostart [--headless]` |
 | Midware | `--manager-ip A.B.C.D --manager-port P --server-exe <path> [--headless] [--fixed-step] [--seed N] [--workload shuttle] [--metrics-dir <dir>] [--metrics-capacity N] [--run-seconds N] [--run-ticks N]` |
 | Game Server | `--headless`, `--fixed-step`, `--seed N`, `--workload`, `--metrics-dir`, `--metrics-capacity`, `--run-seconds`, `--run-ticks` — **not passed directly**, see below |
-| Client | `--manager-ip A.B.C.D --manager-port P [--game-instance N] [--render-deferred] [--impulse-test N]` |
+| Client | `--manager-ip A.B.C.D --manager-port P [--game-instance N] [--render-deferred] [--headless] [--run-seconds N]` plus interaction drivers: `[--impulse-test N] [--misroute-every N] [--blast-every N] [--blast-radius N] [--blast-offset-x N] [--spawn-every N] [--destroy-every N] [--drive-every N]` |
 
 > **Game servers are spawned by the midware, not the launcher.** Their launch string is built in `ServerMidwareManager::StartPhysicsServerInstance`, so a flag the game server understands is unreachable unless the midware forwards it. `--fixed-step` and `--seed` are therefore given to the **midware**, which appends them to every server it spawns (`mServerExtraArgs`). Any new game-server flag needs adding in both `ServerStarter.cpp` (to parse it) and `PhysicsServerMidware/ProgramStart.cpp` (to forward it) — otherwise it is silently ignored with no error.
 >
