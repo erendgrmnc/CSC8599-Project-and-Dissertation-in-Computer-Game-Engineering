@@ -47,6 +47,13 @@ void TelemetryReporter::MaybeEmit(bool gameStarted) {
 		ss << "role=server id=" << mId
 			<< " objs=" << Profiler::GetObjectsOnBorders()
 			<< " total=" << Profiler::GetTotalObjectsInServer()
+			// Validity counters. integ should track objs: if it tracks total instead,
+			// this server is integrating the whole world rather than its own region.
+			// hoSent/hoRecv summed across servers must balance; hoFail must stay 0.
+			<< " integ=" << Profiler::GetIntegratedObjects()
+			<< " hoSent=" << Profiler::GetHandoffsSent()
+			<< " hoRecv=" << Profiler::GetHandoffsReceived()
+			<< " hoFail=" << Profiler::GetHandoffsFailed()
 			<< " phys=" << F2(Profiler::GetPhysicsTime())
 			<< " world=" << F2(Profiler::GetWorldTime())
 			<< " predict=" << F2(Profiler::GetPhysicsPredictionTime())
@@ -58,6 +65,12 @@ void TelemetryReporter::MaybeEmit(bool gameStarted) {
 		ss << "role=client id=" << mId
 			<< " fps=" << F2(Profiler::GetFramesPerSecond())
 			<< " net=" << F2(Profiler::GetNetworkTime())
+			// Snapshot accounting: dOK should climb steadily once a full snapshot has
+			// been acknowledged. dOK stuck at 0 while dRej climbs means the delta path
+			// is dead - the system's longest-standing defect.
+			<< " full=" << Profiler::GetFullsApplied()
+			<< " dOK=" << Profiler::GetDeltasApplied()
+			<< " dRej=" << Profiler::GetDeltasRejected()
 			<< " game=" << (gameStarted ? 1 : 0);
 		break;
 	}

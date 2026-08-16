@@ -70,6 +70,34 @@ namespace NCL {
 		static float GetLastFullSnapshotTime();
 		static void SetLastFullSnapshotTime(float time);
 
+		// Handoff parity (invariant I5). Summed across all servers, sent should equal
+		// received; any gap means objects were lost or duplicated in transit. These
+		// are cumulative per-run totals, not rates.
+		static int GetHandoffsSent();
+		static void SetHandoffsSent(int count);
+
+		static int GetHandoffsReceived();
+		static void SetHandoffsReceived(int count);
+
+		static int GetHandoffsFailed();
+		static void SetHandoffsFailed(int count);
+
+		// Objects this server actually integrated on the last tick, versus the number
+		// it owns. These must match: a gap means the integrator is touching objects
+		// outside this server's region, which flattens the scaling curve.
+		static int GetIntegratedObjects();
+		static void SetIntegratedObjects(int count);
+
+		// Client-side snapshot accounting. Deltas silently failing to apply is the
+		// system's longest-lived bug, and until these existed nothing anywhere
+		// reported whether a delta was used or thrown away. Cumulative per run.
+		static int GetDeltasApplied();
+		static int GetDeltasRejected();
+		static int GetFullsApplied();
+		static void RecordDeltaApplied();
+		static void RecordDeltaRejected();
+		static void RecordFullApplied();
+
 	protected:
 
 		static bool sIsConnectedToGameManager;
@@ -103,5 +131,13 @@ namespace NCL {
 		static float sWorldTime;
 		static float sLastDeltaSnapshotTime;
 		static float sLastFullSnapshotTime;
+
+		static int sHandoffsSent;
+		static int sHandoffsReceived;
+		static int sHandoffsFailed;
+		static int sIntegratedObjects;
+		static int sDeltasApplied;
+		static int sDeltasRejected;
+		static int sFullsApplied;
 	};
 }

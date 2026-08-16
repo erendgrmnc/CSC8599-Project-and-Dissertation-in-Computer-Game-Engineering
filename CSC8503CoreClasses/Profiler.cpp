@@ -38,6 +38,14 @@ float Profiler::sPhysicsPredictionTime = 0.f;
 float Profiler::sLastDeltaSnapshotTime = 0.f;
 float Profiler::sLastFullSnapshotTime = 0.f;
 
+int Profiler::sHandoffsSent = 0;
+int Profiler::sHandoffsReceived = 0;
+int Profiler::sHandoffsFailed = 0;
+int Profiler::sIntegratedObjects = 0;
+int Profiler::sDeltasApplied = 0;
+int Profiler::sDeltasRejected = 0;
+int Profiler::sFullsApplied = 0;
+
 NCL::Profiler::Profiler() {
 
 }
@@ -203,6 +211,62 @@ float Profiler::GetLastFullSnapshotTime() {
 
 void Profiler::SetLastFullSnapshotTime(float time) {
 	sLastFullSnapshotTime = time;
+}
+
+int Profiler::GetHandoffsSent() {
+	return sHandoffsSent;
+}
+
+void Profiler::SetHandoffsSent(int count) {
+	sHandoffsSent = count;
+}
+
+int Profiler::GetHandoffsReceived() {
+	return sHandoffsReceived;
+}
+
+void Profiler::SetHandoffsReceived(int count) {
+	sHandoffsReceived = count;
+}
+
+int Profiler::GetHandoffsFailed() {
+	return sHandoffsFailed;
+}
+
+void Profiler::SetHandoffsFailed(int count) {
+	sHandoffsFailed = count;
+}
+
+int Profiler::GetIntegratedObjects() {
+	return sIntegratedObjects;
+}
+
+void Profiler::SetIntegratedObjects(int count) {
+	sIntegratedObjects = count;
+}
+
+int Profiler::GetDeltasApplied() {
+	return sDeltasApplied;
+}
+
+int Profiler::GetDeltasRejected() {
+	return sDeltasRejected;
+}
+
+int Profiler::GetFullsApplied() {
+	return sFullsApplied;
+}
+
+void Profiler::RecordDeltaApplied() {
+	++sDeltasApplied;
+}
+
+void Profiler::RecordDeltaRejected() {
+	++sDeltasRejected;
+}
+
+void Profiler::RecordFullApplied() {
+	++sFullsApplied;
 }
 
 bool Profiler::GetIsConnectedToGameManager() {
