@@ -1589,3 +1589,71 @@ Note the old `IsObjectInBorder` was closed on Z (`z <= maxZ`), so on a 4-server 
 exactly `z = 0` would have been accepted as in-border by **both** the region below and the region
 above — activated twice, integrated twice, and broadcast by two servers. The half-open rule removes
 that class of bug by construction rather than by testing for it.
+
+---
+
+## 13. Implementation notes — increments 4 and 5 (shipped 2026-08-16)
+
+### Increment 4 — cross-border area effects
+
+`Impulse` with `radius > 0` becomes a point-targeted area effect (`GetScope` returns
+`targetsPoint + isAreaEffect`), so it routes by point and needs neither a target object nor a
+direction. The owner applies it to **its own** active objects, then fans out one relay per
+overlapped region via `GetOverlappedServers`. Each receiver applies only to objects it owns, so
+ownership stays exactly where the handoff protocol put it — §5.1's event relay, not a ghost band.
+
+A new `CommandFlags::AlreadyFannedOut` bit is set on the fanned copies. A receiver applies but does
+**not** fan out again; without it one blast would circulate the mesh and objects in a doubly
+overlapped region would be pushed twice (2x velocity, silently corrupting any measurement).
+
+**This broke the I4 identity, and the fix is worth recording.** One area command legitimately
+applies once per overlapped region, so `sent = applied + rejected + dup` no longer holds — the live
+run showed `77 sent` against `154 applied`. Rather than exempt area effects from the invariant, the
+fan-out hops are counted separately (`cmdFanout`) and the identity becomes:
+
+```
+sent == applied + rejected + duplicate - fanout
+```
+
+Verified exactly on a combined run (impulses + misroutes + blasts): `1642 + 14 + 0 - 77 = 1579`
+against `cmdSent = 1579`, gap **0**.
+
+### Increment 5 — runtime spawn
+
+- `NetworkIdSpace.h` — bit 30 marks a runtime id, bits 29..22 the origin server, bits 21..0 a
+  per-server counter. Static partitioning rather than a manager-issued lease, because putting
+  allocation in `SystemManager` would add a round trip per spawn and make the manager an
+  availability single point of failure for *gameplay* — which would directly weaken the
+  "no central physics bottleneck" claim. 6 unit tests cover round-trip, disjointness, separation
+  from pre-seeded ids, and loud failure on exhaustion.
+- `SpawnCommand` is point-targeted and **not** special-cased in routing: a spawn on a border is
+  simply owned by whoever the half-open rule assigns it to.
+- `DistributedObjectSpawnedPacket` is broadcast on the sender server, exactly as the handoff packet
+  is. Peers build a **deactivated** twin, the owner an active object, clients a replica — the
+  pre-seed model reproduced at runtime, which is what lets handoff work with zero changes.
+- `SpawnObject` queues a `PendingSpawn` that the manager drains and broadcasts, mirroring the
+  relay queue, because the world manager has no network access.
+
+**No client change was needed.** `SpawnReplica` is already lazy and id-driven, so a runtime object
+gets its replica when its first snapshot arrives.
+
+### Verification
+
+| Run | conservation | I5 | I4 | hoFail |
+|---|---|---|---|---|
+| spawn only | 380 + 59 = 439 = 400 + 39 | 44 = 44 | gap 0 | 0 |
+| spawn + blasts | 386 + 53 = 439 | 36 = 36 | gap 0 | 0 |
+| spawn + shuttle | 383 + 68 = 451 = 400 + 51 | 93 = 93 | gap 0 | 0 |
+
+Spawns route correctly by owner (20 / 19 across the seam), and 52 deactivated twins were observed
+being created on peers.
+
+**Runtime-spawned objects survive a handoff**: the final run recorded **51 handoffs of runtime ids**
+(starting at 1073741824 = 2^30, the runtime bit for server 0 counter 0), with `hoFail = 0`. That is
+the property the twin broadcast exists for, and it is now demonstrated live rather than argued.
+
+Getting there needed one behavioural addition: a spawned object under the `shuttle` workload now
+receives the same deterministic lateral velocity a pre-seeded one does. Without it a spawn simply
+fell and settled, so it could never cross a border and the twin path stayed unexercised — three
+earlier runs showed 52 twins created but **0** runtime handoffs, which would have read as "verified"
+if only the twin count had been checked.
