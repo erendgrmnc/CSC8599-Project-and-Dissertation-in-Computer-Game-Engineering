@@ -32,7 +32,7 @@ namespace NCL {
 			std::string GetIpAddress() const;
 
 			virtual void UpdateServer();
-			void SetMaxClients(int maxClients);
+			virtual void SetMaxClients(int maxClients);
 
 		protected:
 			int			mPort;

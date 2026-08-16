@@ -62,7 +62,27 @@ void NCL::Networking::DistributedPacketSenderServer::AddPeer(int peerNumber) {
 		callback(peerNumber);
 	}
 
-	if (mClientCount == mClientMax) {
+	CheckAllClientsConnected();
+}
+
+void NCL::Networking::DistributedPacketSenderServer::SetMaxClients(int maxClients) {
+	GameServer::SetMaxClients(maxClients);
+	// Re-evaluated here because the bound arrives late: with 4 servers the last peer
+	// routinely connects BEFORE the manager's start packet lowers mClientMax to the
+	// real expected count, and checking only in AddPeer meant that server never
+	// started its game at all.
+	CheckAllClientsConnected();
+}
+
+void NCL::Networking::DistributedPacketSenderServer::CheckAllClientsConnected() {
+	if (mAllClientsTriggered) {
+		return;
+	}
+	// >= rather than ==: an exact match can be stepped over entirely when the bound
+	// changes while peers are already connected.
+	if (mClientCount >= mClientMax) {
+		mAllClientsTriggered = true;
+		std::cout << "All expected peers connected (" << mClientCount << "/" << mClientMax << ")\n";
 		TriggerOnAllClientsAreConnectedEvents();
 	}
 }

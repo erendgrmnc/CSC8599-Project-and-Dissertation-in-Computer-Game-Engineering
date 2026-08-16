@@ -149,6 +149,17 @@ void GameServer::SetMaxClients(int maxClients) {
 	delete[] mPeers;
 	mPeers = resized;
 	mClientMax = maxClients;
+
+	// Recount from the retained table. Shrinking the bound drops any peer sitting in
+	// a slot past the new end, and leaving mClientCount at its old value would make
+	// the count permanently disagree with the table - so a "have all peers arrived?"
+	// test could never come true again.
+	mClientCount = 0;
+	for (int i = 0; i < mClientMax; ++i) {
+		if (mPeers[i] != -1) {
+			++mClientCount;
+		}
+	}
 }
 
 void GameServer::SetGameWorld(GameWorld& g) {

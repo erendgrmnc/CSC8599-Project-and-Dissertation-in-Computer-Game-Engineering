@@ -10,6 +10,12 @@ namespace NCL {
 
 			void UpdateServer() override;
 			void AddPeer(int peerNumber) override;
+
+			// The expected peer count is not known until the manager's start packet
+			// arrives, which can be AFTER the last peer has already connected. The
+			// readiness test therefore has to be re-evaluated when the bound changes,
+			// not only when a peer joins.
+			void SetMaxClients(int maxClients) override;
 			void RegisterOnAllClientsAreConnectedEvent(const std::function<void()>& callback);
 
 			// Fired for every peer that connects, with its peer number, so the owner
@@ -23,6 +29,11 @@ namespace NCL {
 			std::vector<std::function<void(int)>> mOnPeerJoined;
 
 			void TriggerOnAllClientsAreConnectedEvents() const;
+
+			// Fires the all-connected event once, when the peer count first reaches
+			// the expected total.
+			void CheckAllClientsConnected();
+			bool mAllClientsTriggered = false;
 		};
 	}
 }
