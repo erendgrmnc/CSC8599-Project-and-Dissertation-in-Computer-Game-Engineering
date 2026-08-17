@@ -579,6 +579,9 @@ void DistributedGameServer::DistributedGameServerManager::SendFinishTransactionP
 	// to this rather than to arrival, which is what makes the handoff land on the
 	// same tick in every run.
 	packet.mSenderTick = static_cast<long long>(mServerWorldManager->GetTickCounter());
+	// What the object is. Unused while every server holds a deactivated twin of
+	// everything, but required the moment a receiver may not already have it.
+	packet.mArchetypeID = mServerWorldManager->GetObjectArchetype(obj.GetNetworkID());
 
 	const int delay = mServerWorldManager->GetHandoffDelayTicks();
 	if (delay > 0) {

@@ -418,6 +418,19 @@ namespace NCL::CSC8503 {
 		// variation without any inter-server barrier.
 		long long mSenderTick;
 
+		// --- appended for region-local world state ---
+		//
+		// What the object IS, so a receiver that does not already hold it can build it
+		// rather than rejecting the handoff. Under the pre-seed model every server
+		// holds a deactivated twin of every object, so handoff is "reactivate in
+		// place" and the receiver never needs to know the shape. Once a server holds
+		// only its own region, an incoming object may be genuinely unknown, and
+		// without this the handoff has no way to construct it.
+		//
+		// Appended, like the avatar and mSenderTick fields: every offset above is
+		// unchanged, which matters because the roles deploy separately.
+		int mArchetypeID;
+
 		StartSimulatingObjectPacket(int objectID, int newServerID, int senderServerID, NetworkState lastFullState, PhysicsObject& physicsObj);
 	};
 

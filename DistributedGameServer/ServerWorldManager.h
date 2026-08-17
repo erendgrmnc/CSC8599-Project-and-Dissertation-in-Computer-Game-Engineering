@@ -234,6 +234,30 @@ namespace NCL {
 				++mHandoffsSent;
 			}
 
+			// Locality counters (invariant I6). What this server HOLDS, as distinct
+			// from what it simulates. Under the pre-seed model every server
+			// instantiates the whole world and deactivates what it does not own, so
+			// both of these equal the world total on every server while the owned
+			// count is only its region's share. The region-local increment is the
+			// claim that these stop scaling with world size.
+			int GetPoolObjectCount() const {
+				return static_cast<int>(mCreatedObjectPool.size());
+			}
+
+			int GetWorldObjectCount() const;
+
+			// What an object IS, for a handoff packet to carry. Recorded for
+			// pre-seeded objects as well as runtime spawns, so this answers for every
+			// object this server knows. Falls back to Cube for an unknown id: a
+			// handoff that could not name a shape would be unbuildable on arrival,
+			// and losing the object is worse than getting its shape wrong.
+			int GetObjectArchetype(int networkID) const {
+				const auto entry = mObjectArchetypes.find(networkID);
+				return (entry == mObjectArchetypes.end())
+					? static_cast<int>(NCL::Interaction::ObjectArchetype::Cube)
+					: entry->second;
+			}
+
 			// Enables per-tick metric recording to a CSV. Empty path disables it, in
 			// which case Record() is a no-op and nothing is allocated.
 			void EnableMetrics(const std::string& outputPath, size_t capacity);

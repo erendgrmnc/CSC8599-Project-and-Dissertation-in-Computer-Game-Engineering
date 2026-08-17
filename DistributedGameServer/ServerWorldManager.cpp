@@ -119,6 +119,11 @@ NCL::CSC8503::GameWorld* NCL::DistributedGameServer::ServerWorldManager::GetGame
 	return mGameWorld;
 }
 
+// Out of line: GameWorld is only forward-declared in the header.
+int NCL::DistributedGameServer::ServerWorldManager::GetWorldObjectCount() const {
+	return mGameWorld ? static_cast<int>(mGameWorld->GetGameObjects().size()) : 0;
+}
+
 void NCL::DistributedGameServer::ServerWorldManager::SetFixedTimestep(bool state) {
 	mPhysics->SetFixedTimestep(state);
 }
@@ -649,6 +654,10 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 		sample.handoffsSent = mHandoffsSent;
 		sample.handoffsReceived = mHandoffsReceived;
 		sample.handoffsFailed = mHandoffsFailed;
+		// Locality (I6): what this server HOLDS, as opposed to what it simulates.
+		// Today both equal the world total on every server.
+		sample.poolObjects = static_cast<int32_t>(mCreatedObjectPool.size());
+		sample.worldObjects = static_cast<int32_t>(mGameWorld->GetGameObjects().size());
 		mMetrics->Record(sample);
 	}
 	++mTickCounter;

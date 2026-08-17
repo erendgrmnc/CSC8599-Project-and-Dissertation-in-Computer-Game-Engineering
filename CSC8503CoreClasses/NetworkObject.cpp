@@ -372,6 +372,11 @@ StartSimulatingObjectPacket::StartSimulatingObjectPacket(int objectID, int newSe
 	this->mControllerPlayerID = -1;
 	this->mMoveAxis = Vector3(0, 0, 0);
 	this->mSenderTick = 0;
+	// Cube. Overwritten by the sender from its archetype map; the default is a shape
+	// rather than a sentinel because a receiver must always be able to build
+	// something - a handoff that arrives with no usable archetype would otherwise
+	// lose the object, which is worse than getting its shape wrong.
+	this->mArchetypeID = 0;
 
 	this->newOwnerServerID = newServerID;
 	this->senderServerID = senderServerID;
