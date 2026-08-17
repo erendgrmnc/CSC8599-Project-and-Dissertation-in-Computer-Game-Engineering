@@ -575,8 +575,16 @@ void PhysicsSystem::BroadPhase() {
 		for (int j = i; j < mDynamicObjectList.size(); j++) {
 			if (!mDynamicObjectList[j]->HasPhysics()) continue;
 			CollisionDetection::CollisionInfo info;
-			info.a = std::min(mDynamicObjectList[i], mDynamicObjectList[j]);
-			info.b = std::max(mDynamicObjectList[i], mDynamicObjectList[j]);
+			// Canonicalise the pair by world ID, not by address. Which body ends up as
+			// `a` decides the contact normal's direction and which side takes +impulse,
+			// so ordering on pointers made the resolved result depend on heap layout.
+			GameObject* first = mDynamicObjectList[i];
+			GameObject* second = mDynamicObjectList[j];
+			if (second->GetWorldID() < first->GetWorldID()) {
+				std::swap(first, second);
+			}
+			info.a = first;
+			info.b = second;
 			Vector3 halfSizeA;
 			Vector3 halfSizeB;
 			info.a->GetBroadphaseAABB(halfSizeA);

@@ -26,9 +26,9 @@ namespace NCL {
 		};
 
 		struct CollisionInfo {
-			GameObject* a;
-			GameObject* b;		
-			int		framesLeft;
+			GameObject* a = nullptr;
+			GameObject* b = nullptr;
+			int		framesLeft = 0;
 
 			ContactPoint point;
 
@@ -43,15 +43,31 @@ namespace NCL {
 				point.penetration	= p;
 			}
 
+			// Ordering key. Deliberately the world ID and NOT the pointer: mAllCollisions
+			// and mBroadphaseCollisions are std::sets, so this comparator fixes the order
+			// contacts are resolved in, and sequential-impulse resolution is order
+			// dependent. Keying on addresses made that order depend on heap layout, so two
+			// runs of the same binary with the same seed resolved the same contacts in
+			// different orders and diverged.
+			//
+			// The previous version was also not a strict weak ordering: it collapsed the
+			// pair to `(size_t)a + ((size_t)b << 32)`, which on x64 discards b's top 16
+			// bits and lets the addition carry across the two halves, so two distinct
+			// pairs could compare equivalent and the second would be silently dropped
+			// from the set. World IDs are unique per GameWorld, so a lexicographic
+			// compare on them collides only for genuinely identical pairs.
+			static int OrderKey(const GameObject* o) {
+				return o ? o->GetWorldID() : -1;
+			}
+
 			//Advanced collision detection / resolution
 			bool operator < (const CollisionInfo& other) const {
-				size_t otherHash = (size_t)other.a + ((size_t)other.b << 32);
-				size_t thisHash  = (size_t)a + ((size_t)b << 32);
-
-				if (thisHash < otherHash) {
-					return true;
+				const int thisA = OrderKey(a);
+				const int otherA = OrderKey(other.a);
+				if (thisA != otherA) {
+					return thisA < otherA;
 				}
-				return false;
+				return OrderKey(b) < OrderKey(other.b);
 			}
 
 			bool operator ==(const CollisionInfo& other) const {

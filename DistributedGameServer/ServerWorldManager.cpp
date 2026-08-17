@@ -781,10 +781,25 @@ bool DistributedGameServer::ServerWorldManager::StartHandlingObject(StartSimulat
 }
 
 void DistributedGameServer::ServerWorldManager::FlushScheduledHandoffs() {
+	// Deterministic tie-break for simultaneous events. mScheduledHandoffs is in packet
+	// ARRIVAL order, so two transfers scheduled for the same tick were applied in
+	// whichever order ENet happened to deliver them. Application order decides the
+	// order objects are reactivated and therefore their order in the broadphase pair
+	// list, and contact resolution is order dependent - so arrival order leaked into
+	// the simulated result. Object IDs are globally unique by construction
+	// (NetworkIdSpace.h), so (applyAtTick, objectID) is a total order and is free.
+	std::sort(mScheduledHandoffs.begin(), mScheduledHandoffs.end(),
+		[](const ScheduledHandoff& l, const ScheduledHandoff& r) {
+			if (l.applyAtTick != r.applyAtTick) {
+				return l.applyAtTick < r.applyAtTick;
+			}
+			return l.packet->objectID < r.packet->objectID;
+		});
+
 	for (auto entry = mScheduledHandoffs.begin(); entry != mScheduledHandoffs.end(); ) {
 		if (entry->applyAtTick > mTickCounter) {
-			++entry;
-			continue;
+			// Sorted by tick, so nothing later in the vector is due either.
+			break;
 		}
 		ApplyIncomingObject(entry->packet.get());
 		entry = mScheduledHandoffs.erase(entry);
