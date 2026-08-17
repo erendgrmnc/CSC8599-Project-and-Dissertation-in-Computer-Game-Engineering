@@ -206,7 +206,8 @@ The midware spawns `./DistributedPhysicsServer/EntryPoint.exe` **relative to its
 
 ```powershell
 # 1, 2 and 4 servers at 400 objects, 3 repeats each
-powershell -ExecutionPolicy Bypass -File toolsun-experiments.ps1 -Name scaling -Sweep servers -Values 1,2,4 -Repeats 3
+powershell -ExecutionPolicy Bypass -File tools
+un-experiments.ps1 -Name scaling -Sweep servers -Values 1,2,4 -Repeats 3
 python toolsnalyse.py runs\exp-scaling      # non-zero exit = an invariant failed
 ```
 
@@ -221,10 +222,11 @@ python toolsnalyse.py runs\exp-scaling      # non-zero exit = an invariant fail
   whichever server ticked more.
 - A run that produces fewer CSVs than servers is reported as **FAILED**, not averaged over.
 
-> **4-server runs fail intermittently.** All four servers connect and report readiness, but one can
-> miss the manager's `GameStartState` broadcast and never start — producing no metrics at all. With
-> the shuttle workload every object starts in one region, so if that server is the one that stalls
-> the entire world is missing. Scaling claims are limited to 1 and 2 servers until this is closed.
+> **Bootstrap messages must be sent reliably.** `GameStartState` was sent with `SendGlobalPacket`
+> (unreliable, ENet flag 0) and is one-shot with no retry, so a server that missed it never built
+> its world and sat at `game=0` producing no metrics — losing roughly one recipient in four, which
+> made 4-server runs fail every time. Snapshots are correctly unreliable because they are superseded
+> 60 times a second; **anything one-shot is not**. Use `SendGlobalReliablePacket` for bootstrap.
 
 ## Reference docs
 
