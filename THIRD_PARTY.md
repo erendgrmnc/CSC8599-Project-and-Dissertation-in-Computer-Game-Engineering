@@ -61,11 +61,20 @@ time for the demo build only.
 loads and document that set; (c) drop `Assets/` from the artifact and ship the headless
 configuration only.
 
-### 3. ENet licence text is not vendored
+### 3. ENet carries no copyright notice at all
 
-ENet is MIT and permits redistribution, but the licence text is not present under
-`CSC8503CoreClasses/enet/`. MIT requires the copyright notice and permission notice to accompany
-the software. Adding `CSC8503CoreClasses/enet/LICENSE` from the upstream distribution closes this.
+Vendored version is **1.3.13** (`ENET_VERSION_MAJOR/MINOR/PATCH` in `enet.h`). A grep for
+`copyright` and for the upstream author's name across `CSC8503CoreClasses/enet/` returns **nothing**
+— there is no licence file and no per-file notice.
+
+This is slightly worse than a missing `LICENSE` file: MIT requires the copyright notice *and* the
+permission notice to accompany the software, and neither is currently present anywhere in the
+vendored copy. The fix is to copy the `LICENSE` from the upstream ENet 1.3.13 distribution verbatim
+into `CSC8503CoreClasses/enet/`.
+
+Deliberately not reconstructed here from memory: an incorrect copyright line in a licence file is a
+worse defect than an absent one, so the text must be taken from the upstream release rather than
+retyped.
 
 ## Note on artifact evaluation
 
