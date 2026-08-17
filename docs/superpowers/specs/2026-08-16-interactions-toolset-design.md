@@ -2032,3 +2032,52 @@ Five regression tests in `tools/InteractionTests/ContactOrderingTests.cpp` pin t
 property, the strict-weak-ordering axioms, the absence of pair collisions across a 40-object
 complete graph (780 pairs), and null-safety of the comparator. Suite is 56 tests.
 
+### 18.6 Result: the residual is gone, and no barrier was needed
+
+Re-running §17's exact configuration (2 servers, 400 objects, 7200 ticks, seed 42, shuttle,
+`--handoff-lookahead 60 --epoch-align-us 500000`) after the ordering fixes:
+
+| run | end state | handoffs | `hoLate` | server 0, all 7201 ticks |
+|---|---|---|---|---|
+| §17 baseline `repro-ea-a` | 362 / 38 | 38 | 0 | — |
+| §17 baseline `repro-ea-b` | 361 / 39 | 41 | 0 | — |
+| `co-repro-a` | 359 / 41 | 41 | 19 | identical |
+| `co-repro-b` | 359 / 41 | 41 | 19 | identical |
+| `co-repro-c` | 359 / 41 | 41 | 20 | identical |
+
+Server 0 — which simulates 359 of the 400 objects — is **bit-identical across all 7201 ticks in all
+three runs** on every deterministic CSV column (`owned_objects`, `integrated_objects`,
+`handoffs_sent/received/failed`). The residual was confined to server 1, ticks 128-276, and was
+purely *when* inbound handoffs were applied: the same 41 transfers landing 1-5 ticks apart. All
+~6900 subsequent ticks agreed and the end state was identical every time.
+
+`hoLate` of 19-20 identified the cause: the initial burst of handoffs exceeded the 60-tick lookahead
+budget, because server 0 carries ~9x the load of server 1 and cannot hold the paced tick rate, so
+its tick counter falls behind its peer's.
+
+Raising the lookahead to 300 ticks (2.5 s) closes it completely:
+
+| run | end state | handoffs | `hoLate` | server 0 | server 1 |
+|---|---|---|---|---|---|
+| `co-la300-a` | 359 / 41 | 41 | 0 | identical | identical |
+| `co-la300-b` | 359 / 41 | 41 | 0 | identical | identical |
+
+**Both servers bit-identical for all 7201 ticks, with no barrier, no global tick index, and no
+coordination added to the physics path.** §17's claim that exact reproducibility requires trading
+away decentralised operation is therefore withdrawn: it required a correct contact ordering and an
+adequate lookahead, both purely local.
+
+The corrected scope for reproducibility claims:
+
+| Quantity | Reproducible? |
+|---|---|
+| Object conservation (I2), command accounting (I4), handoff parity (I5) | **Exact** |
+| `hoFail` | **Exact** (0) |
+| Per-server final object counts | **Exact** |
+| Handoff event counts | **Exact** |
+| Per-tick object and handoff counts, both servers | **Exact**, given adequate `--handoff-lookahead` |
+
+`hoLate` remains the oracle: a non-zero value means the lookahead is too small for the load
+imbalance, and the per-tick record on the *receiving* server will differ between runs even though
+the end state does not. It should be reported with any reproducibility claim.
+
