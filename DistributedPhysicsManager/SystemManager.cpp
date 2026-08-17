@@ -80,7 +80,14 @@ void NCL::DistributedManager::SystemManager::ReceivePacket(int type, GamePacket*
 void NCL::DistributedManager::SystemManager::SendStartGameStatusPacket(int gameInstanceID) {
 	mIsGameStarted = true;
 	GameStartStatePacket state(mIsGameStarted, gameInstanceID, "");
-	mDistributedPhysicsManagerServer->SendGlobalPacket(state);
+
+	// RELIABLE, not SendGlobalPacket. This is a one-shot bootstrap message with no
+	// retry anywhere: a server that misses it never starts its world at all, reports
+	// game=0 forever and produces no metrics. Sent unreliably it was dropped for
+	// roughly one recipient in four - which is why 4-server runs lost exactly one
+	// server, and which one varied. Snapshots are correctly unreliable because they
+	// are superseded 60 times a second; this is not.
+	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(state);
 }
 
 void DistributedManager::SystemManager::
