@@ -1,13 +1,8 @@
 #ifdef USEGL
 #include "NetworkState.h"
 
-using namespace NCL;
-using namespace CSC8503;
-
-NetworkState::NetworkState()	{
-	stateID = 0;
-}
-
-NetworkState::~NetworkState()	{
-}
+// Deliberately empty. NetworkState's constructor and destructor are both defaulted
+// in the header so the type stays trivially copyable - see the comment there. This
+// file is retained because it is listed in CMakePC.cmake and because a future
+// non-trivial member would need its definitions back.
 #endif
