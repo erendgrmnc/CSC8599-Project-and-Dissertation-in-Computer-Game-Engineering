@@ -155,7 +155,20 @@ namespace NCL {
 			void SendManifestToPeer(int peerNumber);
 			void SendCommandAck(int sequence, int playerID, int targetObjectID,
 				NCL::Interaction::CommandResult result, int correctedServerID);
-;			GameServerConnection* ConnectServerToAnotherGameServer(char a, char b, char c, char d, int port, int gameServerID);
+			GameServerConnection* ConnectServerToAnotherGameServer(char a, char b, char c, char d, int port, int gameServerID);
+
+			// A peer whose sender server was not listening yet when we first tried.
+			// Servers come up in an arbitrary order, so a failed connect is routine -
+			// what is not acceptable is treating it as success, which left the target
+			// waiting forever for a peer that never arrived.
+			struct PendingPeer {
+				std::vector<char> ip;
+				int port = 0;
+				int serverID = -1;
+			};
+			std::vector<PendingPeer> mPendingPeers;
+			float mPeerRetryTimer = 0.0f;
+			void RetryPendingPeers(float dt);
 		};
 	}
 }

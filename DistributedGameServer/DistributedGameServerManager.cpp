@@ -106,6 +106,8 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 	Profiler::SetObjectsDestroyed(mObjectsDestroyed);
 	Profiler::SetManifestEntriesSent(mManifestEntriesSent);
 
+	RetryPendingPeers(dt);
+
 	for (auto& gameServerConnection : mDistributedPhysicsClients) {
 		gameServerConnection->client->UpdateClient();
 	}
@@ -824,6 +826,30 @@ void DistributedGameServer::DistributedGameServerManager::FlushDelayedHandoffs()
 	}
 }
 
+void DistributedGameServer::DistributedGameServerManager::RetryPendingPeers(float dt) {
+	if (mPendingPeers.empty()) {
+		return;
+	}
+
+	mPeerRetryTimer -= dt;
+	if (mPeerRetryTimer > 0.0f) {
+		return;
+	}
+	mPeerRetryTimer = 0.5f;
+
+	for (auto entry = mPendingPeers.begin(); entry != mPendingPeers.end(); ) {
+		auto* connection = ConnectServerToAnotherGameServer(
+			entry->ip[0], entry->ip[1], entry->ip[2], entry->ip[3], entry->port, entry->serverID);
+		if (connection == nullptr) {
+			++entry;
+			continue;
+		}
+		std::cout << "Connected to server " << entry->serverID << " on retry.\n";
+		mDistributedPhysicsClients.push_back(connection);
+		entry = mPendingPeers.erase(entry);
+	}
+}
+
 void DistributedGameServer::DistributedGameServerManager::SendManifestToPeer(int peerNumber) {
 	ServerWorldManager* worldManager = GetServerWorldManager();
 	if (worldManager == nullptr || mDistributedPacketSenderServer == nullptr) {
@@ -888,6 +914,17 @@ DistributedGameServer::GameServerConnection* DistributedGameServer::DistributedG
 		// through its outbound link exactly as it receives a handoff.
 		client->RegisterPacketHandler(BasicNetworkMessages::DistributedObjectSpawned, this);
 		client->RegisterPacketHandler(BasicNetworkMessages::DistributedObjectDespawned, this);
+	}
+
+	if (!isConnected) {
+		// Reported as failure rather than returned anyway. Previously a failed
+		// connect still produced a GameServerConnection and the caller logged
+		// "Successfully connected", so the peer silently never existed - and the
+		// server it should have connected to waited forever for its peer count.
+		std::cout << "Failed to connect to server " << gameServerID << " on port " << port
+			<< " - will retry.\n";
+		delete client;
+		return nullptr;
 	}
 
 	GameServerConnection* connection = new GameServerConnection(gameServerID, client);
