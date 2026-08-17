@@ -69,9 +69,13 @@ namespace NCL {
 		}
 
 		if (firstWrite) {
+			// Appended at the end, never inserted: analyse.py reads these with
+			// csv.DictReader so it keys by name, but any hand-written cut/awk over an
+			// existing run would silently shift columns.
 			out << "tick,time_us,physics_ms,predict_ms,world_ms,"
 				<< "owned_objects,integrated_objects,"
-				<< "handoffs_sent,handoffs_received,handoffs_failed\n";
+				<< "handoffs_sent,handoffs_received,handoffs_failed,"
+				<< "pool_objects,world_objects\n";
 		}
 
 		for (size_t i = mWritten; i < mSamples.size(); ++i) {
@@ -85,7 +89,9 @@ namespace NCL {
 				<< s.integratedObjects << ','
 				<< s.handoffsSent << ','
 				<< s.handoffsReceived << ','
-				<< s.handoffsFailed << '\n';
+				<< s.handoffsFailed << ','
+				<< s.poolObjects << ','
+				<< s.worldObjects << '\n';
 		}
 		mWritten = mSamples.size();
 

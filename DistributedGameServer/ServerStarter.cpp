@@ -181,8 +181,16 @@ int StartGameServer(int argc, char* argv[]) {
 
 		NCL::RunHeadlessLoop(tick, runOptions);
 
+		// Locality (I6). Captured before the @@FINAL line rather than read inline,
+		// because GetServerWorldManager can return null on a server that never
+		// received its start packet - which is exactly the failure mode these
+		// numbers are meant to make visible, so it must not crash the report.
+		int poolObjects = -1;
+		int worldObjects = -1;
 		if (auto* worldManager = serverManager->GetServerWorldManager()) {
 			worldManager->FlushMetrics();
+			poolObjects = worldManager->GetPoolObjectCount();
+			worldObjects = worldManager->GetWorldObjectCount();
 		}
 
 		// Final totals rather than a 2 Hz sample, so the I4 and I5 invariants can be
@@ -193,6 +201,12 @@ int StartGameServer(int argc, char* argv[]) {
 			// server's share is meaningful; every server builds the same set, so the
 			// conservation check uses one server's value, not a sum.
 			<< " objPreseed=" << Profiler::GetTotalObjectsInServer()
+			// Locality (I6): what this server HOLDS. objs above is what it simulates.
+			// Under the pre-seed model these equal the world total on EVERY server,
+			// which is the O(world) per-server cost the region-local increment exists
+			// to remove. -1 means the world was never built.
+			<< " objPool=" << poolObjects
+			<< " objWorld=" << worldObjects
 			<< " hoSent=" << Profiler::GetHandoffsSent()
 			<< " hoRecv=" << Profiler::GetHandoffsReceived()
 			<< " hoFail=" << Profiler::GetHandoffsFailed()

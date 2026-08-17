@@ -31,6 +31,16 @@ namespace NCL {
 		int32_t handoffsSent = 0;      // cumulative
 		int32_t handoffsReceived = 0;  // cumulative
 		int32_t handoffsFailed = 0;    // cumulative
+
+		// Locality (invariant I6). ownedObjects above is what this server SIMULATES;
+		// these two are what it HOLDS. Under the pre-seed model every server
+		// instantiates the whole world and deactivates what it does not own, so
+		// poolObjects and worldObjects are equal to the world total on every server
+		// while ownedObjects is only its region's share. The region-local increment is
+		// exactly the claim that these two stop scaling with world size, so they have
+		// to be recorded to be falsifiable.
+		int32_t poolObjects = 0;       // entries in mCreatedObjectPool
+		int32_t worldObjects = 0;      // objects in the GameWorld
 	};
 
 	// Fixed-capacity, allocation-free per-tick recorder.
