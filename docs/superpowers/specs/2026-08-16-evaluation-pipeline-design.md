@@ -1309,3 +1309,61 @@ Reported together these two numbers are the honest statement of what static spat
 buys: **6x when the world is evenly populated, 1.3x when it is not**, with the partition unable to
 respond to the difference. That gap is the case for load-aware or adaptive partitioning, and it is
 now measured rather than asserted.
+
+---
+
+## Object-count sweep — why the speedup is superlinear (2026-08-17)
+
+The uniform result reports a **6.03x** reduction in busiest-server tick cost on 4 servers, which is
+superlinear. That was explained above by asserting physics cost grows faster than linearly in object
+count. This sweep measures it instead of asserting it.
+
+Clean-tree dataset, commit `5ab6880`, 2 servers, uniform workload, 3 repeats, 3600 ticks:
+
+| objects (total) | server | owned | p50 (ms) | p95 (ms) | p99 (ms) |
+|---|---|---|---|---|---|
+| 100 | 0 / 1 | 53 / 47 | 0.101 / 0.092 | 0.135 / 0.122 | 0.212 / 0.207 |
+| 400 | 0 / 1 | 200 / 200 | 0.594 / 0.581 | 0.761 / 0.751 | 0.985 / 0.990 |
+| 1600 | 0 / 1 | 804 / 796 | 7.147 / 6.594 | 8.215 / 7.552 | 9.428 / 8.874 |
+
+All invariants exact on all 9 runs.
+
+### The cost model
+
+Taking the busiest server at each point and fitting `t ~ n^k`:
+
+| objects owned | p50 (ms) | µs per object | n growth | cost growth |
+|---|---|---|---|---|
+| 53 | 0.1013 | 1.91 | — | — |
+| 200 | 0.5940 | 2.97 | 3.77x | **5.86x** |
+| 804 | 7.1471 | 8.89 | 4.02x | **12.03x** |
+
+**Fitted exponent: k = 1.57 overall** — and it *rises* with density, 1.33 on the first segment and
+**1.79** on the second. Per-object cost nearly quintuples between 53 and 804 objects (1.91 → 8.89
+µs).
+
+This is the mechanism behind the superlinear speedup, and it now predicts it quantitatively.
+Splitting a 400-object world across N servers gives each server 400/N objects, so the expected
+per-server cost reduction is `N^1.57`:
+
+| servers | predicted `N^1.57` | measured (uniform) |
+|---|---|---|
+| 2 | 2.97x | 2.67x |
+| 4 | 8.80x | 6.03x |
+
+Measured falls short of predicted, and the gap widens with N. That is the expected signature of
+fixed per-tick overhead that does **not** scale down with object count — the network pump, snapshot
+broadcast and border check run once per tick regardless. Partitioning divides the superlinear part
+and leaves the constant part alone, so the returns taper.
+
+### Two things worth carrying into the write-up
+
+- **The exponent is drifting toward quadratic.** k = 1.79 on the 400 → 1600 segment suggests the
+  broadphase is degrading at high density rather than holding its expected behaviour — plausibly
+  quadtree nodes exceeding their split threshold in a fixed 300x300 world, pushing more pairs into
+  narrow phase. Worth confirming before quoting k as a property of the *system* rather than of this
+  configuration.
+- **1600 objects on 2 servers is at the real-time edge.** p50 is 7.15 ms against an 8.33 ms budget
+  at the 120 Hz substep rate, and p95 (8.22 ms) is essentially at it. That is a concrete capacity
+  statement: this configuration saturates just past 1600 objects, and it is the number a scaling
+  argument should be anchored to.
