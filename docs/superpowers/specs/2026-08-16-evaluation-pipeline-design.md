@@ -1259,3 +1259,53 @@ measures partitioning under a deliberately adversarial distribution. A uniform w
 a very different curve. `--workload seam` exists for the border-ownership case; a uniform mode is
 the obvious next addition, and it is what would turn this into a fair speedup measurement rather
 than a worst-case one.
+
+---
+
+## The balanced counterpart — `--workload uniform` (2026-08-17)
+
+The shuttle result above measures a deliberately adversarial distribution: every object is launched
+from one region, so a static partition starts ~90% loaded on one server. That is a worst case, not
+a speedup measurement. `--workload uniform` is the counterpart — the same deterministic motion
+model, but the starting grid is spread across the whole world, sized from the union of every
+server's region (`GetWorldExtent`) so it can never fall outside the partition it is measured
+against.
+
+Clean-tree dataset, commit `fddfbf3`, 3 repeats, 3600 ticks, 400 objects, medians:
+
+| servers | server | p50 (ms) | p95 (ms) | p99 (ms) | owned |
+|---|---|---|---|---|---|
+| 1 | 0 | 1.645 | 1.990 | 2.332 | 400 |
+| 2 | 0 | 0.617 | 0.785 | 1.006 | 199 |
+| 2 | 1 | 0.596 | 0.762 | 0.970 | 201 |
+| 4 | 0 | 0.260 | 0.348 | 0.539 | 98 |
+| 4 | 1 | 0.273 | 0.366 | 0.556 | 108 |
+| 4 | 2 | 0.263 | 0.352 | 0.513 | 101 |
+| 4 | 3 | 0.224 | 0.311 | 0.495 | 93 |
+
+All invariants exact on all 9 runs; `integrated == owned` on every post-warmup tick.
+
+### The two workloads bracket the contribution
+
+Busiest-server p50, and the reduction relative to one server:
+
+| servers | uniform | | shuttle | |
+|---|---|---|---|---|
+| 1 | 1.645 ms | 1.00x | 1.548 ms | 1.00x |
+| 2 | 0.617 ms | **2.67x** | 1.288 ms | 1.20x |
+| 4 | 0.273 ms | **6.03x** | 1.196 ms | 1.29x |
+
+Object spread at 4 servers: uniform **98 / 108 / 101 / 93** (range 15) against shuttle
+**27 / 5 / 331 / 36** (range 326).
+
+**The 4-server uniform figure is superlinear — 6.03x on 4 servers.** At one server, 400 objects
+cost 1.645 ms; at four, ~100 objects cost 0.273 ms, where a linear cost model predicts 0.411 ms.
+Physics cost grows faster than linearly in object count (broadphase plus pairwise resolution), so
+quartering the objects on a server more than quarters its tick cost. Note this is the reduction in
+**per-server tick cost** — what decides whether a server holds its frame budget — not a wall-clock
+throughput speedup; each server is a separate process on its own core.
+
+Reported together these two numbers are the honest statement of what static spatial partitioning
+buys: **6x when the world is evenly populated, 1.3x when it is not**, with the partition unable to
+respond to the difference. That gap is the case for load-aware or adaptive partitioning, and it is
+now measured rather than asserted.
