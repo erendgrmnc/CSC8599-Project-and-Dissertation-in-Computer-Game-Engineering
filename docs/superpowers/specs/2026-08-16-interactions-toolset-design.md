@@ -1949,3 +1949,86 @@ architecture exists to demonstrate. The honest scope for reproducibility claims 
 
 Performance claims should be made from repeated runs with error bars; correctness claims rest on
 the invariants, which are exact.
+
+---
+
+## 18. Contact ordering, and a correction to §17 (2026-08-18)
+
+§17 attributed the residual ±1 to the coordination model and claimed closing it "requires ... a
+**barrier**, i.e. conservative time synchronisation (Chandy-Misra-Bryant)". **Both halves of that
+sentence are wrong, and the attribution was not supported by our own instrumentation.** This
+section records the correction and what was found instead.
+
+### 18.1 The CMB claim was wrong
+
+CMB is the canonical *non*-barrier algorithm. Logical processes synchronise **pairwise along
+links**: the safety rule takes a `min` over one LP's *incoming links*, not a global reduction, and
+LPs are free to drift arbitrarily far apart in simulated time when lookahead permits. There is no
+rendezvous and no coordinator. Citing it as the name for "a global barrier" inverts its meaning.
+
+Separately, "barrier" does not imply "central coordinator" either. The dissemination and tournament
+barriers (Hensgen, Finkel & Manber, *Int. J. Parallel Programming* 17(1), 1988) are fully
+symmetric, coordinator-free, and take ceil(log2 N) rounds — two rounds of one datagram each on four
+servers. Whatever the objection to a barrier is here, it is a **latency** objection, not an
+architectural-purity one, and it must be argued on latency.
+
+The property a blocking scheme would actually cost is **latency independence** — a server's ability
+to meet its frame deadline without waiting on a peer. That is measurable on the existing harness.
+It is a better claim than the one §17 made, and it is the one to write.
+
+### 18.2 Our own instrumentation contradicted the stated cause
+
+§17 reports `hoLate = 0` at N = 60. `hoLate` increments whenever an incoming transfer's
+`applyAt = senderTick + lookahead` has already passed the receiver's tick counter
+(`ServerWorldManager.cpp`), so `hoLate = 0` means **every handoff landed on its scheduled tick in
+every run**. Arrival jitter was therefore not perturbing handoff application, and "a one-substep
+difference anywhere" was not evidenced. The test is if anything conservative (`applyAt <= tick`
+flags a packet arriving during the tick it was scheduled for), so it over-reports rather than
+under-reports.
+
+### 18.3 What was actually wrong: contact resolution ordered by heap address
+
+`CollisionDetection::CollisionInfo::operator<` ordered the pair by
+
+```cpp
+size_t thisHash = (size_t)a + ((size_t)b << 32);
+```
+
+`mAllCollisions` and `mBroadphaseCollisions` are `std::set`s keyed by this comparator, so **the
+order contacts are resolved in was a function of heap layout**. Sequential-impulse resolution is
+order dependent, so the same binary at the same seed resolved the same contacts in different orders
+and diverged. This affects *every tick*, not just handoff ticks, which is why it is a better
+explanation of the residual than anything in the coordination model.
+
+Two further defects in the same code:
+
+- **It was not a strict weak ordering.** On x64 the `<< 32` discards `b`'s top 16 bits and the `+`
+  carries between the halves, so two *distinct* pairs could compare equivalent. `std::set` decides
+  equivalence from `operator<` alone, so the second contact was **silently dropped**. That is a
+  correctness bug, not merely a determinism one.
+- **`BroadPhase` canonicalised the pair with `std::min`/`std::max` on pointers**
+  (`PhysicsSystem.cpp`). Which body ends up as `a` decides the contact normal's direction and which
+  side takes `+impulse`, so the resolved result depended on heap layout one level further down.
+
+Both now key on `GameObject::GetWorldID()`, which `GameWorld::AddGameObject` assigns from a counter
+and is therefore unique and deterministic given deterministic construction order. World IDs are
+unique, so the lexicographic compare on `(worldID a, worldID b)` collides only for genuinely
+identical pairs.
+
+### 18.4 Simultaneous handoffs were applied in arrival order
+
+`FlushScheduledHandoffs` walked `mScheduledHandoffs` — a `std::vector` in **packet arrival order** —
+applying every entry due this tick. Two transfers scheduled for the *same* tick were therefore
+applied in whichever order ENet delivered them, which varies run to run; application order decides
+the order objects are reactivated and hence their order in the broadphase pair list.
+
+This is the classic simultaneous-event tie-break problem (Mehl, *A Deterministic Tie-Breaking Scheme
+for Sequential and Distributed Simulation*, PADS 1992). Object IDs are globally unique by
+construction (`NetworkIdSpace.h`), so `(applyAtTick, objectID)` is a total order and costs a sort.
+
+### 18.5 Coverage
+
+Five regression tests in `tools/InteractionTests/ContactOrderingTests.cpp` pin the ordering
+property, the strict-weak-ordering axioms, the absence of pair collisions across a 40-object
+complete graph (780 pairs), and null-safety of the comparator. Suite is 56 tests.
+
