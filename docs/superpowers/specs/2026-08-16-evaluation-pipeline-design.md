@@ -1200,27 +1200,56 @@ Note what the partition actually did here: the shuttle workload leaves 361 of 40
 (1.55 → 1.30 ms p50) is proportionally much smaller than the object split, which is the interesting
 result and exactly the kind of thing a single pooled average would have hidden.
 
-### Blocked: 4-server runs
+### The 4-server failure — FIXED, and it was one word
 
-4-server experiments **fail intermittently** and the runner reports them as failures rather than
-averaging over them (`FAILED: 3/4 servers produced metrics`).
+4-server runs failed on **3 of 3** attempts, always losing exactly one server, but not always the
+same one (s2, s2, s0). That "exactly one, varying" signature is what pointed at the answer.
 
-Narrowed, not closed. In a failing run all four servers log "All expected peers connected" with
-zero connect retries, and the affected server builds its full object set — but never receives the
-manager's `GameStartState`, so `game=0` and it produces no metrics. Since the shuttle workload puts
-every object in one region, if that region's server is the one that stalls, the whole world is
-missing and `conservation_delta = -400`.
+**Root cause.** `SystemManager::SendStartGameStatusPacket` used `SendGlobalPacket` — the
+**unreliable** ENet variant (packet flag 0) — for `GameStartState`. It is a one-shot bootstrap
+message with no retry anywhere in the system: a server that misses it never builds its world, sits
+at `game=0` forever, and produces no metrics. Dropped for roughly one recipient in four, which is
+precisely the observed failure.
 
-Two contributing defects were found and fixed along the way, and both were real:
+Snapshots correctly use the same unreliable call — they are superseded 60 times a second. A
+bootstrap message is not, and the two had been written the same way. One word: `SendGlobalPacket`
+to `SendGlobalReliablePacket`.
+
+Two other real defects were found and fixed while narrowing this, and both stay fixed:
 
 - The readiness test was an **exact** `==` evaluated only on peer join, while the expected count
   arrives later via `SetMaxClients`; the equality could be stepped over entirely.
 - `ConnectServerToAnotherGameServer` returned a `GameServerConnection` **even when the connect
-  failed**, so a peer that was not up yet was recorded as connected and its handlers never
-  registered. Failures are now reported and retried every 0.5 s.
+  failed**, so a peer whose sender server was not yet listening was recorded as connected and its
+  handlers never registered. Failures are now reported and retried every 0.5 s.
 
-Neither closed the remaining case. The next step is manager-side instrumentation around the
-`GameStartState` broadcast and each server's readiness receipt — deliberate debugging rather than
-another speculative fix.
+**Verified: 9/9 runs pass, including 4/4 servers on all three 4-server runs**, every invariant
+exact, analyser exit code 0.
 
-**Until it is closed, scaling claims are limited to 1 and 2 servers.**
+### Scaling result — 1, 2 and 4 servers, 3 repeats, 3600 ticks, shuttle
+
+| servers | server | p50 (ms) | p95 (ms) | p99 (ms) | owned |
+|---|---|---|---|---|---|
+| 1 | 0 | 1.846 | 2.495 | 3.636 | 400 |
+| 2 | 0 | 1.512 | 1.942 | 2.739 | 361 |
+| 2 | 1 | 0.094 | 0.139 | 0.257 | 39 |
+| 4 | 0 | 0.081 | 0.121 | 0.207 | 30 |
+| 4 | 1 | 0.036 | 0.058 | 0.097 | 4 |
+| 4 | 2 | **1.249** | 1.561 | 2.104 | **331** |
+| 4 | 3 | 0.087 | 0.130 | 0.246 | 36 |
+
+**The headline is the imbalance, not the speedup.** Static spatial partitioning barely spreads this
+workload: at 4 servers one server still holds **331 of 400 objects (83%)**, and the busiest server's
+p50 falls only 1.85 → 1.25 ms (32%) for a 4x increase in servers. Adding servers 1→2 moved 39
+objects; 2→4 moved another 30.
+
+That is a genuinely useful negative result and it is the honest motivation for the paper's
+direction: it quantifies exactly why a static region partition is insufficient and what an adaptive
+or load-aware partition would have to beat. A pooled cross-server average would have reported a
+comforting mean of ~0.36 ms at 4 servers and hidden the entire finding — which is why `analyse.py`
+refuses to pool.
+
+**Caveat on the workload.** The shuttle workload launches every object from one region, so this
+measures partitioning under a deliberately adversarial distribution. A uniform workload would show
+a very different curve; `--workload seam` already exists and a uniform mode is the obvious next
+addition.
