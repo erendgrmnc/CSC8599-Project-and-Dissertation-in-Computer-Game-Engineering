@@ -189,6 +189,10 @@ int StartGameServer(int argc, char* argv[]) {
 		// checked exactly instead of approximately.
 		std::cout << "@@FINAL role=server id=" << serverId
 			<< " objs=" << Profiler::GetObjectsOnBorders()
+			// Pre-seeded objects built by this server at world construction. Only this
+			// server's share is meaningful; every server builds the same set, so the
+			// conservation check uses one server's value, not a sum.
+			<< " objPreseed=" << Profiler::GetTotalObjectsInServer()
 			<< " hoSent=" << Profiler::GetHandoffsSent()
 			<< " hoRecv=" << Profiler::GetHandoffsReceived()
 			<< " hoFail=" << Profiler::GetHandoffsFailed()
