@@ -84,6 +84,10 @@ namespace NCL {
 			// --- ICommandContext ---
 			int GetServerID() const override;
 			int GetOwningServer(const Maths::Vector3& worldPoint) const override;
+
+			// Union of every region: the world's outer bounds. False before the border
+			// map has arrived from the manager.
+			bool GetWorldExtent(float& minX, float& maxX, float& minZ, float& maxZ) const;
 			CSC8503::GameObject* FindActiveObject(int networkObjectID) const override;
 			bool TryGetLastKnownPosition(int networkObjectID, Maths::Vector3& out) const override;
 			int SpawnObject(int archetypeID, const Maths::Vector3& at, int spawnerPlayerID) override;
@@ -154,8 +158,14 @@ namespace NCL {
 			// Selects the initial-motion workload applied when the world is built.
 			//   ""        - none (default): objects fall and settle, never crossing a
 			//               region border, so the handoff path is never exercised
-			//   "shuttle" - deterministic lateral velocity, so objects traverse the
-			//               world and cross borders at a measurable rate
+			//   "shuttle" - deterministic lateral velocity from ONE start region, so
+			//               objects traverse the world and cross borders. Adversarial
+			//               for a static partition: it starts ~90% loaded on one server
+			//   "uniform" - same motion, but the starting grid is spread across the
+			//               whole world. The balanced counterpart to shuttle, and the
+			//               fair speedup case
+			//   "seam"    - grid centred on the origin so a whole row and column sit
+			//               exactly on the region borders
 			// Must be identical on every server: they each build the same object set
 			// independently, so a workload mismatch desynchronises the world.
 			// Fault injection: delays each outgoing handoff by N ticks while the object

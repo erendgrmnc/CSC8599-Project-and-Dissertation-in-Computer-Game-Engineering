@@ -546,7 +546,10 @@ void NCL::DistributedGameServer::ServerWorldManager::FlushMetrics() {
 // coordination, and a run repeats exactly for a given --seed.
 void NCL::DistributedGameServer::ServerWorldManager::ApplyWorkloadInitialState(
 	CSC8503::GameObject& obj, int playerID, int objectIndex) const {
-	if (mWorkload != "shuttle") {
+	// "uniform" shares shuttle's motion model; only the STARTING distribution
+	// differs. Without motion an evenly-spread world produces zero handoffs, which
+	// would measure partitioning with the handoff path switched off.
+	if (mWorkload != "shuttle" && mWorkload != "uniform") {
 		return;
 	}
 
@@ -694,7 +697,34 @@ void DistributedGameServer::ServerWorldManager::CreatePlayerObjects(int playerCo
 			startPos.z = -(cols / 2) * OBJECT_GRID_SPACING;
 		}
 
-		CreateObjectGrid(rows, cols, objectsPerPlayer, OBJECT_GRID_SPACING, OBJECT_GRID_SPACING, i, startPos);
+		float rowSpacing = OBJECT_GRID_SPACING;
+		float colSpacing = OBJECT_GRID_SPACING;
+
+		// "uniform" spreads the grid across the WHOLE world rather than clustering it
+		// in one region. The shuttle workload launches every object from a single
+		// start offset, so a static partition necessarily begins ~90% loaded on one
+		// server - a deliberately adversarial distribution. Uniform is the balanced
+		// counterpart: it measures what the partition does when the world is evenly
+		// populated to begin with, which is the fair speedup case.
+		if (mWorkload == "uniform") {
+			float worldMinX = 0.0f, worldMaxX = 0.0f, worldMinZ = 0.0f, worldMaxZ = 0.0f;
+			if (GetWorldExtent(worldMinX, worldMaxX, worldMinZ, worldMaxZ)) {
+				// A margin keeps objects off the outer edge, where the closed-boundary
+				// rule and the floor edge would both come into play.
+				constexpr float UNIFORM_EDGE_MARGIN = 0.1f;
+				const float usableX = (worldMaxX - worldMinX) * (1.0f - 2.0f * UNIFORM_EDGE_MARGIN);
+				const float usableZ = (worldMaxZ - worldMinZ) * (1.0f - 2.0f * UNIFORM_EDGE_MARGIN);
+
+				rowSpacing = (rows > 1) ? (usableX / static_cast<float>(rows - 1)) : 0.0f;
+				colSpacing = (cols > 1) ? (usableZ / static_cast<float>(cols - 1)) : 0.0f;
+
+				startPos.x = worldMinX + (worldMaxX - worldMinX) * UNIFORM_EDGE_MARGIN;
+				startPos.z = worldMinZ + (worldMaxZ - worldMinZ) * UNIFORM_EDGE_MARGIN;
+				startPos.y = 10.f;
+			}
+		}
+
+		CreateObjectGrid(rows, cols, objectsPerPlayer, rowSpacing, colSpacing, i, startPos);
 	}
 }
 
@@ -936,6 +966,27 @@ DistributedGameServer::ServerWorldManager::GetRegionBounds() const {
 		}
 	}
 	return mCachedRegions;
+}
+
+// The union of every server's region: the world's outer bounds. Derived from the
+// same border map ownership uses, so a workload can never place an object outside
+// the partition it is being measured against.
+bool DistributedGameServer::ServerWorldManager::GetWorldExtent(float& minX, float& maxX,
+	float& minZ, float& maxZ) const {
+	const auto& regions = GetRegionBounds();
+	if (regions.empty()) {
+		return false;
+	}
+
+	minX = regions[0].minX; maxX = regions[0].maxX;
+	minZ = regions[0].minZ; maxZ = regions[0].maxZ;
+	for (const auto& region : regions) {
+		if (region.minX < minX) minX = region.minX;
+		if (region.maxX > maxX) maxX = region.maxX;
+		if (region.minZ < minZ) minZ = region.minZ;
+		if (region.maxZ > maxZ) maxZ = region.maxZ;
+	}
+	return true;
 }
 
 // Delegates rather than testing mServerBorderData directly, so it cannot disagree
