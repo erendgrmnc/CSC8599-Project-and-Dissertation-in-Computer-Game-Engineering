@@ -200,6 +200,32 @@ The midware spawns `./DistributedPhysicsServer/EntryPoint.exe` **relative to its
 
 **Run model:** `--headless` swaps the OpenGL `ProfilerRenderer` window for a `GameTimer` loop (`DistributedSystemCommonFiles/HeadlessRunner`). Every role prints a `@@STAT role=... key=val ...` line to stdout ~2 Hz (`TelemetryReporter`); a headless midware spawns its game servers windowless (pipe-redirected, no `CREATE_NEW_CONSOLE`) and forwards their stdout tagged `[server N]`. The launcher parses both into a live dashboard + per-entity log tabs, so a headless run shows **one window**. Clients always run windowed. Untick **Headless** for the per-role profiler windows used in evaluation visuals.
 
+## Running experiments
+
+`measure.ps1` is one run. An experiment is a sweep with repeats:
+
+```powershell
+# 1, 2 and 4 servers at 400 objects, 3 repeats each
+powershell -ExecutionPolicy Bypass -File toolsun-experiments.ps1 -Name scaling -Sweep servers -Values 1,2,4 -Repeats 3
+python toolsnalyse.py runs\exp-scaling      # non-zero exit = an invariant failed
+```
+
+- **`-Values` is a comma-separated string, not an array.** `powershell -File` does not parse array
+  arguments: `-Values 1,2` would arrive as the single value `12` and silently run a 12-server
+  experiment.
+- **Repeats are not optional.** Per-server object counts and handoff event counts vary by ±1 at the
+  same seed (see the reproducibility section of the interactions spec), so performance figures need
+  a spread. `analyse.py` reports the **median across repeats**.
+- `analyse.py` reads `@@FINAL` totals and the per-tick CSVs, never `@@STAT`; reports percentiles
+  rather than means (tick cost is bimodal); and never pools ticks across servers, which would weight
+  whichever server ticked more.
+- A run that produces fewer CSVs than servers is reported as **FAILED**, not averaged over.
+
+> **4-server runs fail intermittently.** All four servers connect and report readiness, but one can
+> miss the manager's `GameStartState` broadcast and never start — producing no metrics at all. With
+> the shuttle workload every object starts in one region, so if that server is the one that stalls
+> the entire world is missing. Scaling claims are limited to 1 and 2 servers until this is closed.
+
 ## Reference docs
 
 Read these before re-deriving behaviour from source:
