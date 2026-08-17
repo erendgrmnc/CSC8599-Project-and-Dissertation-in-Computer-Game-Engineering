@@ -1152,3 +1152,75 @@ Datasets track.
    the error bars are computed over and changing it later invalidates published figures.
 5. **Which single machine is the reference machine?** Every headline number should come from one
    documented host. Record it in the paper, not just in `run.json`.
+
+---
+
+## Implementation notes — evaluation layer (2026-08-17)
+
+### What shipped
+
+| Tool | Role |
+|---|---|
+| `tools/measure.ps1` | One run. Bounded, reproducible mode, per-run manifest. |
+| `tools/run-experiments.ps1` | One experiment: a sweep over `servers`/`objects`/`ticks`, N repeats per point, one directory per repeat, one manifest per experiment. |
+| `tools/analyse.py` | Reads the per-tick CSVs and `@@FINAL` totals, checks every invariant, writes `summary.csv`, prints a table. Exits non-zero if any invariant fails. |
+
+**Repeats are mandatory, not optional.** §17 of the interactions design records that per-server
+object counts and handoff event counts vary by ±1 at the same seed, and that closing that needs a
+global tick barrier. Performance figures therefore come from repeated runs, and the analysis
+reports the **median across repeats** so one slow run cannot drag a point.
+
+Three deliberate choices in the analysis, each correcting a way a naive script would mislead:
+
+- **Percentiles, not means.** Realtime tick cost is bimodal (mean 22x median), so a mean alone
+  misrepresents it.
+- **Never pool ticks across servers.** Servers carry different loads and tick at different rates, so
+  pooling weights whichever ticked more. Per-server stats are reported; cross-server figures are
+  sums, never averages of averages.
+- **`@@FINAL` only.** `@@STAT` is a 2 Hz sample and is never used for a reported number.
+- **Pre-seeded object count is one server's value, not a sum** — every server builds the identical
+  set independently, so summing it would multiply the world by the server count.
+
+Standard library only. The dissertation's numbers should not be gated on a `pip install` on the
+machine that produces the data.
+
+### First results — 1 and 2 servers, 3 repeats, 3600 ticks, shuttle
+
+| servers | server | p50 (ms) | p95 (ms) | p99 (ms) | owned |
+|---|---|---|---|---|---|
+| 1 | 0 | 1.5511 | 1.9480 | 2.3622 | 400 |
+| 2 | 0 | 1.2990 | 1.6061 | 1.9446 | 361 |
+| 2 | 1 | 0.0668 | 0.1015 | 0.1265 | 39 |
+
+All invariants exact on every run: conservation, handoff parity, command accounting, `hoFail = 0`,
+`hoLate = 0`, no resurrections, and `integrated == owned` on **every** post-warmup tick.
+
+Note what the partition actually did here: the shuttle workload leaves 361 of 400 objects on server
+0, so two servers is not a halving of load — it is a 90/10 split. The per-server cost drop
+(1.55 → 1.30 ms p50) is proportionally much smaller than the object split, which is the interesting
+result and exactly the kind of thing a single pooled average would have hidden.
+
+### Blocked: 4-server runs
+
+4-server experiments **fail intermittently** and the runner reports them as failures rather than
+averaging over them (`FAILED: 3/4 servers produced metrics`).
+
+Narrowed, not closed. In a failing run all four servers log "All expected peers connected" with
+zero connect retries, and the affected server builds its full object set — but never receives the
+manager's `GameStartState`, so `game=0` and it produces no metrics. Since the shuttle workload puts
+every object in one region, if that region's server is the one that stalls, the whole world is
+missing and `conservation_delta = -400`.
+
+Two contributing defects were found and fixed along the way, and both were real:
+
+- The readiness test was an **exact** `==` evaluated only on peer join, while the expected count
+  arrives later via `SetMaxClients`; the equality could be stepped over entirely.
+- `ConnectServerToAnotherGameServer` returned a `GameServerConnection` **even when the connect
+  failed**, so a peer that was not up yet was recorded as connected and its handlers never
+  registered. Failures are now reported and retried every 0.5 s.
+
+Neither closed the remaining case. The next step is manager-side instrumentation around the
+`GameStartState` broadcast and each server's readiness receipt — deliberate debugging rather than
+another speculative fix.
+
+**Until it is closed, scaling claims are limited to 1 and 2 servers.**
