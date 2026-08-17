@@ -1228,28 +1228,34 @@ exact, analyser exit code 0.
 
 ### Scaling result — 1, 2 and 4 servers, 3 repeats, 3600 ticks, shuttle
 
+Clean-tree dataset, commit `7a48341`, medians across 3 repeats:
+
 | servers | server | p50 (ms) | p95 (ms) | p99 (ms) | owned |
 |---|---|---|---|---|---|
-| 1 | 0 | 1.846 | 2.495 | 3.636 | 400 |
-| 2 | 0 | 1.512 | 1.942 | 2.739 | 361 |
-| 2 | 1 | 0.094 | 0.139 | 0.257 | 39 |
-| 4 | 0 | 0.081 | 0.121 | 0.207 | 30 |
-| 4 | 1 | 0.036 | 0.058 | 0.097 | 4 |
-| 4 | 2 | **1.249** | 1.561 | 2.104 | **331** |
-| 4 | 3 | 0.087 | 0.130 | 0.246 | 36 |
+| 1 | 0 | 1.548 | 1.820 | 1.977 | 400 |
+| 2 | 0 | 1.288 | 1.516 | 1.670 | 362 |
+| 2 | 1 | 0.061 | 0.092 | 0.118 | 38 |
+| 4 | 0 | 0.077 | 0.111 | 0.205 | 27 |
+| 4 | 1 | 0.037 | 0.058 | 0.111 | 5 |
+| 4 | 2 | **1.196** | 1.512 | 1.854 | **331** |
+| 4 | 3 | 0.088 | 0.132 | 0.254 | 36 |
+
+All invariants exact on all 9 runs; `integrated == owned` on **every** post-warmup tick;
+analyser exit code 0.
 
 **The headline is the imbalance, not the speedup.** Static spatial partitioning barely spreads this
-workload: at 4 servers one server still holds **331 of 400 objects (83%)**, and the busiest server's
-p50 falls only 1.85 → 1.25 ms (32%) for a 4x increase in servers. Adding servers 1→2 moved 39
-objects; 2→4 moved another 30.
+workload. At 4 servers one server still holds **331 of 400 objects (83%)**, and the busiest
+server's p50 falls only 1.55 → 1.20 ms (**23%**) for a 4x increase in servers. Going 1→2 moved 38
+objects; 2→4 moved another 31.
 
-That is a genuinely useful negative result and it is the honest motivation for the paper's
-direction: it quantifies exactly why a static region partition is insufficient and what an adaptive
-or load-aware partition would have to beat. A pooled cross-server average would have reported a
-comforting mean of ~0.36 ms at 4 servers and hidden the entire finding — which is why `analyse.py`
-refuses to pool.
+That is a useful negative result and it is the honest motivation for the paper's direction: it
+quantifies why a static region partition is insufficient, and sets the bar an adaptive or
+load-aware partition has to beat. A pooled cross-server average would have reported a comforting
+~0.35 ms at 4 servers and hidden the finding entirely — which is exactly why `analyse.py` refuses
+to pool across servers.
 
 **Caveat on the workload.** The shuttle workload launches every object from one region, so this
-measures partitioning under a deliberately adversarial distribution. A uniform workload would show
-a very different curve; `--workload seam` already exists and a uniform mode is the obvious next
-addition.
+measures partitioning under a deliberately adversarial distribution. A uniform workload would give
+a very different curve. `--workload seam` exists for the border-ownership case; a uniform mode is
+the obvious next addition, and it is what would turn this into a fair speedup measurement rather
+than a worst-case one.
