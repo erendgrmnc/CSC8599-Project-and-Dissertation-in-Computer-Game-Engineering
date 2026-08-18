@@ -157,3 +157,75 @@ argument the halo retirement uses.
 3. **Density rather than count.** The grid broadphase is linear in objects but its constant depends
    on objects *per cell*. A million objects spread thinly is cheap; a hundred thousand in one heap is
    not. The workloads should sweep density explicitly, since that is what a real game world varies.
+
+---
+
+## 5. Both ceilings removed (update)
+
+### 5.1 The 20-server wire cap is gone
+
+The registry no longer rides inside `StartDistributedGameServerPacket`. It is a separate
+`DistributedServerRegistryPacket`, 16 entries per page, keyed by server id and accumulated until
+complete before anything acts on it. Borders travel as four floats instead of a 256-byte string, so
+an entry is 40 bytes rather than ~280. `DistributedRepartitionPacket` is paged the same way.
+
+Removing that cap exposed a **second, invisible one**. The packet-sender host was created with
+`TEST_MAX_CLIENT + (TEST_MAX_GAME_SERVER - 1)` = 19 peer slots, and an ENet host's peer capacity is
+fixed at `enet_host_create` — `SetMaxClients` only moves the bookkeeping bound. On a 24-server
+instance every connection past the 20th was refused, so no server's readiness test ever came true
+and the game never started, with no error anywhere. `SetMaxClients` now says so when the logical
+bound exceeds what the host can hold.
+
+Verified at **24 servers**, above the old cap:
+
+| check | result |
+|---|---|
+| registry | 24 servers in 2 pages, all 24 assembled |
+| conservation | 240 / 240 objects |
+| handoff parity | 175 sent = 175 received + pending |
+| `hoFail` / `hoLate` | 0 / 0 |
+| ownership | **0 gap ticks, 0 double-owned ticks** |
+
+### 5.2 A server now uses more than one core
+
+`TaskPool` (`DistributedSystemCommonFiles/TaskPool.h`) is a persistent worker pool offering one
+operation: `ParallelFor` over an index range. Deliberately only that — every parallel phase in this
+system is "do the same independent thing to n objects", and a general task queue would invite
+dependencies between tasks.
+
+Which phases are parallel is a **correctness** question:
+
+| phase | parallel? | why |
+|---|---|---|
+| AABB update | yes | writes only the object being processed |
+| `IntegrateAccel` / `IntegrateVelocity` | yes | same |
+| broadphase pair collection | yes | per-thread buffers, merged on one thread afterwards |
+| **contact resolution** | **no** | reads and writes both bodies; the ORDER contacts resolve in changes the result |
+
+`--physics-threads N`, default 0, so a run without it behaves exactly as every earlier measurement
+did.
+
+**Speedup**, 16,000 objects on one server:
+
+| workers | physics ms/tick | speedup |
+|---|---|---|
+| 0 | 45.743 | 1.00x |
+| 2 | 28.675 | 1.60x |
+| 4 | 27.679 | 1.65x |
+
+It plateaus at 1.65x, and the plateau is the honest result. Solving Amdahl for that speedup at five
+participating threads gives a serial fraction of about **51%** — contact resolution is half the
+physics cost and cannot be parallelised without abandoning determinism. Two workers already capture
+most of the available gain; four adds almost nothing.
+
+**Results are bit-identical to the serial path.** A threaded run and a serial run of the same
+configuration differ in zero CSV lines, and a threaded repeat pair is identical to itself. That is
+the property that had to hold: turning threads on must not change the simulation, or every
+reproducibility claim becomes conditional on the machine's core count.
+
+### 5.3 Where the ceiling sits now
+
+Per server, at 120 Hz on this hardware: ~6,000 objects serial, and the 1.65x gives roughly **10,000
+objects per server** with workers. The remaining obstacle to a genuinely large world is unchanged
+and is now clearly the largest: **snapshot traffic is O(world) per client** (§3.2). Interest
+management is the next increment that matters.
