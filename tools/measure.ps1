@@ -128,6 +128,28 @@ while ((Get-Date) -lt $deadline) {
     Start-Sleep -Seconds 2
 }
 
+# The CSV is NOT the completion signal. A server writes its CSV in FlushMetrics and
+# prints its @@FINAL line afterwards, so breaking out of the loop above and killing
+# the midware immediately can cut the last line off - the run then looks clean, has
+# a full set of CSVs, and is silently missing a server from every @@FINAL-based
+# invariant check. Observed exactly once in a2 regression testing, on the slower of
+# two back-to-back runs.
+#
+# Wait for one @@FINAL per server, then a short grace for the midware's pipe to
+# forward it. Bounded: a genuinely dead server must not hang the harness.
+$finalDeadline = (Get-Date).AddSeconds(20)
+while ((Get-Date) -lt $finalDeadline) {
+    $finals = @(Select-String -Path "$runDir\mid.log" -Pattern "@@FINAL role=server" -ErrorAction SilentlyContinue)
+    if ($finals.Count -ge $Servers) { break }
+    Start-Sleep -Milliseconds 500
+}
+Start-Sleep -Seconds 1
+
+$finals = @(Select-String -Path "$runDir\mid.log" -Pattern "@@FINAL role=server" -ErrorAction SilentlyContinue)
+if ($finals.Count -lt $Servers) {
+    Write-Host "WARNING: only $($finals.Count) of $Servers servers reported @@FINAL. Invariant totals for this run are incomplete." -ForegroundColor Yellow
+}
+
 foreach ($p in @($cli, $mid, $mgr)) {
     if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
 }
