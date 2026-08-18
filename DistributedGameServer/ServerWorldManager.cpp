@@ -278,25 +278,23 @@ bool NCL::DistributedGameServer::ServerWorldManager::PopPendingSpawn(PendingSpaw
 	return true;
 }
 
-bool NCL::DistributedGameServer::ServerWorldManager::CreateReplicatedSpawn(int networkID,
-	int archetypeID, int ownerServerID, int spawnerPlayerID, const Maths::Vector3& position) {
-	if (mCreatedObjectPool.find(networkID) != mCreatedObjectPool.end()) {
-		return false;   // Already known; a duplicate broadcast is not an error.
-	}
-
-	GameObject* object = CreateObjectFromArchetype(archetypeID, position, networkID, spawnerPlayerID);
-	if (object == nullptr) {
+bool NCL::DistributedGameServer::ServerWorldManager::RecordRemoteSpawn(int networkID,
+	int ownerServerID) {
+	// The spawn broadcast can lose a race with a handoff: the owner spawns an object,
+	// broadcasts, and hands it to us before the broadcast lands. Recording the packet's
+	// owner then would point commands for an object we are actively simulating back at
+	// the server that no longer has it.
+	const auto entry = mCreatedObjectPool.find(networkID);
+	if (entry != mCreatedObjectPool.end() && entry->second != nullptr) {
 		return false;
 	}
 
-	// Deactivated, and its owner recorded. The twin used to be required because
-	// StartHandlingObject could only reactivate an object it already had; handoff now
-	// constructs on arrival, so the twin is no longer load-bearing for that - but the
-	// OWNER record is, for forwarding commands aimed at this object.
-	object->SetActive(false);
+	// Nothing is constructed. A non-owner now holds one map entry rather than a
+	// GameObject, a PhysicsObject, a NetworkObject and a slot in every physics list -
+	// which is the whole point of the region-local model. Handoff builds the object if
+	// it ever arrives (ApplyIncomingObject); until then this is all a peer needs to
+	// forward a command to whoever does own it.
 	RecordObjectOwner(networkID, ownerServerID);
-	std::cout << "Created deactivated twin for runtime object " << networkID
-		<< " owned by server " << ownerServerID << "\n";
 	return true;
 }
 

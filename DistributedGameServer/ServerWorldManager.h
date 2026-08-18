@@ -131,13 +131,14 @@ namespace NCL {
 			};
 			bool PopPendingSpawn(PendingSpawn& out);
 
-			// Builds the DEACTIVATED twin of an object spawned on a peer. This is the
-			// whole reason spawn needs a broadcast: StartHandlingObject requires the
-			// target server to already hold a pool entry, so a runtime spawn has to
-			// reproduce the pre-seed model on every server rather than exist only on
-			// its owner. Returns false if the id is already known.
-			bool CreateReplicatedSpawn(int networkID, int archetypeID, int ownerServerID,
-				int spawnerPlayerID, const Maths::Vector3& position);
+			// Notes that a peer spawned an object, WITHOUT building anything. It used
+			// to build a deactivated twin because StartHandlingObject could only
+			// reactivate an object the server already held; handoff now constructs on
+			// arrival, so all a non-owner needs is somewhere to forward commands.
+			// Returns false if this server already holds the object active - the spawn
+			// broadcast lost a race with a handoff of the same object to us, and the
+			// stale owner in it must not be recorded.
+			bool RecordRemoteSpawn(int networkID, int ownerServerID);
 
 			struct PendingDespawn {
 				int objectID = -1;

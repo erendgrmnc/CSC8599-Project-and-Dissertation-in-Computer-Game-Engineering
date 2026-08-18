@@ -815,9 +815,10 @@ void DistributedGameServer::DistributedGameServerManager::DrainPendingSpawns() {
 	while (worldManager->PopPendingSpawn(spawn)) {
 		++mObjectsSpawned;
 
-		// Broadcast reaches peers AND clients in one call, exactly as the handoff
-		// packet does. Peers need it because StartHandlingObject requires a pool
-		// entry to already exist; clients need it to build a replica.
+		// Still a broadcast, but for a different reason than before. Clients need it
+		// to build a replica. Peers no longer build anything - they take only the
+		// owner id from it, so that a command aimed at this object before the client
+		// has learned its owner can be forwarded rather than rejected.
 		DistributedObjectSpawnedPacket packet(spawn.objectID, spawn.archetypeID,
 			spawn.ownerServerID, spawn.spawnerPlayerID, spawn.position);
 		mDistributedPacketSenderServer->SendGlobalReliablePacket(packet);
@@ -839,8 +840,10 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectSpawnedPac
 		return;
 	}
 
-	worldManager->CreateReplicatedSpawn(packet->objectID, packet->archetypeID,
-		packet->ownerServerID, packet->spawnerPlayerID, packet->position);
+	// Archetype and position are deliberately unused here: a non-owner builds nothing,
+	// so it needs neither. They are still on the wire because the same broadcast is what
+	// CLIENTS use to build their replica.
+	worldManager->RecordRemoteSpawn(packet->objectID, packet->ownerServerID);
 }
 
 void DistributedGameServer::DistributedGameServerManager::DrainPendingDespawns() {
