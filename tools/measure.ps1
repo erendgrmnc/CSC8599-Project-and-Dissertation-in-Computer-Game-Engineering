@@ -47,6 +47,11 @@ param(
     [int]$HandoffLookahead = 0,
     # Aligns every server's tick 0 to a shared monotonic-clock boundary (us).
     [int]$EpochAlignUs = 0,
+    # World bounds, minX,maxX,minZ,maxZ. Needed for the locality experiment (I6),
+    # which holds objects-per-region fixed and grows the WORLD as servers are added
+    # - with a fixed world, adding servers only subdivides it, which measures
+    # something else entirely.
+    [string]$World = "-150,150,-150,150",
     [string]$OutDir = ""
 )
 $ErrorActionPreference = "Continue"
@@ -81,6 +86,7 @@ $manifest = [ordered]@{
     ticks        = $Ticks
     seed         = $Seed
     workload     = $Workload
+    world        = $World
     gitCommit    = (& git -C $repoRoot rev-parse HEAD 2>$null)
     gitDirty     = [bool](& git -C $repoRoot status --porcelain 2>$null)
     machine      = $env:COMPUTERNAME
@@ -88,10 +94,10 @@ $manifest = [ordered]@{
 }
 $manifest | ConvertTo-Json | Out-File -FilePath (Join-Path $runDir "manifest.json") -Encoding utf8
 
-Write-Host "run=$Tag mode=$mode servers=$Servers objects=$Objects bound='$bound' seed=$Seed workload=$Workload"
+Write-Host "run=$Tag mode=$mode world=$World servers=$Servers objects=$Objects bound='$bound' seed=$Seed workload=$Workload"
 
 $mgr = Start-Process -PassThru -FilePath (Join-Path $deploy "Manager\EntryPoint.exe") `
-    -ArgumentList "--servers $Servers --clients 1 --objects $Objects --port 1234 --world -150,150,-150,150 --midwares 1 --autostart --headless" `
+    -ArgumentList "--servers $Servers --clients 1 --objects $Objects --port 1234 --world $World --midwares 1 --autostart --headless" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\mgr.log" -RedirectStandardError "$runDir\mgr.err" -WindowStyle Hidden
 Start-Sleep -Seconds 3
 
