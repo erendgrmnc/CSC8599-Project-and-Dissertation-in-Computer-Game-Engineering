@@ -103,23 +103,50 @@ void GameClient::SendReliablePacket(GamePacket& payload) const {
 
 void GameClient::Disconnect() {
 	if (mNetPeer != nullptr) {
-		// Disconnect from the server with a disconnect notification
-		enet_peer_disconnect(mNetPeer, 0);
-
-		// Allow up to 3 seconds for the disconnect to succeed and flush outgoing packets
-		// You can adjust the timeout value as needed
+		// disconnect_later, NOT disconnect. enet_peer_disconnect calls
+		// enet_peer_reset_queues, which throws away every outgoing reliable command
+		// that has not been sent AND every sent one still awaiting an acknowledgement.
+		// Reliable therefore does not mean reliable across a shutdown: whatever this
+		// client sent in its last few milliseconds is silently discarded. That showed
+		// up as an I4 shortfall of one or two commands that appeared and disappeared
+		// with timing. disconnect_later holds the peer open until the queues drain and
+		// only then sends the disconnect.
+		enet_peer_disconnect_later(mNetPeer, 0);
 		enet_host_flush(netHandle);
 
-		// Wait until the disconnect process is complete or the timeout occurs
+		// Service in a loop with a deadline, not a single blocking call: the queues
+		// only drain while the host is serviced, and the first event to arrive is
+		// usually an inbound snapshot rather than the disconnect. The original
+		// single-call form reported failure on any other event, which is why a clean
+		// shutdown still printed "Failed to disconnect".
+		constexpr enet_uint32 DISCONNECT_TIMEOUT_MS = 3000;
+		constexpr enet_uint32 SERVICE_SLICE_MS = 50;
+		bool disconnected = false;
 		ENetEvent event;
-		if (enet_host_service(netHandle, &event, 3000) > 0 &&
-			event.type == ENET_EVENT_TYPE_DISCONNECT) {
-			// Disconnect successful
+		for (enet_uint32 waited = 0; waited < DISCONNECT_TIMEOUT_MS && !disconnected;
+			waited += SERVICE_SLICE_MS) {
+			while (enet_host_service(netHandle, &event, SERVICE_SLICE_MS) > 0) {
+				if (event.type == ENET_EVENT_TYPE_RECEIVE) {
+					// Inbound traffic during shutdown is not interesting, but it must
+					// still be destroyed or the host leaks it.
+					enet_packet_destroy(event.packet);
+				}
+				else if (event.type == ENET_EVENT_TYPE_DISCONNECT) {
+					disconnected = true;
+					break;
+				}
+			}
+		}
+
+		if (disconnected) {
 			std::cout << "Disconnected from the server." << std::endl;
 		}
 		else {
-			// Disconnect timed out or encountered an error
-			std::cerr << "Failed to disconnect from the server." << std::endl;
+			// Timed out with packets still queued. Force it, and say so - this is the
+			// case where commands CAN still be lost.
+			std::cerr << "Disconnect timed out; forcing. Queued packets may be lost."
+				<< std::endl;
+			enet_peer_reset(mNetPeer);
 		}
 
 		// Reset the peer to nullptr after disconnecting
