@@ -193,7 +193,16 @@ Existing I1–I6 continue to hold. Two new ones:
   sides disagree by more than a threshold.
 
 I8 is where this increment is most likely to be quietly wrong, because both sides must agree on:
-- the pair's `a`/`b` orientation (already ordered by world ID — this is why that fix mattered),
+- the pair's `a`/`b` orientation. **This was wrong when written.** The earlier fix ordered contact
+  pairs by `GameObject::GetWorldID`, which is a per-`GameWorld` creation counter
+  (`AddGameObject` does `worldIDCounter++`). The two servers build a cross-border pair in opposite
+  orders — the owned object at pre-seed, the neighbour's shadow when its first halo update arrives —
+  so they oriented the same contact oppositely and computed different impulses from it. Ordering is
+  now by `GetContactOrderID`, which is the network id: globally unique and identical everywhere.
+  Objects with no global identity (static geometry, the floor) fall back to the world id and sort
+  after every networked object, so the comparator stays a strict weak ordering.
+  `ContactSymmetryTests.cpp` resolves the same pair from both servers' perspectives, with the
+  objects created in opposite orders, and checks the impulses agree;
 - the contact point and normal, which come from positions that must be identical, not merely close,
 - the elasticity and friction coefficients, which come from the archetype.
 
@@ -276,15 +285,48 @@ difference is the redundant half.
 > anything about region borders. At 30 u/s a pair overlaps for two substeps and the contact is
 > unambiguous. For the record, at 60 u/s the halo still took border crossings from 100 to 22.
 
-### B6 — Handoff becomes a promotion
+### B6 — Handoff becomes a promotion, and ownership transfers atomically *(done)*
 
-An object crossing the border is, by construction, already a shadow on the receiving server. The
-handoff can then stop shipping full state and become "the object you are already tracking is now
-yours", which removes the ownership gap §0.7 describes: there is no window in which no server has
-the object, because the receiver had a copy before the transfer began.
+Two changes, and the second turned out to matter far more than the first.
 
-This is the increment that makes the halo pay for itself, and it is deliberately last: it changes
-handoff, which every existing invariant is measured against.
+**Promotion.** An object crossing the border is already a shadow on the receiving
+server, so `ApplyIncomingObject` promotes that shadow instead of tearing it down and
+building a replacement. Cheaper, but the reason is correctness as much as cost:
+rebuilding discards the object's contact history, which `UpdateCollisionList` carries
+for several frames, so an object mid-collision at the border would have its contacts
+silently reset by crossing it.
+
+**Atomic transfer.** The sender released the object the moment the packet was sent,
+while the receiver installs it at `senderTick + lookahead`. Both sides now compute
+that same tick and act on it: the receiver installs, the sender releases. No barrier,
+no acknowledgement — just the same arithmetic on both ends.
+
+#### The gap this closed, measured
+
+The ownership gap was known and documented, but had only ever been reasoned about. It
+is measurable directly: sum `owned_objects` across servers at each tick and compare
+against the world total. On a 200-object `uniform` run, 1,800 paced ticks:
+
+| | ticks with an object owned by **nobody** | worst simultaneous deficit | ticks with an object owned **twice** |
+|---|---|---|---|
+| release on send | **1,397 of 1,800 (78%)** | 33 objects | 0 |
+| release on the agreed tick | **0** | 0 | 0 |
+
+78% of ticks had at least one unowned object, and at worst 33 of 200 at once. That
+follows directly from the lookahead: with `--handoff-lookahead 300` every transferred
+object spent 2.5 seconds simulated by nobody. The mechanism that made handoff
+*deterministic* is what made the gap large.
+
+#### Why nothing caught it
+
+`conservation_delta` and `ho_parity_delta` were **0 on both runs**. End-of-run totals
+say what each server held when it stopped and are silent about everything in between,
+and an object that is unowned for 300 ticks and then correctly installed balances
+perfectly at the end.
+
+`analyse.py` now checks ownership per tick, in both directions — a dip below the world
+total is a gap, a rise above it is two servers simulating the same object. This is the
+one invariant in the set that could not have been expressed against `@@FINAL`.
 
 ---
 
