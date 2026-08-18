@@ -492,6 +492,14 @@ namespace NCL {
 			// needs to be. Only objects that have actually passed through this server
 			// appear here, so it does not reintroduce an O(world) cost.
 			std::map<int, int> mLastKnownOwner;
+			// Tick each forwarding entry was last written or used. The table is what
+			// lets a command chase an object this server has handed away, and an entry
+			// is only useful while the client's view can still be that stale - a few
+			// seconds. Without an age it grew monotonically with cumulative handoff
+			// traffic and was never pruned, so a long run leaked one entry per object
+			// ever touched.
+			std::map<int, uint64_t> mLastKnownOwnerTick;
+			void PruneForwardingTable();
 
 			// Deliberately NOT in mCreatedObjectPool. A shadow is not this server's
 			// object, and keeping it out of the pool is what makes FindActiveObject,

@@ -224,6 +224,45 @@ void NCL::DistributedGameServer::ServerWorldManager::RecordObjectOwner(int netwo
 	// tells a later handoff-out that the object was ours, and ResolveForwardTarget
 	// ignores self-entries rather than forwarding in a loop.
 	mLastKnownOwner[networkObjectID] = serverID;
+	mLastKnownOwnerTick[networkObjectID] = mTickCounter;
+}
+
+// Drops forwarding entries older than a client's plausible staleness window.
+//
+// An entry exists so a command aimed at an object this server has handed away can
+// still be forwarded rather than rejected. That is only useful while the CLIENT's view
+// can still be that out of date, which is a few seconds - a client learns the new
+// owner from the next snapshot or from a NotOwner ack. Beyond that the entry is dead
+// weight, and it used to accumulate for the life of the process: one per object ever
+// handed away, never removed.
+void DistributedGameServer::ServerWorldManager::PruneForwardingTable() {
+	// Ten seconds at the substep rate. Far longer than any client's view can lag, and
+	// short enough that a long run does not accumulate. Erring long on purpose: an
+	// entry pruned too early turns a forwardable command into a rejected one, which is
+	// a correctness regression, while one pruned too late costs eight bytes.
+	constexpr uint64_t FORWARD_ENTRY_LIFETIME_TICKS = 1200;
+	if (mTickCounter < FORWARD_ENTRY_LIFETIME_TICKS) {
+		return;
+	}
+	const uint64_t cutoff = mTickCounter - FORWARD_ENTRY_LIFETIME_TICKS;
+
+	for (auto entry = mLastKnownOwnerTick.begin(); entry != mLastKnownOwnerTick.end(); ) {
+		if (entry->second > cutoff) {
+			++entry;
+			continue;
+		}
+		// Never prune an entry for an object this server currently owns: that one is
+		// not a forwarding hint, it is the record that says the object was ours, and
+		// HandleOutgoingObject reads it when the object eventually leaves.
+		const auto owned = mCreatedObjectPool.find(entry->first);
+		if (owned != mCreatedObjectPool.end() && owned->second != nullptr) {
+			entry->second = mTickCounter;   // Refresh rather than drop.
+			++entry;
+			continue;
+		}
+		mLastKnownOwner.erase(entry->first);
+		entry = mLastKnownOwnerTick.erase(entry);
+	}
 }
 
 NCL::CSC8503::GameObject* NCL::DistributedGameServer::ServerWorldManager::CreateObjectFromArchetype(
@@ -1014,6 +1053,10 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	// Before everything else that reads a border. The partition must change for the
 	// whole of the tick it takes effect on, or the ownership answers within that tick
 	// would come from two different partitions.
+	// Cheap and bounded: the table is small, and this is what stops it growing for
+	// the life of the process.
+	PruneForwardingTable();
+
 	FlushPendingPartitions();
 
 	// Same tick the receiving server installs the object on, so ownership changes
