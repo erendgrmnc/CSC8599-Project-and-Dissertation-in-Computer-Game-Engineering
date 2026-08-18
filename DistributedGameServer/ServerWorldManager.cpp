@@ -816,31 +816,55 @@ void DistributedGameServer::ServerWorldManager::FlushScheduledHandoffs() {
 }
 
 bool DistributedGameServer::ServerWorldManager::ApplyIncomingObject(StartSimulatingObjectPacket* packet) {
-	// std::map::at throws on an unknown key; an object present on the sender but
-	// absent from this server's pool would take the whole process down rather than
-	// reporting a failed handoff.
-	auto poolEntry = mCreatedObjectPool.find(packet->objectID);
-	if (poolEntry == mCreatedObjectPool.end()) {
-		++mHandoffsFailed;
-		std::cout << "ERROR: handoff for unknown object id " << packet->objectID
-			<< " - no pool entry on this server.\n";
-		return false;
-	}
-	// The object was destroyed while in flight (races W3/W4). Accepting it would
-	// resurrect it. Counted as received - the sender genuinely did release it, so
-	// dropping it silently would break handoff parity (I5) instead.
+	// Checked BEFORE any construction. The object was destroyed while in flight
+	// (races W3/W4); building it here and tearing it down again would resurrect it
+	// for the length of this function, and on the construct-on-arrival path it would
+	// also register it with the physics system mid-tick. Counted as received - the
+	// sender genuinely did release it, so dropping it silently would break handoff
+	// parity (I5) instead.
 	if (IsTombstoned(packet->objectID) ||
 		mPendingDestroyOnArrival.find(packet->objectID) != mPendingDestroyOnArrival.end()) {
 		mPendingDestroyOnArrival.erase(packet->objectID);
 		mTombstones.insert(packet->objectID);
-		if (poolEntry->second != nullptr) {
-			TeardownObject(poolEntry->second);
-			poolEntry->second = nullptr;
+		auto existing = mCreatedObjectPool.find(packet->objectID);
+		if (existing != mCreatedObjectPool.end() && existing->second != nullptr) {
+			TeardownObject(existing->second);
+			existing->second = nullptr;
 		}
 		++mHandoffsReceived;
 		std::cout << "Handoff for destroyed object " << packet->objectID
 			<< " - dropped rather than resurrected.\n";
 		return true;
+	}
+
+	auto poolEntry = mCreatedObjectPool.find(packet->objectID);
+	if (poolEntry == mCreatedObjectPool.end()) {
+		// Not known here. Under the pre-seed model this was an error, because every
+		// server held a deactivated twin of every object and an unknown id meant the
+		// world sets had diverged. Once a server holds only its own region, an
+		// incoming object it has never seen is the NORMAL case, so it is built from
+		// the archetype the packet carries.
+		GameObject* built = CreateObjectFromArchetype(packet->mArchetypeID,
+			packet->lastFullState.predictedPosition, packet->objectID, packet->mControllerPlayerID);
+		if (built == nullptr) {
+			++mHandoffsFailed;
+			std::cout << "ERROR: could not build incoming object " << packet->objectID
+				<< " from archetype " << packet->mArchetypeID << "\n";
+			return false;
+		}
+		// Built deactivated; the shared path below activates it after applying state,
+		// so a constructed object and a reactivated twin follow identical code.
+		built->SetActive(false);
+		poolEntry = mCreatedObjectPool.find(packet->objectID);
+	}
+	// A tombstoned-then-nulled entry: the id is known but the object is gone. Treated
+	// as a failure rather than rebuilt, because reaching here means the tombstone
+	// check above did not fire, which would be a real inconsistency.
+	if (poolEntry == mCreatedObjectPool.end() || poolEntry->second == nullptr) {
+		++mHandoffsFailed;
+		std::cout << "ERROR: handoff for object " << packet->objectID
+			<< " resolved to a null pool entry.\n";
+		return false;
 	}
 
 	if (GameObject* objectToHandle = poolEntry->second) {
