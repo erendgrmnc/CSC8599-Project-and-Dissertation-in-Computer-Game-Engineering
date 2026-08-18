@@ -229,3 +229,76 @@ Per server, at 120 Hz on this hardware: ~6,000 objects serial, and the 1.65x giv
 objects per server** with workers. The remaining obstacle to a genuinely large world is unchanged
 and is now clearly the largest: **snapshot traffic is O(world) per client** (§3.2). Interest
 management is the next increment that matters.
+
+---
+
+## 6. Interest management (update, 2026-08-19)
+
+§3.2 named this the single largest remaining obstacle. It is now built.
+
+### What it does
+
+A client declares a circle on XZ (`--interest-radius R`, centred on the origin for a headless
+client, which has no viewpoint to centre on). Each server filters snapshots per peer: the packet is
+built **once** per object and sent only to the peers that want it, so the CPU cost does not scale
+with clients as well as objects. A peer that declares nothing still receives everything, so a client
+without interest support behaves exactly as before.
+
+A server that loses interest in an object simply stops sending it — there is no "you may forget
+this" message, because that would be a reliable per-object event on the very path whose purpose is
+to carry less. Clients age replicas out after 3 s without an update instead. This is deliberately
+**not** the destroy path: a destroyed object still gets an explicit despawn and a permanent
+tombstone, so "gone" and "no longer nearby" stay distinguishable (invariant I3).
+
+### The bigger half was servers talking to each other
+
+Servers register no handler for `Full_State` or `Delta_State` at all — they learn about their
+neighbours' objects through the halo band, not through snapshots — so **every snapshot ever sent to
+a peer server was decoded and thrown away**. With two servers and one client that was two thirds of
+all snapshot traffic.
+
+Servers now declare *negative* interest to each other, using the same mechanism a client uses to ask
+for less, with the limit taken to zero.
+
+> Declared on a timer, not once at connect. ENet's handshake is not complete when `Connect` returns,
+> so a declaration sent there is queued against a peer that does not exist yet and vanishes. The
+> first implementation did exactly that and measured no improvement at all.
+
+### Measured
+
+4,000 objects, 2 servers, 1 client, 30 s, `uniform`:
+
+| configuration | object-snapshots sent | vs original |
+|---|---|---|
+| original | 10,758,254 | — |
+| peer servers opted out | 3,687,198 | **−66%** |
+| + client interest radius 50 | **686,740** | **−94%** |
+
+Client replicas: **4,000 → 506**. The residual above the ~350 the circle geometrically contains is
+the 3 s eviction lag holding recently-departed objects, which is the intended behaviour.
+
+Correctness unaffected: conservation 4,000/4,000, handoff parity exact, Tier 0 86/86.
+
+### The cost, stated
+
+Filtering replaces one broadcast per object with a loop over peers. A reproducibility pair with
+interest enabled came out with `contacts` differing by 3 on one server and `haloLate` at 0 on one run
+and 10 on the other — the pacing sensitivity of §3.5, not a new mechanism, but worth recording that
+the extra per-peer work in the send path is enough to provoke it on a machine already at its limit.
+Runs intended to be bit-reproducible should keep the interest radius at 0.
+
+### Where this leaves the ceiling
+
+The client-facing limit is no longer O(world). It is now O(objects within the interest radius),
+which is a property of the *view*, not of the world — so the world can grow without the per-client
+cost growing with it. That was the property missing for a giant-world claim.
+
+Remaining, in order:
+
+1. **Multi-machine measurement.** Still the thing that would turn a locality claim into a speedup
+   claim (§2).
+2. **`mLastKnownOwner` never prunes** (§3.3), unchanged.
+3. **Interest is a circle about a fixed point** for the headless client. A moving viewpoint, and a
+   spatial query rather than a linear scan over owned objects, are both straightforward now that the
+   broadphase grid exists — the scan is O(objects × peers) per snapshot, which is cheap today but is
+   the next thing to bite at very large object counts.
