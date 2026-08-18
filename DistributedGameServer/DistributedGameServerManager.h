@@ -129,7 +129,17 @@ namespace NCL {
 
 			void HandleStartGameServerPacketReceived(StartDistributedGameServerPacket* packet);
 			void HandleObjectTransitions() const;
-			void SendFinishTransactionPacket(NetworkObject& obj) const;
+
+			// Returns false if the packet could not be handed to a link for the new
+			// owner. The caller MUST NOT release the object in that case - a directed
+			// send has no broadcast to fall back on, so releasing after a failed send
+			// destroys the object outright.
+			bool SendFinishTransactionPacket(NetworkObject& obj) const;
+
+			// Directed reliable send to one peer server over the existing mesh.
+			// Handoffs and relays both need this; it is deliberately one function so
+			// the serverID-vs-array-index hazard is solved in a single place.
+			bool SendPacketToServer(int targetServerID, GamePacket& packet) const;
 
 			// Fault injection (see ServerWorldManager::SetHandoffDelayTicks). The
 			// object is released locally at the normal moment; only the transfer

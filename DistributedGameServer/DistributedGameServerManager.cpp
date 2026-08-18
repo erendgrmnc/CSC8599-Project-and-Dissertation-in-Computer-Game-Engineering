@@ -165,6 +165,21 @@ void DistributedGameServer::DistributedGameServerManager::RegisterPacketSenderSe
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedObjectSpawned, this);
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedObjectDespawned, this);
 
+	// Server-to-server traffic runs in BOTH directions over the peer mesh, and which
+	// one a message type uses is decided purely by where its handler is registered:
+	//
+	//   sender's client link  ->  peer's PacketSenderServer   (relays; handlers here)
+	//   sender's PacketSenderServer  ->  peer's client link   (handlers at the
+	//                                    ConnectServerToAnotherGameServer site)
+	//
+	// Handoff was registered only on the client link, so it had to be broadcast from
+	// the sender's own server. Making it directed means sending it down the relay
+	// direction instead, which needs a handler on THIS side too. Registering it here
+	// is what makes SendPacketToServer work for handoffs; without it the packet is
+	// delivered by ENet and then silently dropped for want of a handler, which shows
+	// up as hoSent > 0 with hoRecv == 0 and objects vanishing.
+	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::StartSimulatingObjectInServer, this);
+
 	// One registration for the process. Adding a new interaction never touches
 	// ReceivePacket - that is the point of the registry.
 	NCL::Interaction::CommandRegistry::RegisterDefaults();
@@ -552,7 +567,12 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectTransition
 	for (auto& networkObj : *mNetworkObjects) {
 		if (networkObj->GetIsActualPosOutOfServer()) {
 			std::cout << "Sending Finish Transition Packet to server: " << networkObj->GetNewServerID() << "\n";
-			SendFinishTransactionPacket(*networkObj);
+			// Release the object ONLY once the packet is actually on a link to the new
+			// owner. The transition flag is left set on failure, so the next tick
+			// retries rather than the object being lost to a link that was not up yet.
+			if (!SendFinishTransactionPacket(*networkObj)) {
+				continue;
+			}
 			mServerWorldManager->RecordHandoffSent();
 			networkObj->HandleTransitionComplete();
 			mServerWorldManager->HandleOutgoingObject(networkObj->GetNetworkID());
@@ -560,7 +580,22 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectTransition
 	}
 }
 
-void DistributedGameServer::DistributedGameServerManager::SendFinishTransactionPacket(NetworkObject& obj) const {
+// Peer links are keyed by SERVER ID, never by array index. StartDistributedGameServerPacket
+// carries two differently-indexed array families and connectedServerIDs[] is what maps
+// registration order back to real ids; using the index instead silently sends to a link
+// that does not exist. Solved once, here.
+bool DistributedGameServer::DistributedGameServerManager::SendPacketToServer(int targetServerID,
+	GamePacket& packet) const {
+	for (const auto* connection : mDistributedPhysicsClients) {
+		if (connection->serverID == targetServerID && connection->client != nullptr) {
+			connection->client->SendReliablePacket(packet);
+			return true;
+		}
+	}
+	return false;
+}
+
+bool DistributedGameServer::DistributedGameServerManager::SendFinishTransactionPacket(NetworkObject& obj) const {
 	auto& gameObjectComp = obj.GetGameObject();
 
 	NetworkState lastFullState = gameObjectComp.GetNetworkObject()->GetLatestNetworkState();
@@ -589,10 +624,23 @@ void DistributedGameServer::DistributedGameServerManager::SendFinishTransactionP
 		// so for the next `delay` ticks it exists on neither server - which is what
 		// lets a destroy reach the new owner before the object does.
 		mDelayedHandoffs.push_back(DelayedHandoff{ packet, delay });
-		return;
+		return true;
 	}
 
-	mDistributedPacketSenderServer->SendGlobalReliablePacket(packet);
+	// Directed, not broadcast. This was SendGlobalReliablePacket, which was harmless
+	// only because every server held a deactivated twin of every object and merely
+	// ignored a handoff addressed elsewhere. Once a receiver BUILDS an object it does
+	// not have, a broadcast would make every server construct its own copy - breaking
+	// single ownership (I1) and putting the whole world back on every server (I6).
+	if (!SendPacketToServer(packet.newOwnerServerID, packet)) {
+		// Loud, and the caller keeps the object. There is no broadcast to fall back
+		// on now, so releasing it here would destroy it outright.
+		std::cout << "ERROR: no peer link to server " << packet.newOwnerServerID
+			<< " for handoff of object " << packet.objectID
+			<< " - object retained, will retry next tick.\n";
+		return false;
+	}
+	return true;
 }
 
 void DistributedGameServer::DistributedGameServerManager::HandleClientCommandPacket(
@@ -824,7 +872,15 @@ void DistributedGameServer::DistributedGameServerManager::FlushDelayedHandoffs()
 			++entry;
 			continue;
 		}
-		mDistributedPacketSenderServer->SendGlobalReliablePacket(entry->packet);
+		// Directed, matching SendFinishTransactionPacket. The object was already
+		// released when this was queued, so a missing link here DOES lose it - but
+		// this path is fault injection (--handoff-delay-ticks), which must be 0 for
+		// any measurement run, and losing the object is the effect being injected.
+		if (!SendPacketToServer(entry->packet.newOwnerServerID, entry->packet)) {
+			std::cout << "ERROR: no peer link to server " << entry->packet.newOwnerServerID
+				<< " for delayed handoff of object " << entry->packet.objectID
+				<< " - object LOST (it was released when the delay was queued).\n";
+		}
 		entry = mDelayedHandoffs.erase(entry);
 	}
 }
@@ -892,11 +948,9 @@ void DistributedGameServer::DistributedGameServerManager::SendTransactionHandsha
 
 	std::cout << "Sending transition handshake packet to server with ID: " << senderServerID << "\n";
 
-	for (const auto* connection : mDistributedPhysicsClients) {
-		if (connection->serverID == senderServerID) {
-			connection->client->SendReliablePacket(packet);
-			return;
-		}
+	if (!SendPacketToServer(senderServerID, packet)) {
+		std::cout << "ERROR: no peer link to server " << senderServerID
+			<< " for transition handshake of object " << networkID << "\n";
 	}
 }
 
