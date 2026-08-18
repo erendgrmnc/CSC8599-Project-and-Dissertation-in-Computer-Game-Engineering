@@ -332,3 +332,71 @@ pretends to know the whole world:
   region/band vocabulary this increment establishes.
 
 Doing any of them first would mean building against a model that is about to change.
+
+---
+
+## 10. Implementation notes (A0–A6 shipped)
+
+A0–A6 are in. A7 (directed spawn) is not; `CreateReplicatedSpawn` still broadcasts and peers still
+build a deactivated twin for runtime-spawned objects. Pre-seeded objects — which is all of them in
+every measurement run today — are region-local.
+
+### What actually shipped
+
+| Increment | Commit | Note |
+|---|---|---|
+| A0 metrics | `7062ce6` | `poolObjects`/`worldObjects` **appended** to `TickSample` and the CSV header; `analyse.py` reads with `DictReader` so appending is safe. `@@FINAL` gained `objPool=`/`objWorld=`. |
+| A1 archetype | `de2cd6e` | `mArchetypeID` appended to `StartSimulatingObjectPacket`, defaulted to `0` (= `Cube`) — a real shape, not a sentinel, so a peer running the old build is wrong in shape rather than undefined. |
+| A2 directed handoff | `93fad1d` | `SendPacketToServer(id, packet)` replaces the broadcast. |
+| A3 construct on arrival | `c8792cb` | Tombstone / pending-destroy check moved **before** construction. |
+| A4+A5 region-local world | `8b8855d` | Teardown on send; `CreateObjectGrid` gates construction, never iteration. |
+| A6 forwarding table | `8c52fd8` | `mLastKnownOwner`; `ResolveForwardTarget` tries position first, then the table. |
+
+### Two things the design did not anticipate
+
+**A missing packet handler is completely silent.** A2 initially produced `hoSent=41 hoRecv=0` — 41
+objects lost with no error and no counter. Server-to-server traffic runs in *both* directions, and
+which link a message type travels on is decided by where its handler is registered:
+`StartSimulatingObjectInServer` was registered only on the outbound `DistributedPhysicsServerClient`
+uplink, while relays are registered on `mDistributedPacketSenderServer`. Sending handoff down the
+relay direction meant ENet delivered it to a host with no handler, which drops it without a word.
+Fixed by registering the type on both. Any new server-to-server type needs the same check.
+
+**`HandleObjectTransitions` iterated a container its own callee mutates.** `TeardownObject` does
+`std::erase(mNetworkObjects, networkObject)`, so the loop invalidated itself the moment A4 made
+teardown real. Restructured to collect the transitioning set first, then act on it.
+
+### Verification result
+
+| Check | Before | After |
+|---|---|---|
+| 2-server shuttle `objPool` | 400 / 400 | **359 / 41** |
+| 4-server uniform `objPool` | 400 each | **98 / 107 / 98 / 97** |
+| I2 conservation | 400/400 | 400/400 |
+| I5 handoff parity | exact | exact (41/41, 97/97) |
+| `hoFail` / `hoLate` | 0 / 0 | 0 / 0 |
+| I4 without misroute | exact | exact (8851 = 8851) |
+| Tier 0 | 62/62 | 62/62 |
+
+**I6 holds.** Per-server pool is now the owned set, not the world.
+
+**Reproducibility survived**, which was the sharp regression detector §6.2 asked for. Re-run at
+`-Servers 2 -Objects 400 -Ticks 7200 -Seed 42 -Workload shuttle -HandoffLookahead 300
+-EpochAlignUs 500000` as `a5-rep-a` / `a5-rep-b`: the deterministic CSV columns
+(`tick, owned_objects, integrated_objects, handoffs_{sent,received,failed}, pool_objects,
+world_objects`) are **byte-identical on both servers for all 7200 ticks**, and both `@@FINAL` lines
+match exactly. Removing the pre-seed model did not reintroduce any ordering dependence.
+
+Note the wall-clock asymmetry this exposes: server 0 needs 103.7 s to run the 7200 paced ticks it
+simulates in 60 s, server 1 needs 60.3 s. `shuttle` is deliberately adversarial (359 vs 41 objects),
+so server 0 is the one that cannot hold pace. Determinism is unaffected — that is the point of pacing
+to a shared clock — but it is the load-imbalance figure the repartitioning increment has to beat.
+
+### Known residual
+
+I4 is off by exactly **−1** when `--misroute-every` is set, and exact when it is not (8851 = 8851
+without; 8951 vs 8952 with, over 4,474 relays). Every internal drop path was audited and all are
+counted. The inferred cause is a relay-hop boundary: a command relayed just before the target server
+takes its final reading is counted `Relayed` at the origin but applied after the target's `@@FINAL`.
+That predicts a flat −1 independent of volume and only with misrouting, which matches every
+observation — but it is inferred, not proven.
