@@ -92,6 +92,35 @@ def summarise_run(run_dir):
             ),
         })
 
+    # Invariant I1, checked CONTINUOUSLY rather than only at the end.
+    #
+    # @@FINAL totals say what each server held when it stopped, which is silent about
+    # everything in between. Handoff used to release an object the moment the packet
+    # was sent while the receiver installed it lookahead ticks later, so a transferred
+    # object was owned by NOBODY for that whole window - 78% of ticks on a 200-object
+    # uniform run - and every end-of-run total still balanced perfectly.
+    #
+    # Summing owned_objects across servers per tick catches both directions: a dip
+    # below the expected total is an ownership gap, a rise above it is two servers
+    # simulating the same object.
+    per_tick = {}
+    for path in sorted(glob.glob(os.path.join(run_dir, "ticks-server*.csv"))):
+        with open(path) as handle:
+            for row in csv.DictReader(handle):
+                tick = int(row["tick"])
+                per_tick.setdefault(tick, []).append(int(row["owned_objects"]))
+
+    server_count = len(glob.glob(os.path.join(run_dir, "ticks-server*.csv")))
+    # Only ticks every server reported: a tick one server has not reached yet would
+    # read as a gap.
+    complete = [sum(v) for v in per_tick.values() if len(v) == server_count]
+    ownership_gap_ticks = 0
+    ownership_double_ticks = 0
+    if complete:
+        expected = max(complete)
+        ownership_gap_ticks = sum(1 for v in complete if v < expected)
+        ownership_double_ticks = sum(1 for v in complete if v > expected)
+
     finals = read_final_lines(run_dir)
     server_finals = [f for f in finals if f["role"] == "server"]
     client_finals = [f for f in finals if f["role"] == "client"]
@@ -125,6 +154,9 @@ def summarise_run(run_dir):
         invariants["cmd_sent"] = sent
         invariants["cmd_delta"] = sent - (applied + rejected + duplicate - fanout)
         invariants["resurrections"] = total(client_finals, "resurrectAttempts")
+
+    invariants["ownership_gap_ticks"] = ownership_gap_ticks
+    invariants["ownership_double_ticks"] = ownership_double_ticks
 
     return servers, invariants
 
@@ -174,7 +206,8 @@ def main():
         for name, value in invariants.items():
             if name.endswith("_delta") and value != 0:
                 failures.append(f"{tag}: {name} = {value} (expected 0)")
-            if name in ("ho_fail", "resurrections") and value != 0:
+            if name in ("ho_fail", "resurrections",
+                        "ownership_gap_ticks", "ownership_double_ticks") and value != 0:
                 failures.append(f"{tag}: {name} = {value} (expected 0)")
 
     if not rows:
