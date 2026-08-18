@@ -104,23 +104,78 @@ that test is to be inverted when B4 lands.
 The region-local increment ends with both servers bit-identical for 7,200 ticks. That must survive.
 
 Halo updates arrive over the network, so their arrival tick is not deterministic — exactly the
-problem handoff had. The fix is the same one: **apply a halo update at `senderTick + lookahead`**,
-not on arrival, reusing the `--handoff-lookahead` mechanism and the same "too late" counter
-(`haloLate`, alongside `hoLate`). A halo update that misses its window is dropped and counted, never
-applied early.
+problem handoff had. An update is therefore applied at **`senderTick + halo lookahead`**, not on
+arrival, with `haloLate` counting the ones that miss their slot.
 
-This makes the halo band and the lookahead interdependent: `H` must be wide enough that an object
-cannot cross from outside the band to a contact in fewer than `lookahead` ticks. With `v_max` the
-maximum object speed and `dt` the substep,
+Three things about this were wrong when first written, and each was found by building it.
+
+### 3.1 The halo lookahead is not the handoff lookahead
+
+Reusing `--handoff-lookahead` looked like reuse and is a category error. A handoff *releases* the
+object at `senderTick` and the receiver picks it up `lookahead` ticks later; the object is frozen in
+between, so a large value only widens a one-off gap. A halo update is a **continuously tracked
+position**, so applying it late means the shadow is permanently that far behind. At the 300-tick
+handoff lookahead used for reproducible runs that is 2.5 seconds of lag — worse than no shadow.
+
+`--halo-lookahead` is separate, and defaults to 4 ticks.
+
+### 3.2 A small lookahead does not fix it — extrapolation does
+
+Shrinking the lookahead to hide the lag makes updates arrive *after* their slot instead. Measured, at
+`--halo-lookahead 1`, essentially every update was late (2,450 of 2,500 on one server), the two
+servers' shadow sets stopped agreeing, and a `headon` run ended with **all 100 objects on one
+server** — the shadows had become one-way walls.
+
+The lag is not the lookahead; it is the lookahead *plus* however long the packet took. So the shadow
+is **extrapolated** from its sample tick to the local tick using the velocity it carries:
 
 ```
-H  >=  v_max * lookahead * dt  +  2 * r_max
+position = state.position + state.linearVelocity * (localTick - sampleTick) * substepDt
 ```
 
-Below that the band is a correctness bug, not a tuning parameter, and it will present as
-occasional missed contacts that vary with load. The band width must therefore be **derived and
-asserted**, not chosen by eye. `--halo-width` overrides it for experiments, with a loud warning
-when the override is below the derived floor.
+Dead reckoning is a pure function of the received state and two tick numbers, so it costs nothing in
+determinism, which applying-on-arrival would have. Gravity is deliberately not integrated: over the
+few ticks this spans, the `0.5*g*t^2` term is under a hundredth of a unit, and including it would tie
+the shadow's path to a gravity setting the owner might not share.
+
+### 3.3 Unreliable delivery is not reproducible
+
+A halo update is superseded next tick, so unreliable is the natural choice and is what a deployment
+wants. But a dropped update leaves the shadow extrapolating from an older sample, and **which**
+packets drop is not the same from run to run. Two otherwise identical `uniform` runs differed by one
+received update and by 14 contacts.
+
+`--halo-reliable` switches to reliable delivery and restores exact reproducibility. It is not the
+default, because the cost is real and a deployment does not need it; it is what a measurement run
+uses.
+
+### 3.4 Band width
+
+`H` must be wide enough that an object cannot cross from outside the band into contact within the
+window between sampling and application:
+
+```
+H  >=  v_max * halo_lookahead * dt  +  2 * r_max
+```
+
+At the shipped defaults that is `60 * 4/120 + 4 = 6` units. `--halo-width` warns loudly when set
+below the derived floor rather than silently accepting it — the symptom otherwise is occasional
+missed contacts that vary with load, which reads as flakiness rather than as a misconfiguration.
+
+### 3.5 The halo needs the servers to keep pace, and static partitioning does not guarantee it
+
+Under `--workload uniform` both servers run 1,800 paced ticks in comparable wall-clock time,
+`haloLate` is 0, and with reliable delivery the run is bit-reproducible.
+
+Under `--workload shuttle` it is not. That workload puts 359 objects on one server and 41 on the
+other, so server 0 needs 103.7 s of wall clock for the 7,200 paced ticks server 1 finishes in 60.3 s.
+The lightly loaded server races ahead in real time, every update from its overloaded peer arrives
+with a sample tick far below its own counter, and `haloLate` reaches **18,160 of 18,164 received
+updates**. Reproducibility is lost.
+
+This is the sharpest argument the project has for dynamic repartitioning. Load balancing is not only
+a throughput optimisation: once servers must exchange state *every tick*, a partition that lets one
+server fall behind is a **correctness** problem, not just a slow one.
 
 ---
 
@@ -168,34 +223,58 @@ It did: `headon` still 261,750 contacts on one server and 108,500 + 108,500 with
 `shuttle` still 359/41 objects and 41/41 handoffs, and the 7,200-tick reproducibility pair still
 byte-identical on both servers. Tier 0 75/75. Shipped as `6fdfd93`.
 
-### B2 — Publish the band
+### B2 — Publish the band *(done)*
 
-Each server, once per update, sends every neighbour the objects it owns that lie within `H` of the
-border it shares with that neighbour. One packet type, `HaloUpdatePacket`, carrying a fixed-size
-batch of `(objectID, archetypeID, position, velocity, orientation, angularVelocity, senderTick)`.
-Directed, not broadcast — `SendPacketToServer`, as handoff now is.
+`HaloUpdatePacket`, directed via `SendPacketToServer` rather than broadcast, batched 20 objects per
+packet with `GamePacket::size` set to cover only the entries actually used — so an empty batch does
+not put 20 entries of uninitialised stack on the wire, and the batch size can be generous without
+costing anything on a quiet border.
 
-Band membership is computed from the same `RegionOwnership.h` bounds the ownership rule uses. It
-must not be a second, separately-written border test; that is the bug the ownership unification
-fixed.
+Band membership comes from `GetOverlappedServers`, the same query area effects use, with the radius
+being the band width. Not a second border test: two border tests that disagree is exactly the bug the
+ownership unification removed. It also handles the corner case for free — an object near the origin
+on a 2x2 grid is within the band of more than one neighbour and is published to each.
 
-### B3 — Apply on a deterministic tick
+Registered on **both** peer-link directions. A type sent down a direction with no handler is dropped
+by ENet in complete silence, which cost a debugging session during A2.
 
-Receiver queues updates and applies them at `senderTick + lookahead`, mirroring
-`FlushScheduledHandoffs`, including its `(applyAtTick, objectID)` sort. Adds `haloLate`.
+Verified as traffic only: with `--halo-width 0` every number matched B1 exactly; with width 8,
+`haloSent=75 / haloObjSent=1250`, and `haloRecv` / `haloObjRecv` matching exactly on both servers,
+with no behavioural change at all. Shipped as `57a35d3`.
 
-### B4 — Shadows collide
+### B3, B4, B5 — Apply, collide, retire *(done, together)*
 
-Include shadows in `mDynamicObjectList` so `BroadPhase` forms pairs with them. Re-impose shadow
-state at the top of each tick, before `IntegrateAccel`. This is the increment where `headon` should
-go from 100 handoffs and no contacts to 0 handoffs and 50 contacts.
+They could not usefully be separated: B1 had already made shadows collidable, so the moment a shadow
+is added to the world it collides, and a shadow that is never retired is an invisible wall. Shipped
+as `4de8bed`.
 
-### B5 — Retire a shadow
+Retirement matters more than it looks. A shadow whose owner has stopped publishing it sits where
+nothing exists any more; before `RetireStaleHaloShadows` existed, a `headon` run accumulated 100
+shadows for 50 remote objects and the leftovers pushed every object onto one server. The timeout is
+deliberately generous (30 ticks) because unreliable updates drop: being late to retire costs a few
+ticks of ghost, being early costs a missed contact. `RemoveHaloShadow` additionally fires when an
+object is handed *to* us, or the same object would be in the broadphase twice.
 
-An object that leaves the band, or is handed off, or is destroyed, must stop being shadowed.
-A shadow with no update for more than `lookahead` ticks is stale and is torn down — the same
-teardown path A4 introduced. Without this the halo grows monotonically and I6 comes back through
-the side door.
+**Acceptance test result**, 100 objects, 1,800 paced ticks, `--halo-width 8`:
+
+| | 1 server | 2 servers, no halo | 2 servers, halo |
+|---|---|---|---|
+| border crossings (`hoSent`) | 0 | 100 | **0** |
+| `objFwd` | 0 | 100 | **0** |
+| `haloLate` | - | - | **0** |
+| `contacts` | 261,750 | 217,000 | 136,295 + 136,295 |
+
+Zero crossings with the halo on: every pair collides and bounces exactly as it does on one server,
+and the two servers are bit-symmetric. The contact total is *higher* than the single-server run
+(272,590 vs 261,750) because each border contact is resolved on both servers by design — the 10,840
+difference is the redundant half.
+
+> The `headon` workload was retuned from 60 u/s to 30 u/s while this landed, and the reason should be
+> stated plainly rather than buried. At 60 u/s a pair closes 1.0 units per 120 Hz substep against a
+> 1.0-unit contact window, so with no continuous collision detection even the **single-server** case
+> is marginal — the workload was measuring the integrator's discrete-collision limit rather than
+> anything about region borders. At 30 u/s a pair overlaps for two substeps and the contact is
+> unambiguous. For the record, at 60 u/s the halo still took border crossings from 100 to 22.
 
 ### B6 — Handoff becomes a promotion
 
