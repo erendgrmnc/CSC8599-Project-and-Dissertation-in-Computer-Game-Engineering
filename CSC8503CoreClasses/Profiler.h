@@ -142,6 +142,18 @@ namespace NCL {
 		static void SetContactsResolved(int count);
 		static long long GetContactsResolvedTotal();
 
+		// Halo traffic. Objects as well as packets: batching is what makes publishing
+		// a band every tick affordable, and a packet count alone would hide the real
+		// volume.
+		static int GetHaloUpdatesSent();
+		static void SetHaloUpdatesSent(int count);
+		static int GetHaloObjectsSent();
+		static void SetHaloObjectsSent(int count);
+		static int GetHaloUpdatesReceived();
+		static void SetHaloUpdatesReceived(int count);
+		static int GetHaloObjectsReceived();
+		static void SetHaloObjectsReceived(int count);
+
 		// Client-side snapshot accounting. Deltas silently failing to apply is the
 		// system's longest-lived bug, and until these existed nothing anywhere
 		// reported whether a delta was used or thrown away. Cumulative per run.
@@ -202,6 +214,10 @@ namespace NCL {
 		static int sIntegratedObjects;
 		static int sContactsResolved;
 		static long long sContactsResolvedTotal;
+		static int sHaloUpdatesSent;
+		static int sHaloObjectsSent;
+		static int sHaloUpdatesReceived;
+		static int sHaloObjectsReceived;
 		static int sDeltasApplied;
 		static int sDeltasRejected;
 		static int sFullsApplied;

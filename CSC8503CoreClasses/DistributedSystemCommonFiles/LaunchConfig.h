@@ -20,6 +20,9 @@ namespace NCL {
 		bool Has(const std::string& flag) const;
 		std::string GetString(const std::string& flag, const std::string& fallback = "") const;
 		int GetInt(const std::string& flag, int fallback) const;
+		// Distances and widths are world units, which are floats everywhere else in
+		// the system; rounding them at the command line would be a silent surprise.
+		float GetFloat(const std::string& flag, float fallback) const;
 
 	protected:
 		std::vector<std::string> mArgs;

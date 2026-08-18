@@ -779,4 +779,26 @@ DistributedObjectDespawnedPacket::DistributedObjectDespawnedPacket(int objectID,
 	this->reason = reason;
 	this->destroyerPlayerID = destroyerPlayerID;
 }
+
+HaloUpdatePacket::HaloUpdatePacket(int senderServerID, int senderTick) {
+	type = BasicNetworkMessages::DistributedHaloUpdate;
+	// Deliberately NOT sizeof(HaloUpdatePacket): an empty batch must not put 20
+	// entries of uninitialised stack on the wire. TryAdd grows this.
+	size = static_cast<short>(sizeof(HaloUpdatePacket) - sizeof(GamePacket)
+		- sizeof(entries));
+
+	this->senderServerID = senderServerID;
+	this->senderTick = senderTick;
+	this->entryCount = 0;
+}
+
+bool HaloUpdatePacket::TryAdd(const HaloObjectState& state) {
+	if (entryCount >= MAX_ENTRIES) {
+		return false;
+	}
+	entries[entryCount] = state;
+	++entryCount;
+	size = static_cast<short>(size + sizeof(HaloObjectState));
+	return true;
+}
 #endif

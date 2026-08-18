@@ -51,6 +51,13 @@ param(
     # which holds objects-per-region fixed and grows the WORLD as servers are added
     # - with a fixed world, adding servers only subdivides it, which measures
     # something else entirely.
+    # Halo band width in world units. 0 disables the halo entirely, which is how
+    # every run before the cross-border collision increment behaved.
+    [double]$HaloWidth = 0,
+    # Ticks between a halo state being sampled and being applied on the neighbour.
+    # Small on purpose - unlike the handoff lookahead, this is permanent lag on a
+    # continuously tracked position, not a one-off gap.
+    [int]$HaloLookahead = 4,
     [string]$World = "-150,150,-150,150",
     [string]$OutDir = ""
 )
@@ -87,6 +94,8 @@ $manifest = [ordered]@{
     seed         = $Seed
     workload     = $Workload
     world        = $World
+    haloWidth    = $HaloWidth
+    haloLookahead = $HaloLookahead
     gitCommit    = (& git -C $repoRoot rev-parse HEAD 2>$null)
     gitDirty     = [bool](& git -C $repoRoot status --porcelain 2>$null)
     machine      = $env:COMPUTERNAME
@@ -102,7 +111,7 @@ $mgr = Start-Process -PassThru -FilePath (Join-Path $deploy "Manager\EntryPoint.
 Start-Sleep -Seconds 3
 
 $mid = Start-Process -PassThru -FilePath (Join-Path $deploy "Midware\EntryPoint.exe") `
-    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" --handoff-delay-ticks $HandoffDelayTicks --handoff-lookahead $HandoffLookahead --epoch-align-us $EpochAlignUs $bound" `
+    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" --handoff-delay-ticks $HandoffDelayTicks --handoff-lookahead $HandoffLookahead --halo-width $HaloWidth --halo-lookahead $HaloLookahead --epoch-align-us $EpochAlignUs $bound" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\mid.log" -RedirectStandardError "$runDir\mid.err" -WindowStyle Hidden
 Start-Sleep -Seconds 4
 

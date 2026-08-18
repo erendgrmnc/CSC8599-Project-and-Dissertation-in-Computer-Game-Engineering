@@ -105,6 +105,10 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 	Profiler::SetObjectsSpawned(mObjectsSpawned);
 	Profiler::SetObjectsDestroyed(mObjectsDestroyed);
 	Profiler::SetManifestEntriesSent(mManifestEntriesSent);
+	Profiler::SetHaloUpdatesSent(mHaloUpdatesSent);
+	Profiler::SetHaloObjectsSent(mHaloObjectsSent);
+	Profiler::SetHaloUpdatesReceived(mHaloUpdatesReceived);
+	Profiler::SetHaloObjectsReceived(mHaloObjectsReceived);
 
 	RetryPendingPeers(dt);
 
@@ -115,6 +119,7 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 	if (mIsGameStarted) {
 		FlushDelayedHandoffs();
 		HandleObjectTransitions();
+		PublishHaloBand();
 
 		mTimeToNextPacket -= dt;
 
@@ -164,6 +169,7 @@ void DistributedGameServer::DistributedGameServerManager::RegisterPacketSenderSe
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedServerCommandRelay, this);
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedObjectSpawned, this);
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedObjectDespawned, this);
+	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedHaloUpdate, this);
 
 	// Server-to-server traffic runs in BOTH directions over the peer mesh, and which
 	// one a message type uses is decided purely by where its handler is registered:
@@ -305,6 +311,10 @@ void DistributedGameServer::DistributedGameServerManager::ReceivePacket(int type
 	}
 	case BasicNetworkMessages::DistributedObjectDespawned: {
 		HandleObjectDespawnedPacket(static_cast<DistributedObjectDespawnedPacket*>(payload));
+		break;
+	}
+	case BasicNetworkMessages::DistributedHaloUpdate: {
+		HandleHaloUpdatePacket(static_cast<HaloUpdatePacket*>(payload));
 		break;
 	}
 	case BasicNetworkMessages::ClientPlayerInputState: {
@@ -598,6 +608,23 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectTransition
 // carries two differently-indexed array families and connectedServerIDs[] is what maps
 // registration order back to real ids; using the index instead silently sends to a link
 // that does not exist. Solved once, here.
+// Unreliable counterpart of SendPacketToServer, for state that is superseded every
+// tick. A halo update is the neighbour's view of an object's current position; a
+// retransmitted one is a stale position that has already been replaced, so paying for
+// reliability would deliver something the receiver must then discard. Snapshots are
+// unreliable for exactly this reason. Anything ONE-SHOT - handoff, spawn, despawn -
+// must stay reliable.
+bool DistributedGameServer::DistributedGameServerManager::SendUnreliablePacketToServer(
+	int targetServerID, GamePacket& packet) const {
+	for (auto* connection : mDistributedPhysicsClients) {
+		if (connection->serverID == targetServerID && connection->client != nullptr) {
+			connection->client->SendPacket(packet);
+			return true;
+		}
+	}
+	return false;
+}
+
 bool DistributedGameServer::DistributedGameServerManager::SendPacketToServer(int targetServerID,
 	GamePacket& packet) const {
 	for (const auto* connection : mDistributedPhysicsClients) {
@@ -879,6 +906,78 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectDespawnedP
 	worldManager->ApplyRemoteDespawn(packet->objectID, packet->reason, packet->destroyerPlayerID);
 }
 
+// Sends every neighbour the objects this server owns that are near its region, so
+// those objects can take part in contacts computed on the far side of the border.
+//
+// Per tick, not per event: a shadow is a continuously tracked position. That is also
+// why it goes out unreliably - see SendUnreliablePacketToServer.
+void DistributedGameServer::DistributedGameServerManager::PublishHaloBand() {
+	ServerWorldManager* worldManager = GetServerWorldManager();
+	if (worldManager == nullptr || worldManager->GetHaloWidth() <= 0.0f) {
+		return;
+	}
+
+	std::vector<ServerWorldManager::HaloPublication> publications;
+	worldManager->CollectHaloPublications(publications);
+	if (publications.empty()) {
+		return;
+	}
+
+	// Sorted by (target, object) already, so one pass fills a batch per target and
+	// flushes on the boundary. Batching matters: one packet per object per neighbour
+	// per tick is the traffic pattern this increment has to avoid being dismissed for.
+	const int senderTick = static_cast<int>(worldManager->GetTickCounter());
+	int currentTarget = -1;
+	HaloUpdatePacket batch(mGameServerID, senderTick);
+
+	auto flush = [&]() {
+		if (batch.entryCount == 0 || currentTarget < 0) {
+			return;
+		}
+		if (SendUnreliablePacketToServer(currentTarget, batch)) {
+			++mHaloUpdatesSent;
+			mHaloObjectsSent += batch.entryCount;
+		}
+		batch = HaloUpdatePacket(mGameServerID, senderTick);
+	};
+
+	for (const auto& publication : publications) {
+		if (publication.targetServerID != currentTarget) {
+			flush();
+			currentTarget = publication.targetServerID;
+		}
+
+		HaloObjectState state;
+		if (!worldManager->TryGetHaloState(publication.objectID, state)) {
+			continue;   // Handed off or destroyed since CollectHaloPublications ran.
+		}
+		if (!batch.TryAdd(state)) {
+			flush();
+			batch.TryAdd(state);
+		}
+	}
+	flush();
+}
+
+void DistributedGameServer::DistributedGameServerManager::HandleHaloUpdatePacket(
+	HaloUpdatePacket* packet) {
+	if (packet == nullptr) {
+		return;
+	}
+	// Our own update coming back to us would mean an object is being shadowed by its
+	// own owner, which is a second copy of something we already simulate.
+	if (packet->senderServerID == mGameServerID) {
+		return;
+	}
+
+	++mHaloUpdatesReceived;
+	mHaloObjectsReceived += packet->entryCount;
+
+	// B3 schedules these at senderTick + halo lookahead and B4 builds the shadows.
+	// Counted but not applied for now, so that this increment can be verified as
+	// "the traffic exists and is correctly addressed" on its own.
+}
+
 void DistributedGameServer::DistributedGameServerManager::FlushDelayedHandoffs() {
 	if (mDelayedHandoffs.empty() || mDistributedPacketSenderServer == nullptr) {
 		return;
@@ -988,6 +1087,10 @@ DistributedGameServer::GameServerConnection* DistributedGameServer::DistributedG
 		// through its outbound link exactly as it receives a handoff.
 		client->RegisterPacketHandler(BasicNetworkMessages::DistributedObjectSpawned, this);
 		client->RegisterPacketHandler(BasicNetworkMessages::DistributedObjectDespawned, this);
+		// Registered on BOTH directions, like handoff. Which link a type travels on
+		// depends on where its handler lives, and a type sent down a direction with no
+		// handler is dropped by ENet in complete silence - no error, no counter.
+		client->RegisterPacketHandler(BasicNetworkMessages::DistributedHaloUpdate, this);
 	}
 
 	if (!isConnected) {

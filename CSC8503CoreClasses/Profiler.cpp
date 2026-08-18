@@ -54,6 +54,10 @@ int Profiler::sManifestEntriesSent = 0;
 int Profiler::sIntegratedObjects = 0;
 int Profiler::sContactsResolved = 0;
 long long Profiler::sContactsResolvedTotal = 0;
+int Profiler::sHaloUpdatesSent = 0;
+int Profiler::sHaloObjectsSent = 0;
+int Profiler::sHaloUpdatesReceived = 0;
+int Profiler::sHaloObjectsReceived = 0;
 int Profiler::sDeltasApplied = 0;
 int Profiler::sDeltasRejected = 0;
 int Profiler::sFullsApplied = 0;
@@ -332,6 +336,15 @@ void Profiler::SetManifestEntriesSent(int count) {
 int Profiler::GetIntegratedObjects() {
 	return sIntegratedObjects;
 }
+
+int Profiler::GetHaloUpdatesSent() { return sHaloUpdatesSent; }
+void Profiler::SetHaloUpdatesSent(int count) { sHaloUpdatesSent = count; }
+int Profiler::GetHaloObjectsSent() { return sHaloObjectsSent; }
+void Profiler::SetHaloObjectsSent(int count) { sHaloObjectsSent = count; }
+int Profiler::GetHaloUpdatesReceived() { return sHaloUpdatesReceived; }
+void Profiler::SetHaloUpdatesReceived(int count) { sHaloUpdatesReceived = count; }
+int Profiler::GetHaloObjectsReceived() { return sHaloObjectsReceived; }
+void Profiler::SetHaloObjectsReceived(int count) { sHaloObjectsReceived = count; }
 
 int Profiler::GetContactsResolved() {
 	return sContactsResolved;

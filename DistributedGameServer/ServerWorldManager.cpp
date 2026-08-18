@@ -569,6 +569,111 @@ void NCL::DistributedGameServer::ServerWorldManager::GetOverlappedServers(const 
 	}
 }
 
+// --- halo band publication ---------------------------------------------------
+
+// The fastest any bundled workload launches an object (headon). A constant rather
+// than the measured maximum on purpose: a band width derived from live velocities
+// would change with the contents of the world, and two servers computing different
+// widths would publish different sets.
+static constexpr float HALO_ASSUMED_MAX_SPEED = 60.0f;
+// Generous compared with the unit cubes the workloads build, so a pair is published
+// well before it can touch.
+static constexpr float HALO_ASSUMED_MAX_RADIUS = 2.0f;
+
+float DistributedGameServer::ServerWorldManager::MinimumSafeHaloWidth() const {
+	const int substepHz = (mPhysics != nullptr) ? mPhysics->GetSubstepHZ() : 120;
+	const float substepDt = (substepHz > 0) ? (1.0f / static_cast<float>(substepHz)) : (1.0f / 120.0f);
+
+	// Distance an object can cover between its state being sampled and that state
+	// being applied on the neighbour, plus room for both bodies.
+	const float lag = static_cast<float>(std::max(0, mHaloLookaheadTicks)) * substepDt;
+	return HALO_ASSUMED_MAX_SPEED * lag + 2.0f * HALO_ASSUMED_MAX_RADIUS;
+}
+
+void DistributedGameServer::ServerWorldManager::SetHaloWidth(float width) {
+	mHaloWidth = width;
+	if (width <= 0.0f) {
+		return;   // Disabled; every measurement before this increment ran this way.
+	}
+
+	const float floorWidth = MinimumSafeHaloWidth();
+	if (width < floorWidth) {
+		// Loud, because the symptom is not a crash. It is a contact that is missed
+		// only when an object happens to cross the band faster than the update rate,
+		// which varies with load and would read as flakiness rather than as a
+		// misconfiguration.
+		std::cout << "WARNING: --halo-width " << width << " is below the safe minimum "
+			<< floorWidth << " for a halo lookahead of " << mHaloLookaheadTicks
+			<< " ticks. Border contacts may be missed.\n";
+	}
+}
+
+bool DistributedGameServer::ServerWorldManager::TryGetHaloState(int objectID,
+	CSC8503::HaloObjectState& state) const {
+	const auto entry = mCreatedObjectPool.find(objectID);
+	if (entry == mCreatedObjectPool.end() || entry->second == nullptr) {
+		return false;
+	}
+	CSC8503::GameObject* object = entry->second;
+	// A shadow is someone else's object; republishing it would echo it back to its
+	// owner and, on a three-server corner, around the mesh.
+	if (object->IsHaloShadow() || !object->IsNetworkActive()) {
+		return false;
+	}
+	auto* physics = object->GetPhysicsObject();
+	if (physics == nullptr) {
+		return false;
+	}
+
+	state.objectID = objectID;
+	state.archetypeID = GetObjectArchetype(objectID);
+	state.position = object->GetTransform().GetPosition();
+	state.orientation = object->GetTransform().GetOrientation();
+	state.linearVelocity = physics->GetLinearVelocity();
+	state.angularVelocity = physics->GetAngularVelocity();
+	return true;
+}
+
+void DistributedGameServer::ServerWorldManager::CollectHaloPublications(
+	std::vector<HaloPublication>& out) const {
+	out.clear();
+	if (mHaloWidth <= 0.0f) {
+		return;
+	}
+
+	std::vector<int> overlapped;
+	for (const auto& entry : mCreatedObjectPool) {
+		CSC8503::GameObject* object = entry.second;
+		if (object == nullptr || object->IsHaloShadow() || !object->IsNetworkActive()) {
+			continue;
+		}
+
+		// Which OTHER regions this object is within mHaloWidth of. Exactly the query
+		// an area effect uses to find the regions a blast reaches, with the radius
+		// being the band width - reused rather than rewritten, because a second
+		// border test that disagrees with the first is the failure mode the
+		// ownership unification existed to remove.
+		GetOverlappedServers(object->GetTransform().GetPosition(), mHaloWidth, overlapped);
+
+		for (int targetServerID : overlapped) {
+			HaloPublication publication;
+			publication.targetServerID = targetServerID;
+			publication.objectID = entry.first;
+			out.push_back(publication);
+		}
+	}
+
+	// Deterministic order. mCreatedObjectPool is a std::map so it is already ordered
+	// by object id, but the per-object neighbour list is appended in region-map order;
+	// sorting by (target, object) makes the batching below independent of both.
+	std::sort(out.begin(), out.end(), [](const HaloPublication& l, const HaloPublication& r) {
+		if (l.targetServerID != r.targetServerID) {
+			return l.targetServerID < r.targetServerID;
+		}
+		return l.objectID < r.objectID;
+	});
+}
+
 void NCL::DistributedGameServer::ServerWorldManager::EnableMetrics(const std::string& outputPath, size_t capacity) {
 	mMetrics = std::make_unique<NCL::MetricSink>(outputPath, capacity);
 	std::cout << "Per-tick metrics -> " << outputPath << " (capacity " << capacity << " samples)\n";

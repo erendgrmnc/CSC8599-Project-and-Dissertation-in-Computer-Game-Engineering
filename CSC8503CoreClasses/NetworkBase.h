@@ -63,7 +63,11 @@ enum BasicNetworkMessages {
 	DistributedCommandAck,           // Game Server -> Client
 	DistributedServerCommandRelay,   // Game Server -> Game Server
 	DistributedObjectSpawned,        // Game Server -> peers + clients
-	DistributedObjectDespawned       // Game Server -> peers + clients
+	DistributedObjectDespawned,      // Game Server -> peers + clients
+	// Owning game server -> the neighbouring servers whose regions its objects are
+	// close to. Carries a batch of read-only object states so that objects either
+	// side of a region border can collide. APPEND ONLY, as above.
+	DistributedHaloUpdate            // Game Server -> Game Server
 };
 
 enum DistributedSystemClientType {

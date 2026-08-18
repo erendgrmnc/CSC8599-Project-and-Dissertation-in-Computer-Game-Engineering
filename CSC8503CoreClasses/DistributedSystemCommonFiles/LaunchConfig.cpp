@@ -48,6 +48,19 @@ std::string LaunchConfig::GetString(const std::string& flag, const std::string& 
 	return mArgs[valueIndex];
 }
 
+float LaunchConfig::GetFloat(const std::string& flag, float fallback) const {
+	const std::string value = GetString(flag);
+	if (value.empty()) {
+		return fallback;
+	}
+	try {
+		return std::stof(value);
+	}
+	catch (...) {
+		return fallback;
+	}
+}
+
 int LaunchConfig::GetInt(const std::string& flag, int fallback) const {
 	const std::string value = GetString(flag);
 	if (value.empty()) {

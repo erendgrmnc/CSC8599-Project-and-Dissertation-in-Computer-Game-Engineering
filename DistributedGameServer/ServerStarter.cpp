@@ -111,6 +111,12 @@ int StartGameServer(int argc, char* argv[]) {
 		// Deterministic handoff application. Removes the last run-to-run variation
 		// without any inter-server barrier; 0 keeps apply-on-arrival.
 		worldManager->SetHandoffLookaheadTicks(config.GetInt("--handoff-lookahead", 0));
+		// Separate from the handoff lookahead and much smaller - see the member's
+		// comment. Set BEFORE the width, since the width's safety floor is derived
+		// from it.
+		worldManager->SetHaloLookaheadTicks(config.GetInt("--halo-lookahead", 4));
+		// 0, so every configuration that predates the halo behaves exactly as before.
+		worldManager->SetHaloWidth(config.GetFloat("--halo-width", 0.0f));
 		std::cout << "Determinism: fixed-step=" << (fixedStep ? "on" : "off")
 			<< " seed=" << worldManager->GetWorldSeed()
 			<< " workload=" << (worldManager->GetWorkload().empty() ? "(none)" : worldManager->GetWorkload())
@@ -233,6 +239,12 @@ int StartGameServer(int argc, char* argv[]) {
 			<< " objSpawned=" << Profiler::GetObjectsSpawned()
 			<< " objDestroyed=" << Profiler::GetObjectsDestroyed()
 			<< " manifestSent=" << Profiler::GetManifestEntriesSent()
+			// Halo traffic. haloObjSent/haloObjRecv are what the bandwidth claim rests
+			// on; the packet counts show how well the batching is working.
+			<< " haloSent=" << Profiler::GetHaloUpdatesSent()
+			<< " haloObjSent=" << Profiler::GetHaloObjectsSent()
+			<< " haloRecv=" << Profiler::GetHaloUpdatesReceived()
+			<< " haloObjRecv=" << Profiler::GetHaloObjectsReceived()
 			<< "\n";
 		return 0;
 	}

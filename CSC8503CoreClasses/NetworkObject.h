@@ -132,6 +132,55 @@ namespace NCL::CSC8503 {
 	};
 	static_assert(std::is_trivially_copyable_v<DistributedObjectDespawnedPacket>);
 
+	// One object's state as a NEIGHBOURING server needs to see it, so that objects
+	// either side of a region border can collide.
+	//
+	// Everything a shadow needs to be built and to take part in contact resolution,
+	// and nothing else: no force, no torque, no accumulated impulse. A shadow is never
+	// integrated, so the terms that only matter to integration would be dead weight on
+	// a message sent every tick to every neighbour.
+	struct HaloObjectState {
+		int objectID;
+		int archetypeID;              // NCL::Interaction::ObjectArchetype
+		Vector3 position;
+		Vector3 linearVelocity;
+		Vector3 angularVelocity;
+		Quaternion orientation;
+	};
+	static_assert(std::is_trivially_copyable_v<HaloObjectState>);
+
+	// Owning game server -> each neighbouring server whose region its objects are
+	// within the halo band of. Directed, never broadcast: a server three regions away
+	// has no use for this and the traffic is per tick, not per event.
+	//
+	// Batched because the alternative is one packet per object per tick per neighbour.
+	// entryCount says how many of entries[] are live, and GamePacket::size is set to
+	// cover only those - the rest of the array is never put on the wire. That is why
+	// the batch size can be generous without costing anything on a quiet border.
+	//
+	// mSenderTick is the sender's tick counter at the moment the state was sampled.
+	// The receiver applies at mSenderTick + lookahead rather than on arrival, exactly
+	// as handoff does, or network jitter would decide which tick a shadow moves on and
+	// the run would stop being reproducible.
+	struct HaloUpdatePacket : public GamePacket {
+		// Sized so a full batch stays inside a typical 1400-byte MTU: 20 entries at
+		// 64 bytes is 1280, plus the header. Larger batches would be fragmented by
+		// ENet, which costs a retransmit of the whole thing if any fragment is lost.
+		static constexpr int MAX_ENTRIES = 20;
+
+		int senderServerID;
+		int senderTick;
+		int entryCount;
+		HaloObjectState entries[MAX_ENTRIES];
+
+		HaloUpdatePacket(int senderServerID, int senderTick);
+
+		// Appends one object, and grows `size` to match. Returns false when the batch
+		// is full, which is the caller's signal to send this packet and start another.
+		bool TryAdd(const HaloObjectState& state);
+	};
+	static_assert(std::is_trivially_copyable_v<HaloUpdatePacket>);
+
 	struct ClientPacket : public GamePacket {
 		int		lastID;
 		char	buttonstates[8];

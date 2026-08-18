@@ -3,6 +3,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <vector>
 
 #include "DistributedSystemCommonFiles/MetricSink.h"
 #include "DistributedSystemCommonFiles/InteractionCommand.h"
@@ -11,6 +12,7 @@
 
 namespace NCL::CSC8503 {
 	struct StartSimulatingObjectReceivedPacket;
+	struct HaloObjectState;
 	struct StartSimulatingObjectPacket;
 	class NetworkState;
 	class TestObject;
@@ -276,6 +278,55 @@ namespace NCL {
 				return static_cast<int>(mHaloObjects.size());
 			}
 
+			// --- halo band publication ---
+			//
+			// The band width. An object within this distance of a NEIGHBOUR's region
+			// has to be visible to that neighbour, or a contact that happens across
+			// the border is seen by nobody.
+			//
+			// Not a free tuning parameter: it has a hard floor. A halo update is
+			// applied at senderTick + lookahead, so between sampling and application
+			// an object can travel v_max * lookahead * dt. If the band is narrower
+			// than that plus both radii, an object can go from outside the band to in
+			// contact without ever having been published, and the contact is missed.
+			// SetHaloWidth warns when it is set below the floor rather than silently
+			// accepting it - the symptom otherwise is occasional missed contacts that
+			// vary with load, which is close to undiagnosable.
+			void SetHaloWidth(float width);
+
+			void SetHaloLookaheadTicks(int ticks) {
+				mHaloLookaheadTicks = ticks;
+			}
+
+			int GetHaloLookaheadTicks() const {
+				return mHaloLookaheadTicks;
+			}
+
+			float GetHaloWidth() const {
+				return mHaloWidth;
+			}
+
+			// The floor described above, for the current lookahead and substep.
+			float MinimumSafeHaloWidth() const;
+
+			// Fills `out` with (targetServerID, state) for every owned object that is
+			// within the band of some other server's region. One object can appear
+			// more than once: near a corner on a 2x2 grid it is within the band of
+			// two neighbours and must be published to both.
+			//
+			// Uses GetOverlappedServers - the same query area effects use - rather
+			// than a second, separately written border test. Two border tests that
+			// disagree is precisely the bug the ownership unification fixed.
+			struct HaloPublication {
+				int targetServerID = -1;
+				int objectID = -1;
+			};
+			void CollectHaloPublications(std::vector<HaloPublication>& out) const;
+
+			// Fills `state` from the object's live transform and physics. False if the
+			// object is not one this server owns.
+			bool TryGetHaloState(int objectID, CSC8503::HaloObjectState& state) const;
+
 			// What an object IS, for a handoff packet to carry. Recorded for
 			// pre-seeded objects as well as runtime spawns, so this answers for every
 			// object this server knows. Falls back to Cube for an unknown id: a
@@ -372,6 +423,25 @@ namespace NCL {
 			// in each - the ones that iterate the GameWorld instead do need the
 			// explicit IsHaloShadow() test.
 			std::map<int, CSC8503::GameObject*> mHaloObjects;
+			// 0 disables publication entirely, which is what every measurement taken
+			// before this increment ran with.
+			float mHaloWidth = 0.0f;
+
+			// Deliberately SEPARATE from mHandoffLookaheadTicks, and much smaller.
+			//
+			// The two are not the same kind of delay. A handoff releases the object at
+			// senderTick and the receiver picks it up at senderTick + lookahead; the
+			// object is frozen in between, so a large value only widens a gap on a
+			// rare event. A halo update is a continuously tracked position: applying
+			// it `lookahead` ticks late means the shadow is that far behind reality
+			// permanently, and an owned object would be colliding with where its
+			// neighbour used to be. At the 300-tick handoff lookahead used for
+			// reproducible runs that is 2.5 seconds of lag, which is worse than having
+			// no shadow at all.
+			//
+			// So this is a small number - just enough to cover LAN delivery jitter -
+			// and haloLate counts the updates that still miss their slot.
+			int mHaloLookaheadTicks = 4;
 
 			// A destroy can arrive at the new owner BEFORE the object does (race W3).
 			// Dropping it would resurrect the object, so it is held here and applied

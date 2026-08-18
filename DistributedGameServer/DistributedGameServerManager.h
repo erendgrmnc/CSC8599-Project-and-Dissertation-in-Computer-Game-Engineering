@@ -114,6 +114,13 @@ namespace NCL {
 			int mObjectsSpawned = 0;
 			int mObjectsDestroyed = 0;
 			int mManifestEntriesSent = 0;
+			// Halo traffic, packets and objects, both directions. Objects rather than
+			// just packets because the batch size is the thing that makes this
+			// affordable, and a packet count alone would hide it.
+			int mHaloUpdatesSent = 0;
+			int mHaloObjectsSent = 0;
+			int mHaloUpdatesReceived = 0;
+			int mHaloObjectsReceived = 0;
 
 			std::map<const int, PhysicsServerBorderData*> mPhysicsServerBorderMap;
 
@@ -140,6 +147,8 @@ namespace NCL {
 			// Handoffs and relays both need this; it is deliberately one function so
 			// the serverID-vs-array-index hazard is solved in a single place.
 			bool SendPacketToServer(int targetServerID, GamePacket& packet) const;
+			// For state superseded every tick. See the definition.
+			bool SendUnreliablePacketToServer(int targetServerID, GamePacket& packet) const;
 
 			// Fault injection (see ServerWorldManager::SetHandoffDelayTicks). The
 			// object is released locally at the normal moment; only the transfer
@@ -160,6 +169,10 @@ namespace NCL {
 			void DrainPendingRelays(int playerID, int clientSequence);
 			void DrainPendingSpawns();
 			void HandleObjectSpawnedPacket(CSC8503::DistributedObjectSpawnedPacket* packet);
+			void HandleHaloUpdatePacket(CSC8503::HaloUpdatePacket* packet);
+			// Publishes this server's border objects to the neighbours whose regions
+			// they are close to. Called once per tick while the game is running.
+			void PublishHaloBand();
 			void DrainPendingDespawns();
 			void HandleObjectDespawnedPacket(CSC8503::DistributedObjectDespawnedPacket* packet);
 			void SendManifestToPeer(int peerNumber);
