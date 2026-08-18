@@ -67,6 +67,9 @@ param(
     # Worker threads for the parallel physics phases, per server. 0 keeps
     # everything on the server's own thread; -1 derives a default from the
     # hardware. Contact resolution is never parallel - see PhysicsSystem.h.
+    # Client area-of-interest radius, about the world origin. 0 asks for every
+    # object, which is what every run before interest management did.
+    [double]$InterestRadius = 0,
     [int]$PhysicsThreads = 0,
     [int]$RepartitionAt = 0,
     # Interior X boundaries of the new partition: N-1 values for N servers. A comma
@@ -140,7 +143,7 @@ $serverRunSeconds = if ($Ticks -gt 0) { [Math]::Round($Ticks / 120.0) } else { $
 $clientSeconds = [Math]::Max(5, $serverRunSeconds - 15)
 
 $cli = Start-Process -PassThru -FilePath (Join-Path $deploy "Client\EntryPoint.exe") `
-    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --headless --impulse-test $ImpulseTest --misroute-every $MisrouteEvery --blast-every $BlastEvery --spawn-every $SpawnEvery --blast-offset-x $BlastOffsetX --destroy-every $DestroyEvery --drive-every $DriveEvery --run-seconds $clientSeconds" `
+    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --headless --impulse-test $ImpulseTest --misroute-every $MisrouteEvery --blast-every $BlastEvery --spawn-every $SpawnEvery --blast-offset-x $BlastOffsetX --destroy-every $DestroyEvery --drive-every $DriveEvery --interest-radius $InterestRadius --run-seconds $clientSeconds" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\cli.log" -RedirectStandardError "$runDir\cli.err" -WindowStyle Hidden
 
 if ($LateClientAfter -gt 0) {

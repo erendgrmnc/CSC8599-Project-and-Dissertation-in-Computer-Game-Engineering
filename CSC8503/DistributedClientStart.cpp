@@ -237,6 +237,19 @@ int RunDistributedClient(int argc, char* argv[]) {
 		NCL::HeadlessRunOptions clientRun;
 		clientRun.runSeconds = static_cast<double>(config.GetInt("--run-seconds", 0));
 
+		// Area of interest. 0 (the default) asks for everything, which is what every
+		// measurement before interest management existed did.
+		//
+		// The centre is the world origin, because a HEADLESS client has no viewpoint
+		// to centre on - it renders nothing and moves nowhere. A rendered client would
+		// use its camera. That makes this the right shape for MEASURING the mechanism
+		// and the wrong shape for judging what a player would actually see.
+		const float interestRadius = config.GetFloat("--interest-radius", 0.0f);
+		if (interestRadius > 0.0f) {
+			scene->SetInterest(NCL::Maths::Vector3(0, 0, 0), interestRadius);
+			std::cout << "Interest radius " << interestRadius << " about the origin.\n";
+		}
+
 		std::cout << "Running headless (client)";
 		if (clientRun.runSeconds > 0.0) {
 			std::cout << " for " << clientRun.runSeconds << "s";
@@ -247,6 +260,8 @@ int RunDistributedClient(int argc, char* argv[]) {
 
 		// Final totals, so accounting does not depend on catching a 2 Hz sample.
 		std::cout << "@@FINAL role=client cmdSent=" << scene->GetCommandsSent()
+			<< " replicas=" << scene->GetReplicaCount()
+			<< " evicted=" << scene->GetReplicasEvicted()
 			<< " tombstones=" << scene->GetTombstoneCount()
 			<< " resurrectAttempts=" << scene->GetResurrectionAttempts() << "\n";
 		delete scene;

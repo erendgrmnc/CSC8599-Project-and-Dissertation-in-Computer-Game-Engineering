@@ -48,6 +48,11 @@ public:
 	bool IsGameStarted() const { return mIsGameStarted; }
 	size_t GetReplicaCount() const { return mNetworkObjects.size(); }
 
+	// Declares the part of the world this client needs snapshots for. Public because
+	// the host loop sets it from a flag, and a rendered client would set it from the
+	// camera every frame. radius <= 0 asks for everything.
+	void SetInterest(const NCL::Maths::Vector3& centre, float radius);
+
 	// Supplies the world + primitive render resources used to spawn one visible
 	// replica per networked object. Set by the client host before connecting.
 	// When the world is null (e.g. headless), snapshots are still received but no
@@ -147,6 +152,41 @@ protected:
 	// Snapshot acknowledgement, keyed by physics server ID. Sent once per pump rather
 	// than per packet: a full snapshot is one packet per object.
 	void SendSnapshotAcks();
+
+	// --- interest management ---
+	//
+	// Declares the part of the world this client needs snapshots for. Without it a
+	// server sends every client every object it owns, which is O(world) per client and
+	// is what stops the system serving a large world however well it simulates one.
+	//
+	// radius <= 0 asks for everything, which is the behaviour of a client that never
+	// calls this.
+
+	// Drops replicas that have stopped arriving.
+	//
+	// A server that loses interest in an object simply stops sending it - there is no
+	// "you can forget this one" message, because that would be a reliable per-object
+	// event on a path whose whole purpose is to carry less. So the client ages
+	// replicas out instead. This is NOT the destroy path: a destroyed object still
+	// gets an explicit despawn and a permanent tombstone, because "gone" and "no
+	// longer nearby" have to stay distinguishable (invariant I3).
+	void EvictStaleReplicas(float dt);
+
+	NCL::Maths::Vector3 mInterestCentre;
+	float mInterestRadius = 0.0f;
+	// Re-declared periodically rather than once: a server that restarts or a link that
+	// reconnects would otherwise keep the client on the default "send everything".
+	float mInterestResendTimer = 0.0f;
+
+	// Seconds since each replica last had a snapshot applied. Ids never recycle, so an
+	// entry outliving its replica is harmless.
+	std::unordered_map<int, float> mReplicaAge;
+	int mReplicasEvicted = 0;
+
+public:
+	int GetReplicasEvicted() const { return mReplicasEvicted; }
+
+private:
 	// One global sequence across every server link, not one per link: (playerID,
 	// sequence) must be unique whichever server ends up applying the command.
 	int mNextCommandSequence = 1;

@@ -143,6 +143,28 @@ namespace NCL {
 			std::map<long long, std::map<int, NCL::Interaction::RegionBounds>>
 				mAssemblingPartitions;
 
+			// What each peer has asked to be told about, keyed by the SendPacketToPeer
+			// peer number (source + 1).
+			//
+			// A peer with no entry here gets every snapshot, which is what the system
+			// did before interest existed and what a peer that is another SERVER
+			// should keep getting - servers do not consume snapshots, but excluding
+			// them would mean deciding which peers are servers, and a peer that never
+			// declares interest is already cheap to serve correctly.
+			struct PeerInterest {
+				Maths::Vector3 centre;
+				float radius = 0.0f;   // <= 0 means "everything"
+			};
+			std::map<int, PeerInterest> mPeerInterest;
+			// Re-declares "send me no snapshots" to peer servers. See the send site.
+			float mPeerInterestDeclareTimer = 0.0f;
+
+			// Object-snapshots actually put on the wire, and the ones interest
+			// suppressed. The ratio between them is the whole point of the increment,
+			// so it is measured rather than argued.
+			long long mSnapshotsSent = 0;
+			long long mSnapshotsSuppressed = 0;
+
 			int mHaloUpdatesSent = 0;
 			int mHaloObjectsSent = 0;
 			int mHaloUpdatesReceived = 0;
@@ -198,6 +220,7 @@ namespace NCL {
 			void HandleHaloUpdatePacket(CSC8503::HaloUpdatePacket* packet);
 			void HandleRepartitionPacket(CSC8503::DistributedRepartitionPacket* packet);
 			void HandleServerRegistryPacket(CSC8503::DistributedServerRegistryPacket* packet);
+			void HandleClientInterestPacket(CSC8503::DistributedClientInterestPacket* packet, int source);
 			// Builds borders and peer links from a COMPLETE registry. Idempotent: the
 			// registry is rebroadcast as servers register, so this runs repeatedly.
 			void ApplyServerRegistry();

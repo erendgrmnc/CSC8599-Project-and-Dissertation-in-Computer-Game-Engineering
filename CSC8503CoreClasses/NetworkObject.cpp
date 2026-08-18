@@ -811,6 +811,16 @@ DistributedRepartitionPacket::DistributedRepartitionPacket(long long effectiveTi
 	this->regionCount = 0;
 }
 
+DistributedClientInterestPacket::DistributedClientInterestPacket(int playerID,
+	const Vector3& centre, float radius) {
+	type = BasicNetworkMessages::DistributedClientInterest;
+	size = sizeof(DistributedClientInterestPacket) - sizeof(GamePacket);
+
+	this->playerID = playerID;
+	this->centre = centre;
+	this->radius = radius;
+}
+
 DistributedServerRegistryPacket::DistributedServerRegistryPacket(int gameInstanceID,
 	int totalServerCount) {
 	type = BasicNetworkMessages::DistributedServerRegistry;

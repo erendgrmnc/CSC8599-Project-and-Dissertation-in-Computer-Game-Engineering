@@ -73,7 +73,10 @@ enum BasicNetworkMessages {
 	DistributedRepartition,          // Manager -> Game Servers + Clients
 	// Manager -> game servers: one PAGE of the server registry. Replaces the fixed
 	// 20-entry arrays that used to ride inside the start packet. APPEND ONLY.
-	DistributedServerRegistry        // Manager -> Game Servers
+	DistributedServerRegistry,       // Manager -> Game Servers
+	// Client -> game server: the area of the world this client actually needs
+	// snapshots for. APPEND ONLY.
+	DistributedClientInterest        // Client -> Game Server
 };
 
 enum DistributedSystemClientType {

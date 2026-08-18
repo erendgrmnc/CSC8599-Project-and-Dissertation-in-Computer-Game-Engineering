@@ -268,6 +268,35 @@ namespace NCL::CSC8503 {
 	};
 	static_assert(std::is_trivially_copyable_v<DistributedServerRegistryPacket>);
 
+	// Client -> game server. The region of the world this client needs to be told
+	// about, as a circle on the XZ plane.
+	//
+	// Without this a server sends every client a snapshot of every object it owns, one
+	// packet per object, at the full-snapshot rate. That is O(world) per client and is
+	// the reason the system can simulate a large world but not serve one: at 6,000
+	// objects per server it is 60,000 packets a second to each client from each server.
+	//
+	// A circle rather than the server's own rectangular region, because interest
+	// follows the VIEWER and has nothing to do with where the partition happens to put
+	// its borders - a client near a border is interested in objects on both sides.
+	//
+	// radius == 0 means "send me everything", which is what a client that never
+	// declares interest gets, so the old behaviour is still expressible.
+	//
+	// radius < 0 means "send me NOTHING". That is what one game server tells another:
+	// servers exchange state through handoff and the halo band and register no handler
+	// for snapshots at all, so every snapshot sent to a peer server was discarded on
+	// arrival. With two servers and one client that was two thirds of all snapshot
+	// traffic.
+	struct DistributedClientInterestPacket : public GamePacket {
+		int playerID;
+		Vector3 centre;
+		float radius;
+
+		DistributedClientInterestPacket(int playerID, const Vector3& centre, float radius);
+	};
+	static_assert(std::is_trivially_copyable_v<DistributedClientInterestPacket>);
+
 	struct ClientPacket : public GamePacket {
 		int		lastID;
 		char	buttonstates[8];

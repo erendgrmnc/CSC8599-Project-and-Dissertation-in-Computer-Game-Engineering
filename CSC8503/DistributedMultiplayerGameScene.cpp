@@ -345,6 +345,10 @@ void DistributedMultiplayerGameScene::HandleFullPacket(FullPacket* packet) {
 		if (netObj->ReadPacket(*packet)) {
 			Profiler::RecordFullApplied();
 		}
+		// Reset the eviction clock. A replica is kept alive by being told about, which
+		// is what lets a server drop an object from a client's interest simply by
+		// ceasing to send it.
+		mReplicaAge[packet->objectID] = 0.0f;
 		ApplyOwnerColour(netObj, mActiveServerId);
 
 		// A full snapshot arrives as one packet per object, so record the newest
@@ -386,6 +390,57 @@ void DistributedMultiplayerGameScene::UpdatePhysicsClients(float dt) {
 	mActiveServerId = -1;
 
 	SendSnapshotAcks();
+
+	// Re-declared on a timer, not once. A link that reconnects, or a server that
+	// restarts, would otherwise be left on the default "send me everything" - which is
+	// correct but is exactly the cost this exists to avoid.
+	if (mInterestRadius > 0.0f) {
+		mInterestResendTimer -= dt;
+		if (mInterestResendTimer <= 0.0f) {
+			for (const auto& link : mDistributedPhysicsClients) {
+				DistributedClientInterestPacket packet(0, mInterestCentre, mInterestRadius);
+				link.client->SendReliablePacket(packet);
+			}
+			// Reliable and infrequent: this is standing state, not a per-frame update,
+			// so losing one declaration would leave the client blind for as long as it
+			// took to resend.
+			mInterestResendTimer = 1.0f;
+		}
+		EvictStaleReplicas(dt);
+	}
+}
+
+void DistributedMultiplayerGameScene::SetInterest(const NCL::Maths::Vector3& centre, float radius) {
+	mInterestCentre = centre;
+	mInterestRadius = radius;
+	// Declared on the next pump rather than here, so this is safe to call from input
+	// handling or a render loop.
+	mInterestResendTimer = 0.0f;
+}
+
+void DistributedMultiplayerGameScene::EvictStaleReplicas(float dt) {
+	// Generous compared with the 10 Hz full-snapshot rate: several missed snapshots in
+	// a row are normal on an unreliable channel, and evicting a replica that is still
+	// of interest makes it pop out and back in.
+	constexpr float STALE_SECONDS = 3.0f;
+
+	for (auto it = mNetworkObjects.begin(); it != mNetworkObjects.end(); ) {
+		const int id = (*it)->GetNetworkID();
+		float& age = mReplicaAge[id];
+		age += dt;
+		if (age < STALE_SECONDS) {
+			++it;
+			continue;
+		}
+
+		// Not tombstoned. The object still exists somewhere in the world - it is
+		// simply no longer near enough to be worth being told about - so a later
+		// snapshot must be allowed to bring it back.
+		mObjectOwner.erase(id);
+		mReplicaAge.erase(id);
+		it = mNetworkObjects.erase(it);
+		++mReplicasEvicted;
+	}
 }
 
 // Tells each physics server which full snapshot we have applied. The server encodes

@@ -215,6 +215,17 @@ void GameServer::SetGameWorld(GameWorld& g) {
 	mGameWorld = &g;
 }
 
+std::vector<int> GameServer::GetConnectedPeers() const {
+	std::vector<int> peers;
+	peers.reserve(mPeerHandles.size());
+	for (const auto& entry : mPeerHandles) {
+		if (entry.second != nullptr) {
+			peers.push_back(entry.first);
+		}
+	}
+	return peers;
+}
+
 bool GameServer::SendPacketToPeer(int peerNumber, GamePacket& packet) {
 	const auto entry = mPeerHandles.find(peerNumber);
 	if (entry == mPeerHandles.end() || entry->second == nullptr) {

@@ -159,6 +159,13 @@ namespace NCL {
 		static int GetHaloUpdatesLate();
 		static void SetHaloUpdatesLate(int count);
 
+		// Object-snapshots put on the wire, and the ones interest suppressed. The
+		// ratio is the whole point of interest management, so it is measured.
+		static long long GetSnapshotsSent();
+		static void SetSnapshotsSent(long long count);
+		static long long GetSnapshotsSuppressed();
+		static void SetSnapshotsSuppressed(long long count);
+
 		// Client-side snapshot accounting. Deltas silently failing to apply is the
 		// system's longest-lived bug, and until these existed nothing anywhere
 		// reported whether a delta was used or thrown away. Cumulative per run.
@@ -224,6 +231,8 @@ namespace NCL {
 		static int sHaloUpdatesReceived;
 		static int sHaloObjectsReceived;
 		static int sHaloUpdatesLate;
+		static long long sSnapshotsSent;
+		static long long sSnapshotsSuppressed;
 		static int sDeltasApplied;
 		static int sDeltasRejected;
 		static int sFullsApplied;

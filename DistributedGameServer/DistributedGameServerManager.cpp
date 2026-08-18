@@ -120,6 +120,29 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 	Profiler::SetHaloObjectsSent(mHaloObjectsSent);
 	Profiler::SetHaloUpdatesReceived(mHaloUpdatesReceived);
 	Profiler::SetHaloObjectsReceived(mHaloObjectsReceived);
+	Profiler::SetSnapshotsSent(mSnapshotsSent);
+	Profiler::SetSnapshotsSuppressed(mSnapshotsSuppressed);
+
+	// Tell every peer server not to send us snapshots. A server registers no handler
+	// for Full_State or Delta_State - it learns about its neighbours' objects through
+	// the halo band - so everything it was sent was decoded and discarded. With two
+	// servers and one client that was two thirds of all snapshot traffic.
+	//
+	// On a timer rather than once at connect: ENet's handshake is not complete when
+	// Connect returns, so a declaration sent there is queued against a peer that does
+	// not exist yet and is silently dropped. Repeating it costs one packet per peer
+	// per second and cannot be missed.
+	mPeerInterestDeclareTimer -= dt;
+	if (mPeerInterestDeclareTimer <= 0.0f) {
+		mPeerInterestDeclareTimer = 1.0f;
+		for (auto* connection : mDistributedPhysicsClients) {
+			if (connection != nullptr && connection->client != nullptr) {
+				DistributedClientInterestPacket noSnapshots(mGameServerID,
+					Maths::Vector3(0, 0, 0), -1.0f);
+				connection->client->SendReliablePacket(noSnapshots);
+			}
+		}
+	}
 
 	RetryPendingPeers(dt);
 
@@ -184,6 +207,7 @@ void DistributedGameServer::DistributedGameServerManager::RegisterPacketSenderSe
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedObjectSpawned, this);
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedObjectDespawned, this);
 	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedHaloUpdate, this);
+	mDistributedPacketSenderServer->RegisterPacketHandler(BasicNetworkMessages::DistributedClientInterest, this);
 
 	// Server-to-server traffic runs in BOTH directions over the peer mesh, and which
 	// one a message type uses is decided purely by where its handler is registered:
@@ -339,6 +363,10 @@ void DistributedGameServer::DistributedGameServerManager::ReceivePacket(int type
 		HandleServerRegistryPacket(static_cast<DistributedServerRegistryPacket*>(payload));
 		break;
 	}
+	case BasicNetworkMessages::DistributedClientInterest: {
+		HandleClientInterestPacket(static_cast<DistributedClientInterestPacket*>(payload), source);
+		break;
+	}
 	case BasicNetworkMessages::ClientPlayerInputState: {
 		ClientPlayerInputPacket* packet = (ClientPlayerInputPacket*)payload;
 		HandleClientPlayerInputPacket(packet, packet->playerID);
@@ -384,11 +412,57 @@ void DistributedGameServer::DistributedGameServerManager::ReceivePacket(int type
 	}
 }
 
+// A client's declared area of interest. Replaces the previous arrangement, which was
+// that every client was told about every object this server owns.
+void DistributedGameServer::DistributedGameServerManager::HandleClientInterestPacket(
+	DistributedClientInterestPacket* packet, int source) {
+	if (packet == nullptr) {
+		return;
+	}
+	// source + 1, matching the key SendPacketToPeer uses: the event loop stores peer
+	// handles under incomingPeerID + 1 but hands ProcessPacket the raw id.
+	PeerInterest& interest = mPeerInterest[source + 1];
+	interest.centre = packet->centre;
+	interest.radius = packet->radius;
+}
+
 void DistributedGameServer::DistributedGameServerManager::BroadcastSnapshot(bool deltaFrame) {
 	std::vector<GameObject*>::const_iterator first;
 	std::vector<GameObject*>::const_iterator last;
 
 	mServerWorldManager->GetGameWorld()->GetObjectIterators(first, last);
+
+	// Peer list and their declared interest, resolved once per snapshot rather than
+	// per object: the set only changes when a client sends a new declaration.
+	//
+	// A peer with no declaration, or one with radius <= 0, gets EVERYTHING. That is
+	// what a client which does not implement interest receives, and it is also what
+	// the other servers receive - they do not consume snapshots at all, but excluding
+	// them would mean deciding which peers are servers, and getting that wrong would
+	// silently starve a real client.
+	struct SnapshotTarget {
+		int peer;
+		const PeerInterest* interest;   // nullptr = send everything
+	};
+	std::vector<SnapshotTarget> targets;
+	bool anyFiltered = false;
+	// Peers that asked for nothing at all. Counted per object below so the suppressed
+	// total reflects the traffic they would otherwise have received.
+	int silencedPeers = 0;
+	for (int peer : mDistributedPacketSenderServer->GetConnectedPeers()) {
+		const auto found = mPeerInterest.find(peer);
+		if (found != mPeerInterest.end() && found->second.radius < 0.0f) {
+			// Wants nothing at all - a peer server. Counted as suppressed rather than
+			// skipped silently, because the volume it represents is the point.
+			anyFiltered = true;
+			++silencedPeers;
+			continue;
+		}
+		const PeerInterest* interest =
+			(found != mPeerInterest.end() && found->second.radius > 0.0f) ? &found->second : nullptr;
+		targets.push_back({ peer, interest });
+		anyFiltered = anyFiltered || (interest != nullptr);
+	}
 
 	for (auto i = first; i != last; ++i) {
 		NetworkObject* o = (*i)->GetNetworkObject();
@@ -405,7 +479,39 @@ void DistributedGameServer::DistributedGameServerManager::BroadcastSnapshot(bool
 			if (newPacket != nullptr) {
 				//TODO(erendgrmnc): create a thread safe queue for servers to send state packets.
 				std::lock_guard<std::mutex> lock(mPacketToSendQueueMutex);
-				mDistributedPacketSenderServer->SendGlobalPacket(*newPacket);
+
+				mSnapshotsSuppressed += silencedPeers;
+
+				if (!anyFiltered) {
+					// Nobody is filtering, so one broadcast is cheaper than a send per
+					// peer. This is exactly the old behaviour.
+					mDistributedPacketSenderServer->SendGlobalPacket(*newPacket);
+					mSnapshotsSent += static_cast<long long>(targets.size());
+				}
+				else {
+					// The packet is built ONCE and sent to the peers that want it.
+					// Rebuilding it per peer would make the CPU cost scale with
+					// clients as well as objects, trading one scaling problem for
+					// another.
+					const Maths::Vector3 position = (*i)->GetTransform().GetPosition();
+					for (const SnapshotTarget& target : targets) {
+						if (target.interest != nullptr) {
+							// Distance on XZ only, matching every other spatial test
+							// here: regions, the halo band and the broadphase are all
+							// two-dimensional, so an interest SPHERE would be the one
+							// place that disagreed with them.
+							const float dx = position.x - target.interest->centre.x;
+							const float dz = position.z - target.interest->centre.z;
+							const float radius = target.interest->radius;
+							if ((dx * dx + dz * dz) > (radius * radius)) {
+								++mSnapshotsSuppressed;
+								continue;
+							}
+						}
+						mDistributedPacketSenderServer->SendPacketToPeer(target.peer, *newPacket);
+						++mSnapshotsSent;
+					}
+				}
 			}
 		}
 	}

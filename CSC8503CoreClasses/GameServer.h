@@ -29,6 +29,11 @@ namespace NCL {
 			// simply be written in terms of the existing peer table.
 			bool SendPacketToPeer(int peerNumber, GamePacket& packet);
 
+			// Peer numbers currently connected, in the numbering SendPacketToPeer uses.
+			// Needed by anything that sends a DIFFERENT packet to different peers -
+			// interest-filtered snapshots being the reason it exists.
+			std::vector<int> GetConnectedPeers() const;
+
 			std::string GetIpAddress() const;
 
 			virtual void UpdateServer();
