@@ -151,14 +151,76 @@ I1–I8 continue to hold. Repartitioning stresses two of them specifically, and 
 §0 is its output, from the existing `@@FINAL` and per-tick metrics. No code needed: the imbalance was
 already visible in `objs`, and the wall-clock figure is printed by the headless runner.
 
-### C1 — Borders can move, at an agreed tick
+### C1 — Borders can move, at an agreed tick *(done)*
 
-`DistributedRepartitionPacket` (borders for every server + effective tick), broadcast reliably by the
-manager, queued by each server and adopted when its tick counter reaches the effective tick. Adoption
-overwrites the border structs in place. `--repartition-at` forces one for testing.
+`DistributedRepartitionPacket` (a POD region array plus an absolute effective tick), broadcast
+reliably by the manager, queued by each server and adopted when its tick counter reaches that tick.
+Adoption overwrites the border structs in place. `--repartition-at TICK --repartition-x "x1,..."`
+forces one. Shipped as `d44c981`.
 
-**No policy.** The manager sends a repartition only when told to. This is the increment that can lose
-objects, and it is verified on its own.
+#### Acceptance test
+
+200 objects, `uniform`, 1,800 paced ticks, border moved from `x = 0` to `x = -75` at tick 900:
+
+| | result |
+|---|---|
+| objects before / after | 105 / 95 — **48 / 152** |
+| ticks with an object owned by nobody | **0** |
+| ticks with an object owned by two servers | **0** |
+| conservation delta | **0** |
+| handoff parity (after subtracting in-flight) | **0** |
+
+The per-tick total is exactly 200 on every tick through the move. Server 0 bulk-transferred 76
+objects, and the new split (25% of the world) holds 24% of the objects, as it should.
+
+#### The benefit, before any policy exists
+
+400 objects, `shuttle` — the workload the static partition is worst on — 1,800 paced ticks, with the
+border moved once at tick 300 from `x = 0` to a hand-picked `x = -40`:
+
+| | static | repartitioned |
+|---|---|---|
+| objects | 359 / 41 | 100 / 300 |
+| contacts | 974,047 / 108,139 (**9.0 : 1**) | 588,957 / 542,354 (**1.09 : 1**) |
+| wall clock | **33.1 s** / 15.3 s | 22.3 s / **27.5 s** |
+| busiest server | 33.1 s | **27.5 s**, 17% faster |
+| slowest : fastest | 2.16 : 1 | **1.23 : 1** |
+
+Only five sixths of the run was after the move, so a policy acting earlier would do better.
+
+#### What this changes about C3
+
+**Object count is the wrong thing to balance.** The winning partition above holds 100 objects against
+300 — badly "unbalanced" by count — and yet its wall clock is nearly equal, because its *contacts*
+are nearly equal. Contact count scales with local density, not with object count, and the halo adds
+work to whichever server has the busier border.
+
+So the policy should balance measured per-tick cost, or contacts as a proxy for it, not object
+counts. That is a change of objective from what §5 originally proposed, and it is only visible
+because C1 made it measurable.
+
+#### Two things found on the way
+
+**The region cache never noticed a border move.** `GetRegionBounds` caches the region list and
+rebuilt it only when the border map's `size()` changed. That is fine while borders are fixed and
+silently wrong once they can move: the first forced repartition changed the values, the cache kept
+the old ones, and ownership answered from the old partition while the halo — which reads the map
+directly — had already moved to the new one. The borders visibly changed and not one object was
+handed off.
+
+**Handoff parity needed redefining.** Since B6, `hoSent` counts the *start* of a transfer and
+`hoRecv` its *completion*, so a run that ends mid-transfer is legitimately short. The object is not
+lost — the sender still owns it, which conservation and the per-tick ownership check both confirm.
+`@@FINAL` now reports `hoPending` and `analyse.py` subtracts it.
+
+#### Reproducibility
+
+A run containing a repartition reproduces its ownership exactly: object counts, pool sizes, handoff
+counts and pending transfers are identical across a repeat pair. `contacts` differs by a few tens,
+and `haloLate` by a few hundred, because the partition the test moves *to* is deliberately
+unbalanced — which is §3.5 of the halo spec restated: once servers exchange state every tick, a
+partition that lets one fall behind loses reproducibility. A rebalancing move should therefore
+*improve* reproducibility rather than cost it, and confirming that is part of C4.
 
 ### C2 — Servers report load
 
