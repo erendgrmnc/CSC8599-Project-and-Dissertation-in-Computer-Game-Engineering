@@ -337,9 +337,8 @@ Doing any of them first would mean building against a model that is about to cha
 
 ## 10. Implementation notes (A0–A6 shipped)
 
-A0–A6 are in. A7 (directed spawn) is not; `CreateReplicatedSpawn` still broadcasts and peers still
-build a deactivated twin for runtime-spawned objects. Pre-seeded objects — which is all of them in
-every measurement run today — are region-local.
+A0–A7 are in. Every object a server holds is one it owns; no server builds anything for an object
+owned elsewhere, at pre-seed or at runtime.
 
 ### What actually shipped
 
@@ -392,11 +391,38 @@ simulates in 60 s, server 1 needs 60.3 s. `shuttle` is deliberately adversarial 
 so server 0 is the one that cannot hold pace. Determinism is unaffected — that is the point of pacing
 to a shared clock — but it is the load-imbalance figure the repartitioning increment has to beat.
 
-### Known residual
+### Known residual, and what it turned out to be
 
-I4 is off by exactly **−1** when `--misroute-every` is set, and exact when it is not (8851 = 8851
-without; 8951 vs 8952 with, over 4,474 relays). Every internal drop path was audited and all are
-counted. The inferred cause is a relay-hop boundary: a command relayed just before the target server
-takes its final reading is counted `Relayed` at the origin but applied after the target's `@@FINAL`.
-That predicts a flat −1 independent of volume and only with misrouting, which matches every
-observation — but it is inferred, not proven.
+The I4 shortfall of exactly −1 recorded against the interactions spec was **not** relay-hop latency.
+That inference is withdrawn.
+
+A7 appeared to regress I4: three baseline spawn/destroy runs balanced exactly, two A7 runs were short
+by 2 and by 1. Adding a per-command send/receive trace made it exact 4/4 and showed every sent
+sequence arriving — a loss that disappears under instrumentation is a race, not a logic error, and
+A7 changes per-tick work on peers, which changes timing.
+
+The cause is in `GameClient::Disconnect`, and it predates all of this work. `enet_peer_disconnect`
+calls `enet_peer_reset_queues`, which discards every outgoing reliable command not yet sent **and
+every sent one still awaiting acknowledgement**. Reliable delivery therefore does not survive the
+sender's own shutdown: whatever the client sent in its last few milliseconds was dropped on the
+floor. `enet_peer_disconnect_later` is the API that holds the peer open until the queues drain.
+
+The same call also serviced the host once and reported failure on any event that was not the
+disconnect, so a clean shutdown routinely printed `Failed to disconnect from the server` — which is
+why the real fault was never visible in the logs.
+
+Fixed in `4c4fe52`. After it, with A7 in place:
+
+| Configuration | Result |
+|---|---|
+| spawn + destroy + impulse, 3 runs | exact (1058, 1070, 1062) |
+| `--misroute-every 2`, 2 runs | exact (894, 903) |
+| impulse only | exact (880) |
+
+The misroute case had never balanced before. **I4 now has no known residual.**
+
+### Reproducibility, re-verified with A7
+
+`a7-rep-a` / `a7-rep-b` at `-Servers 2 -Objects 400 -Ticks 7200 -Seed 42 -Workload shuttle
+-HandoffLookahead 300 -EpochAlignUs 500000`: deterministic columns byte-identical on both servers
+across all 7200 ticks, `@@FINAL` identical. Tier 0 62/62.
