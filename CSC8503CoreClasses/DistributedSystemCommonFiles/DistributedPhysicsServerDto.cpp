@@ -160,7 +160,10 @@ bool NCL::DistributedPhysicsServerData::GetIsAllClientsConnectedToServer() {
 }
 
 void NCL::DistributedPhysicsServerData::SetIsAllClientsConnectedToServer(bool isAllClientsConnectedToServer) {
-
+	// The body was empty, so the flag it exists to set was permanently false. It went
+	// unnoticed because CheckIsGameStartable never reached the condition that reads
+	// it - see the note there.
+	mIsAllClientsConnectedToServer = isAllClientsConnectedToServer;
 }
 
 const std::string& NCL::DistributedPhysicsServerData::GetServerIPAddress() {

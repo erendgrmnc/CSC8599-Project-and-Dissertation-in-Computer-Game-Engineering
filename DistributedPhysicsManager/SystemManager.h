@@ -35,6 +35,24 @@ namespace NCL {
 			void RegisterPacketHandlers();
 			void ReceivePacket(int type, GamePacket* payload, int source) override;
 			void SendStartGameStatusPacket(int gameInstanceID);
+
+			// --- dynamic repartitioning ---
+			//
+			// Broadcasts a new partition, to take effect at an ABSOLUTE tick. Sent to
+			// game servers AND clients: a client routes commands with the same
+			// OwningServerFor the servers use, so a client left on the old partition
+			// would misroute every command issued near a moved border. It would still
+			// be relayed to the right owner, but the relay hop is exactly what the
+			// client-side routing exists to avoid.
+			void SendRepartitionPacket(int gameInstanceID, long long effectiveTick,
+				const std::vector<double>& interiorX);
+
+			// Forced partition change for testing the mechanism before any policy
+			// exists: --repartition-at TICK --repartition-x "x1,x2,...". 0 disables.
+			void SetForcedRepartition(long long atTick, const std::vector<double>& interiorX) {
+				mForcedRepartitionTick = atTick;
+				mForcedRepartitionX = interiorX;
+			}
 			void AddServerData(DistributedPhysicsServerData& data);
 
 			NCL::GameInstance* CreateNewGameInstance(int maxServer, int clientCount, int objectsPerPlayer,
@@ -57,6 +75,10 @@ namespace NCL {
 
 			std::map<int, int> mPhysicsServerMiddlewareRunningInstanceMap;
 
+			// Forced repartition, for testing the mechanism without a policy.
+			long long mForcedRepartitionTick = 0;
+			std::vector<double> mForcedRepartitionX;
+
 			void SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int serverID, const int port, const std::string& borderStr) const;
 			void SendStartDataToPhysicsServer(int gameInstanceID, int physicsServerID) const;
 			void SendPhysicsServerMiddlewareDataPacket(int peerID, int midwareID);
@@ -72,7 +94,7 @@ namespace NCL {
 
 			bool CheckIsGameStartable(int gameInstanceID);
 
-			std::vector<DistributedPhysicsServerData*>& GetPhysicsServerDataList(int gameInstanceID) const;
+			std::vector<DistributedPhysicsServerData*> GetPhysicsServerDataList(int gameInstanceID) const;
 
 			int GetAvailablePhysicsMidware(); 
 

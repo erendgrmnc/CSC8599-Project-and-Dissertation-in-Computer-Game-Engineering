@@ -284,10 +284,16 @@ DistributedClientConnectToPhysicsServerPacket::DistributedClientConnectToPhysics
 
 DistributedPhysicsServerAllClientsAreConnectedPacket::DistributedPhysicsServerAllClientsAreConnectedPacket(int gameInstanceID, int gameServerID, bool isGameServerReady) {
 	type = BasicNetworkMessages::DistributedPhysicsServerAllClientsAreConnected;
-	size = sizeof(DistributedPhysicsServerAllClientsAreConnectedPacket);
+	// Minus the header, like every other packet. It was the whole struct, so four
+	// extra bytes went on the wire.
+	size = sizeof(DistributedPhysicsServerAllClientsAreConnectedPacket) - sizeof(GamePacket);
 
 	this->isGameServerReady = isGameServerReady;
 	this->gameServerID = gameServerID;
+	// Was never assigned, so the manager read whatever was on the stack where the
+	// packet landed - 0xCCCCCCCC in a debug build. See the note in
+	// SystemManager::CheckIsGameStartable: bootstrap depended on that garbage.
+	this->gameInstanceID = gameInstanceID;
 }
 
 DistributedClientsGameServersAreReadyPacket::DistributedClientsGameServersAreReadyPacket() {
@@ -790,6 +796,27 @@ HaloUpdatePacket::HaloUpdatePacket(int senderServerID, int senderTick) {
 	this->senderServerID = senderServerID;
 	this->senderTick = senderTick;
 	this->entryCount = 0;
+}
+
+DistributedRepartitionPacket::DistributedRepartitionPacket(long long effectiveTick) {
+	type = BasicNetworkMessages::DistributedRepartition;
+	// Sized to the regions actually used, like HaloUpdatePacket: a two-server
+	// partition must not put twenty regions of uninitialised stack on the wire.
+	size = static_cast<short>(sizeof(DistributedRepartitionPacket) - sizeof(GamePacket)
+		- sizeof(regions));
+
+	this->effectiveTick = effectiveTick;
+	this->regionCount = 0;
+}
+
+bool DistributedRepartitionPacket::TryAddRegion(const RegionBoundsWire& region) {
+	if (regionCount >= MAX_REGIONS) {
+		return false;
+	}
+	regions[regionCount] = region;
+	++regionCount;
+	size = static_cast<short>(size + sizeof(RegionBoundsWire));
+	return true;
 }
 
 bool HaloUpdatePacket::TryAdd(const HaloObjectState& state) {

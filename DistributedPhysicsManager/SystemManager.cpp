@@ -1,5 +1,6 @@
 #include "SystemManager.h"
 
+#include <algorithm>
 #include <iostream>
 
 #include "DistributedPhysicsManagerServer.h"
@@ -88,6 +89,69 @@ void NCL::DistributedManager::SystemManager::SendStartGameStatusPacket(int gameI
 	// server, and which one varied. Snapshots are correctly unreliable because they
 	// are superseded 60 times a second; this is not.
 	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(state);
+
+	// Sent immediately after the start signal, not on a timer. The effective tick is
+	// ABSOLUTE and every server aligns its tick 0 to a shared epoch, so sending it
+	// early is what makes the switch land on the same simulated tick everywhere,
+	// regardless of when each server happens to receive it.
+	if (mForcedRepartitionTick > 0 && !mForcedRepartitionX.empty()) {
+		SendRepartitionPacket(gameInstanceID, mForcedRepartitionTick, mForcedRepartitionX);
+	}
+}
+
+void NCL::DistributedManager::SystemManager::SendRepartitionPacket(int gameInstanceID,
+	long long effectiveTick, const std::vector<double>& interiorX) {
+	// From the manager server, which is where CreateNewGameInstance actually puts
+	// them; mCreatedGameInstances is declared but never populated.
+	GameInstance* instance = (mDistributedPhysicsManagerServer != nullptr)
+		? mDistributedPhysicsManagerServer->GetGameInstance(gameInstanceID)
+		: nullptr;
+	if (instance == nullptr) {
+		std::cout << "ERROR: repartition requested for unknown game instance "
+			<< gameInstanceID << "\n";
+		return;
+	}
+
+	double worldMinX = 0.0, worldMaxX = 0.0, worldMinZ = 0.0, worldMaxZ = 0.0;
+	instance->GetWorldBounds(worldMinX, worldMaxX, worldMinZ, worldMaxZ);
+
+	// Server ids taken from the EXISTING partition, in ascending order, so slice i
+	// goes to the same server whatever order the map happens to be in.
+	std::vector<int> serverIDs;
+	for (const auto& entry : instance->GetServerBorderMap()) {
+		serverIDs.push_back(entry.first);
+	}
+	std::sort(serverIDs.begin(), serverIDs.end());
+
+	if (serverIDs.size() != interiorX.size() + 1) {
+		std::cout << "ERROR: --repartition-x gives " << interiorX.size()
+			<< " interior boundaries, which makes " << (interiorX.size() + 1)
+			<< " slices, but this instance has " << serverIDs.size() << " servers.\n";
+		return;
+	}
+
+	std::vector<double> sortedX = interiorX;
+	std::sort(sortedX.begin(), sortedX.end());
+
+	DistributedRepartitionPacket packet(effectiveTick);
+	for (size_t i = 0; i < serverIDs.size(); ++i) {
+		RegionBoundsWire region;
+		region.serverID = serverIDs[i];
+		region.minX = static_cast<float>((i == 0) ? worldMinX : sortedX[i - 1]);
+		region.maxX = static_cast<float>((i == serverIDs.size() - 1) ? worldMaxX : sortedX[i]);
+		// Slices span the whole Z extent. A 1-D split is all the forced-repartition
+		// flag needs to express, and it is also what the first policy will produce.
+		region.minZ = static_cast<float>(worldMinZ);
+		region.maxZ = static_cast<float>(worldMaxZ);
+		packet.TryAddRegion(region);
+	}
+
+	std::cout << "Broadcasting repartition: " << packet.regionCount
+		<< " regions, effective at tick " << effectiveTick << "\n";
+	// Reliable and one-shot: a server that misses it stays on the old partition while
+	// everyone else moves, and every ownership question is then answered differently
+	// there than anywhere else.
+	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
 }
 
 void DistributedManager::SystemManager::
@@ -151,6 +215,10 @@ void DistributedManager::SystemManager::HandleDistributedPhysicsClientConnectedP
 	NCL::CSC8503::DistributedPhysicsClientConnectedToManagerPacket* packet) {
 
 	auto* serverData = DistributedUtils::CreatePhysicsServerData(packet->ipAddress, packet->physicsServerID, packet->gameInstanceID);
+	// This object exists only because the server connected and registered, so it has
+	// started by definition. The flag had a setter that nothing ever called, which made
+	// CheckIsGameStartable's first condition permanently false.
+	serverData->SetIsServerStarted(true);
 	AddServerData(*serverData);
 
 	int portForClientsToConnect = packet->physicsPacketDistributorPort;
@@ -232,20 +300,45 @@ void DistributedManager::SystemManager::StartGameServers(int gameInstanceID) {
 	PHYSICS_SERVER_ID_BUFFER += maxServer;
 }
 
+// FOUR separate bugs used to cancel out here, and fixing any one of them alone stops
+// the game starting at all:
+//
+//  - the readiness packet never assigned gameInstanceID, so this was called with
+//    uninitialised stack (0xCCCCCCCC in a debug build);
+//  - GetPhysicsServerDataList returned a reference to a function-local vector, so the
+//    list read empty;
+//  - SetIsServerStarted was never called anywhere, so that flag was always false;
+//  - SetIsAllClientsConnectedToServer had an EMPTY BODY, so that flag was too.
+//
+// The first two made the list empty, so the loop body never ran and this returned true
+// immediately - which is the only reason the system ever booted. The last two were
+// completely masked by that and, as far as the code shows, had never worked.
+//
+// A DistributedPhysicsServerData exists only because a server connected and
+// registered, so "started" is now set at registration, the setter has a body, and this
+// checks what it always claimed to: every server registered for the instance has
+// reported that its clients are connected.
 bool DistributedManager::SystemManager::CheckIsGameStartable(int gameInstanceID) {
-	auto& serverList = GetPhysicsServerDataList(gameInstanceID);
+	const std::vector<DistributedPhysicsServerData*> serverList =
+		GetPhysicsServerDataList(gameInstanceID);
+	if (serverList.empty()) {
+		return false;   // Nothing registered for this instance yet.
+	}
 	for (const auto& server : serverList) {
-		if (!server->GetIsServerStarted() || !server->GetIsAllClientsConnectedToServer())
+		if (!server->GetIsServerStarted() || !server->GetIsAllClientsConnectedToServer()) {
 			return false;
+		}
 	}
 
 	return true;
 }
 
-std::vector<DistributedPhysicsServerData*>& DistributedManager::SystemManager::GetPhysicsServerDataList(
+// By value. This returned a reference to a function-local vector, so every caller
+// iterated a destroyed container - undefined behaviour that happened to read as empty.
+std::vector<DistributedPhysicsServerData*> DistributedManager::SystemManager::GetPhysicsServerDataList(
 	int gameInstanceID) const {
 
-	std::vector< DistributedPhysicsServerData*> dataList;
+	std::vector<DistributedPhysicsServerData*> dataList;
 
 	for (const auto& serverData : mDistributedPhysicsServers) {
 		if (serverData->GetGameInstanceID() == gameInstanceID) {
