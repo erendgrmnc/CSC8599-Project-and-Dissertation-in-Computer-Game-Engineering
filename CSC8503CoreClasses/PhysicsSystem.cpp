@@ -555,16 +555,15 @@ void PhysicsSystem::BroadPhase() {
 			CollisionDetection::CollisionInfo info;
 			for (auto j = data.begin(); j != data.end(); j++) {
 				if (!(*j).object->HasPhysics()) continue;
-				// By world ID, for the same reason as the dynamic/dynamic pass below.
-				// std::min/std::max on GameObject* orders by ADDRESS, so which body
-				// became `a` - and therefore the direction of the contact normal and
-				// the operand order of the impulse arithmetic - depended on heap
-				// layout. It also flipped the key this pair takes in
-				// mBroadphaseCollisions, since CollisionInfo::operator< reads world
-				// IDs off a and b.
+				// Same canonical order the set comparator uses, for the same reason as
+				// the dynamic/dynamic pass below. std::min/std::max on GameObject*
+				// orders by ADDRESS, so which body became `a` - and therefore the
+				// direction of the contact normal and the operand order of the impulse
+				// arithmetic - depended on heap layout.
 				GameObject* dynamicObj = mDynamicObjectList[i];
 				GameObject* staticObj = (*j).object;
-				const bool staticFirst = staticObj->GetWorldID() < dynamicObj->GetWorldID();
+				const bool staticFirst = CollisionDetection::CollisionInfo::OrderKey(staticObj)
+					< CollisionDetection::CollisionInfo::OrderKey(dynamicObj);
 				info.a = staticFirst ? staticObj : dynamicObj;
 				info.b = staticFirst ? dynamicObj : staticObj;
 				Vector3 halfSizeA;
@@ -585,12 +584,16 @@ void PhysicsSystem::BroadPhase() {
 		for (int j = i; j < mDynamicObjectList.size(); j++) {
 			if (!mDynamicObjectList[j]->HasPhysics()) continue;
 			CollisionDetection::CollisionInfo info;
-			// Canonicalise the pair by world ID, not by address. Which body ends up as
-			// `a` decides the contact normal's direction and which side takes +impulse,
-			// so ordering on pointers made the resolved result depend on heap layout.
+			// Canonicalise the pair by its GLOBAL id, not by address and not by world
+			// id. Which body ends up as `a` decides the contact normal's direction and
+			// which side takes +impulse, so ordering on pointers made the resolved
+			// result depend on heap layout - and ordering on world ids made a
+			// cross-border pair come out oriented differently on the two servers that
+			// share it, since the world id is a local creation counter.
 			GameObject* first = mDynamicObjectList[i];
 			GameObject* second = mDynamicObjectList[j];
-			if (second->GetWorldID() < first->GetWorldID()) {
+			if (CollisionDetection::CollisionInfo::OrderKey(second)
+				< CollisionDetection::CollisionInfo::OrderKey(first)) {
 				std::swap(first, second);
 			}
 			info.a = first;

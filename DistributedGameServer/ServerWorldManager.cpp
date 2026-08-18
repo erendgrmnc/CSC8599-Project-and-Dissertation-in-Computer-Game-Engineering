@@ -786,6 +786,13 @@ CSC8503::GameObject* DistributedGameServer::ServerWorldManager::CreateHaloShadow
 	// away. Command targeting is covered too, since FindActiveObject reads the pool.
 	object->SetIsHaloShadow(true);
 
+	// Set explicitly, because a shadow deliberately has no NetworkObject to carry it.
+	// Without this the pair would be oriented by world id, which is a local creation
+	// counter - the owning server builds this object at pre-seed and its neighbour
+	// builds the shadow later, so the two would orient the same contact oppositely and
+	// compute different impulses from it (invariant I8).
+	object->SetContactOrderID(networkID);
+
 	if (auto* physics = object->GetPhysicsObject()) {
 		physics->SetLinearVelocity(state.linearVelocity);
 		physics->SetAngularVelocity(state.angularVelocity);
@@ -827,8 +834,17 @@ void DistributedGameServer::ServerWorldManager::ReimposeHaloState() {
 		// Gravity is deliberately not integrated here. Over the few ticks this spans
 		// the 0.5*g*t^2 term is under a hundredth of a unit, and including it would
 		// tie the shadow's path to a gravity setting the owner might not share.
-		const uint64_t elapsedTicks = (mTickCounter > state.sampleTick)
+		// Bounded. Under a badly balanced partition an overloaded server falls behind
+		// its peer in real time, so its samples arrive with a tick number far below
+		// the receiver's counter - on the shuttle workload the gap reaches thousands
+		// of ticks. Extrapolating that far would fling the shadow across the world on
+		// a velocity that is long out of date. Clamping keeps the error bounded and
+		// leaves haloLate to report that the configuration is wrong, rather than
+		// turning a pacing problem into a physics one.
+		const uint64_t rawElapsed = (mTickCounter > state.sampleTick)
 			? (mTickCounter - state.sampleTick) : 0;
+		const uint64_t maxElapsed = static_cast<uint64_t>(std::max(1, mHaloLookaheadTicks)) * 3u;
+		const uint64_t elapsedTicks = (rawElapsed < maxElapsed) ? rawElapsed : maxElapsed;
 		const float elapsed = static_cast<float>(elapsedTicks) * substepDt;
 
 		const Maths::Vector3 predicted = state.position + state.linearVelocity * elapsed;

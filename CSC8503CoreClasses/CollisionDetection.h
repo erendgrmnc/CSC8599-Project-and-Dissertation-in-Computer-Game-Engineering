@@ -11,6 +11,8 @@
 #include "CapsuleVolume.h"
 #include "Ray.h"
 
+#include <utility>
+
 using NCL::Camera;
 using namespace NCL::Maths;
 using namespace NCL::CSC8503;
@@ -56,14 +58,32 @@ namespace NCL {
 			// pairs could compare equivalent and the second would be silently dropped
 			// from the set. World IDs are unique per GameWorld, so a lexicographic
 			// compare on them collides only for genuinely identical pairs.
-			static int OrderKey(const GameObject* o) {
-				return o ? o->GetWorldID() : -1;
+			// Two-part key. The first part is the globally agreed contact-order id,
+			// which is the network id where the object has one; the second is the
+			// per-world id, used only for objects with no global identity (static
+			// geometry, the floor) and only against each other.
+			//
+			// Ordering purely on world IDs was the previous version and is wrong
+			// across servers: see GameObject::GetContactOrderID. Objects WITH a global
+			// id sort before those without, so the two groups never interleave and the
+			// result is still a strict weak ordering.
+			static std::pair<int, int> OrderKey(const GameObject* o) {
+				// Nulls sort FIRST, as they did when the key was a bare int. A partly
+				// built CollisionInfo must keep comparing consistently against a
+				// complete one rather than being reordered by a change of encoding.
+				if (o == nullptr) {
+					return { -1, -1 };
+				}
+				const int globalID = o->GetContactOrderID();
+				return (globalID >= 0)
+					? std::pair<int, int>{ 0, globalID }
+					: std::pair<int, int>{ 1, o->GetWorldID() };
 			}
 
 			//Advanced collision detection / resolution
 			bool operator < (const CollisionInfo& other) const {
-				const int thisA = OrderKey(a);
-				const int otherA = OrderKey(other.a);
+				const std::pair<int, int> thisA = OrderKey(a);
+				const std::pair<int, int> otherA = OrderKey(other.a);
 				if (thisA != otherA) {
 					return thisA < otherA;
 				}

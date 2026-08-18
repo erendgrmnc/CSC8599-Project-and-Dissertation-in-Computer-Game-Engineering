@@ -25,6 +25,7 @@ add_executable(InteractionTests
     "NetworkIdSpaceTests.cpp"
     "ContactOrderingTests.cpp"
     "HaloShadowTests.cpp"
+    "ContactSymmetryTests.cpp"
     "HandoffPacketTests.cpp"
 )
 

@@ -193,6 +193,33 @@ namespace NCL::CSC8503 {
 			return mWorldID;
 		}
 
+		// --- contact ordering identity ---
+		//
+		// The id used to decide which body of a contact pair is `a`, which fixes the
+		// contact normal's direction and the operand order of the impulse arithmetic.
+		//
+		// It CANNOT be the world ID. That is a per-GameWorld creation-order counter
+		// (GameWorld::AddGameObject does worldIDCounter++), so two servers assign
+		// different world IDs to the same pair: on the owning server the object is
+		// built at pre-seed and its neighbour's shadow is built later, and on the
+		// other server it is the other way round. The pair would then be oriented
+		// oppositely on the two servers, and each would compute a slightly different
+		// impulse from the same contact - invariant I8, broken silently and only for
+		// pairs that straddle a border.
+		//
+		// Network ids are globally unique and identical on every server, so they are
+		// the right identity. Set automatically with the network object, and set
+		// explicitly on a halo shadow, which deliberately has no network object.
+		// -1 for objects with no global identity - static geometry, the floor - which
+		// sort after every networked object and fall back to the world ID.
+		int GetContactOrderID() const {
+			return mContactOrderID;
+		}
+
+		void SetContactOrderID(int id) {
+			mContactOrderID = id;
+		}
+
 		virtual void UpdateObject(float dt);
 
 		bool GetIsPlayer() { return mIsPlayer; }
@@ -240,6 +267,7 @@ namespace NCL::CSC8503 {
 		Vector3		mMoveAxis;
 		bool		mIsRendered;
 		int			mWorldID;
+		int			mContactOrderID = -1;
 		std::string	mName;
 
 		Vector3 mBroadphaseAABB;

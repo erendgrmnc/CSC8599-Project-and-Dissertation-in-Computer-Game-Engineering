@@ -74,6 +74,10 @@ bool GameObject::GetIsSensed() {
 void GameObject::SetNetworkObject(NetworkObject* netObj) {
 	mNetworkObject = netObj;
 	mIsNetworkActive = true;
+	// Cached rather than looked up through mNetworkObject at compare time: the
+	// contact comparator runs inside the broadphase inner loop and lives in a header
+	// that must not pull in the networking layer.
+	mContactOrderID = netObj->GetNetworkID();
 	netObj->SetGameObject(*this);
 }
 #endif
