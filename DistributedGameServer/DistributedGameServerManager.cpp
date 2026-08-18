@@ -600,7 +600,9 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectTransition
 		const int networkID = networkObj->GetNetworkID();
 		const int newOwner = networkObj->GetNewServerID();
 		networkObj->HandleTransitionComplete();
-		mServerWorldManager->HandleOutgoingObject(networkID, newOwner);
+		// Scheduled for the tick the RECEIVER installs it on, not released now.
+		// Releasing on send left the object owned by nobody for the whole lookahead.
+		mServerWorldManager->ScheduleOutgoingObject(networkID, newOwner);
 	}
 }
 

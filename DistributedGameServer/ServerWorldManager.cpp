@@ -793,6 +793,10 @@ CSC8503::GameObject* DistributedGameServer::ServerWorldManager::CreateHaloShadow
 	// compute different impulses from it (invariant I8).
 	object->SetContactOrderID(networkID);
 
+	// Recorded now, because if this shadow is later promoted the object becomes ours
+	// and a subsequent handoff has to be able to name its shape.
+	mObjectArchetypes[networkID] = archetypeID;
+
 	if (auto* physics = object->GetPhysicsObject()) {
 		physics->SetLinearVelocity(state.linearVelocity);
 		physics->SetAngularVelocity(state.angularVelocity);
@@ -999,6 +1003,10 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	// the shadow's authoritative state, then ReimposeHaloState writes that state over
 	// whatever last tick's contact resolution left behind. Doing it the other way
 	// round would re-impose the state the new update was about to replace.
+	// Same tick the receiving server installs the object on, so ownership changes
+	// atomically rather than leaving a gap the width of the lookahead.
+	FlushScheduledReleases();
+
 	FlushScheduledHaloUpdates();
 	RetireStaleHaloShadows();
 	ReimposeHaloState();
@@ -1154,6 +1162,75 @@ void NCL::DistributedGameServer::ServerWorldManager::AddNetworkObjectToNetworkOb
 }
 
 
+void DistributedGameServer::ServerWorldManager::ScheduleOutgoingObject(int networkObjectID,
+	int newOwnerServerID) {
+	// With no lookahead the receiver applies on arrival, so there is no agreed tick to
+	// wait for and holding on would only delay the transfer.
+	if (mHandoffLookaheadTicks <= 0) {
+		HandleOutgoingObject(networkObjectID, newOwnerServerID);
+		return;
+	}
+
+	ScheduledRelease release;
+	release.newOwnerServerID = newOwnerServerID;
+	// The packet carried mSenderTick = this same tick counter, and the receiver
+	// installs at mSenderTick + lookahead. Computing it the same way on both sides is
+	// what makes the exchange atomic without an acknowledgement.
+	release.releaseAtTick = mTickCounter + static_cast<uint64_t>(mHandoffLookaheadTicks);
+	mScheduledReleases[networkObjectID] = release;
+}
+
+bool DistributedGameServer::ServerWorldManager::IsReleasePending(int networkObjectID) const {
+	return mScheduledReleases.find(networkObjectID) != mScheduledReleases.end();
+}
+
+void DistributedGameServer::ServerWorldManager::FlushScheduledReleases() {
+	if (mScheduledReleases.empty()) {
+		return;
+	}
+
+	// std::map, so iteration is already in object-id order and two releases due on the
+	// same tick always happen in the same order - the same total order
+	// FlushScheduledHandoffs sorts for, obtained here for free.
+	for (auto entry = mScheduledReleases.begin(); entry != mScheduledReleases.end(); ) {
+		if (entry->second.releaseAtTick > mTickCounter) {
+			++entry;
+			continue;
+		}
+		const int objectID = entry->first;
+		const int newOwner = entry->second.newOwnerServerID;
+		entry = mScheduledReleases.erase(entry);
+		HandleOutgoingObject(objectID, newOwner);
+	}
+}
+
+CSC8503::GameObject* DistributedGameServer::ServerWorldManager::PromoteHaloShadow(int networkID) {
+	const auto entry = mHaloObjects.find(networkID);
+	if (entry == mHaloObjects.end() || entry->second == nullptr) {
+		return nullptr;
+	}
+
+	GameObject* object = entry->second;
+	mHaloObjects.erase(entry);
+	mHaloState.erase(networkID);
+
+	// It stops being someone else's copy and becomes ours. Everything it needs to be
+	// a first-class object it already has - it is in the GameWorld, registered with
+	// the physics system, and carrying the right archetype and contact-order id.
+	object->SetIsHaloShadow(false);
+
+	auto* networkObject = new NetworkObject(*object, networkID);
+	object->SetNetworkObject(networkObject);
+	AddNetworkObjectToNetworkObjects(networkObject);
+	mCreatedObjectPool[networkID] = object;
+
+	// Deliberately NOT added to mTestObjects here. ApplyIncomingObject does that on
+	// the shared path just below, for a constructed object and a promoted one alike;
+	// adding it here too put every promoted object in the list twice, which inflated
+	// the owned-object count by exactly the number of handoffs received.
+	return object;
+}
+
 void DistributedGameServer::ServerWorldManager::CheckPositionOutOfServerBoundaries() {
 	for (const auto& gameObj : mGameWorld->GetGameObjects()) {
 		// A halo shadow is already outside this server's region by construction -
@@ -1164,6 +1241,12 @@ void DistributedGameServer::ServerWorldManager::CheckPositionOutOfServerBoundari
 		}
 		if (gameObj->HasPhysics() && gameObj->IsNetworkActive()) {
 			if (auto* networkComp = gameObj->GetNetworkObject()) {
+				// Already promised to a neighbour, and still ours until the agreed
+				// tick. It is outside our region for that whole window, so without
+				// this it would be re-detected and re-sent every tick.
+				if (IsReleasePending(networkComp->GetNetworkID())) {
+					continue;
+				}
 				if (auto* physicsComp = gameObj->GetPhysicsObject()) {
 					const Vector3& position = physicsComp->GetTransform()->GetPosition();
 					int newServer = GetObjectServer(position);
@@ -1255,11 +1338,13 @@ bool DistributedGameServer::ServerWorldManager::ApplyIncomingObject(StartSimulat
 		return true;
 	}
 
-	// This server has been shadowing the object right up to the moment it became
-	// ours. The shadow has to go before the real object is installed, or the same
-	// object is in the broadphase twice - once where it actually is and once where
-	// its previous owner last published it.
-	RemoveHaloShadow(packet->objectID);
+	// This server has been shadowing the object right up to the moment it became ours,
+	// so the handoff is a PROMOTION rather than a construction: the shadow already
+	// exists, is already in the physics system, and already has the object's contact
+	// history. Tearing it down and building a replacement would throw that away, and
+	// UpdateCollisionList carries contacts for several frames - an object mid-collision
+	// at the border would have its contacts silently reset by crossing it.
+	PromoteHaloShadow(packet->objectID);
 
 	auto poolEntry = mCreatedObjectPool.find(packet->objectID);
 	if (poolEntry == mCreatedObjectPool.end()) {

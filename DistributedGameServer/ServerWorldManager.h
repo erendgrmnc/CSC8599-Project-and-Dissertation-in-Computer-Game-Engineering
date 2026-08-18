@@ -62,6 +62,26 @@ namespace NCL {
 			// handoff can still be forwarded. Without it, releasing the object leaves
 			// this server unable to say where it went and race W2 reopens.
 			void HandleOutgoingObject(int networkObjectID, int newOwnerServerID);
+
+			// Schedules the release for the SAME tick the receiver installs the object
+			// on, instead of releasing the moment the packet is sent.
+			//
+			// Releasing on send opened an ownership gap the width of the handoff
+			// lookahead: the receiver applies at senderTick + lookahead, so with the
+			// 300-tick lookahead a reproducible run uses, every transferred object was
+			// simulated by NOBODY for 2.5 seconds. Measured on a 200-object uniform
+			// run, 1,397 of 1,800 ticks had at least one unowned object and as many as
+			// 33 were unowned at once.
+			//
+			// Both sides act on the same agreed tick, so ownership changes atomically
+			// with no barrier and no acknowledgement.
+			void ScheduleOutgoingObject(int networkObjectID, int newOwnerServerID);
+
+			// True while a release is scheduled but not yet due. The border check must
+			// skip such an object: it is outside this server's region for the whole
+			// pending window, so without this it would be re-detected and re-sent
+			// every tick until the release finally fired.
+			bool IsReleasePending(int networkObjectID) const;
 			void CreateObjectGrid(int rowCount, int colCount, int objectsPerPlayer, float rowSpacing, float colSpacing, int playerID, const Maths::Vector3& startPos);
 
 			std::vector<CSC8503::TestObject*> GetTestObjects();
@@ -477,6 +497,24 @@ namespace NCL {
 			};
 			std::vector<ScheduledHaloUpdate> mScheduledHaloUpdates;
 			void FlushScheduledHaloUpdates();
+
+			// Releases scheduled by ScheduleOutgoingObject, keyed by object id so the
+			// border check can test membership cheaply.
+			struct ScheduledRelease {
+				int newOwnerServerID = -1;
+				uint64_t releaseAtTick = 0;
+			};
+			std::map<int, ScheduledRelease> mScheduledReleases;
+			void FlushScheduledReleases();
+
+			// Turns an existing halo shadow into an object this server owns, rather
+			// than tearing the shadow down and building a replacement.
+			//
+			// Cheaper, but the reason is correctness as much as cost: rebuilding
+			// discards the object's contact history, which UpdateCollisionList carries
+			// for several frames, so an object mid-collision at the border would have
+			// its contacts silently reset by the transfer.
+			CSC8503::GameObject* PromoteHaloShadow(int networkID);
 
 			// Builds a shadow. Deliberately NOT CreateObjectFromArchetype: that adds
 			// the object to mCreatedObjectPool and to mNetworkObjects, which would
