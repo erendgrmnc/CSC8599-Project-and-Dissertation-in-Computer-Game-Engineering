@@ -109,9 +109,19 @@ TEST(HaloShadowStillFormsBroadphasePairs) {
 	world.AddGameObject(owned);
 	world.AddGameObject(shadow);
 
+	const long long before = Profiler::GetContactsResolvedTotal();
 	physics.Update(TICK_DT);
 
-	CHECK(Profiler::GetContactsResolved() > 0);
+	// The cumulative total, not the last substep's count. Two overlapping bodies at
+	// rest are pushed apart by penetration resolution over the substeps of a single
+	// Update, so by the final substep they are no longer in contact and the per-substep
+	// figure is legitimately 0.
+	//
+	// This test used to read the per-substep count and pass anyway, because the old
+	// broadphase paired every object with ITSELF (its inner loop started at j = i), so
+	// the count never fell to zero. Those self-pairs were resolved as contacts and
+	// inflated every contact measurement by one per object per substep.
+	CHECK(Profiler::GetContactsResolvedTotal() > before);
 
 	world.ClearAndErase();
 }

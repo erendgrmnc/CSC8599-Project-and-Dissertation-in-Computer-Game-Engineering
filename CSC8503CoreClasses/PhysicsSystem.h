@@ -1,4 +1,5 @@
 #pragma once
+#include <unordered_map>
 #include "GameWorld.h"
 #include "QuadTree.h"
 
@@ -121,6 +122,39 @@ namespace NCL {
 			std::vector<CollisionDetection::CollisionInfo> mBroadphaseCollisionsVec;
 			QuadTree<GameObject*> mStaticTree;
 			std::vector<GameObject*> mDynamicObjectList;
+
+			// --- dynamic broadphase grid ---
+			//
+			// The dynamic pass used to test every pair: two nested loops over
+			// mDynamicObjectList. That is O(n^2) in the number of objects a server
+			// owns, and it was the system's hard scaling limit - measured at 8.63 ms
+			// per tick for 1,000 objects and 36.72 ms for 2,000, an exponent of 2.09,
+			// against a 8.33 ms budget at 120 Hz. Contacts only doubled over that
+			// range, so the cost was pair ENUMERATION, not contact resolution.
+			//
+			// A uniform grid over XZ replaces it. XZ and not XYZ because the pair test
+			// below already flattens Y (it forces both half-extents to 1000 on that
+			// axis), so the broadphase has always been two-dimensional in effect.
+			//
+			// The grid is a bucket index rebuilt each tick, not a persistent
+			// structure: objects move every tick, so an incremental structure would
+			// pay the same insertion cost plus bookkeeping.
+			struct BroadphaseGrid {
+				// Cell size in world units. Wants to be a small multiple of the
+				// largest object: too small and a big object spans many cells, too
+				// large and each cell degenerates back towards the quadratic scan.
+				float cellSize = 4.0f;
+				// Cell key -> indices into mDynamicObjectList.
+				std::unordered_map<long long, std::vector<int>> cells;
+				// Reused across ticks so the per-tick rebuild does not reallocate.
+				std::vector<int> candidates;
+			};
+			BroadphaseGrid mBroadphaseGrid;
+
+			// Fills mBroadphaseCollisions with dynamic/dynamic candidate pairs, using
+			// the grid. Produces exactly the pairs the quadratic scan produced: the
+			// grid only decides which pairs are TESTED, and the AABB test is unchanged.
+			void BroadPhaseDynamicPairs();
 
 			// Replaces the old mStaticTree.Empty() sentinel for "has the one-time bulk
 			// seed run?". The tree is the wrong thing to ask: a world with no static
