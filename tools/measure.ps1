@@ -64,6 +64,10 @@ param(
     [switch]$HaloReliable,
     # Forces one partition change at an ABSOLUTE tick, for testing the repartition
     # mechanism before any policy decides when to use it. 0 disables.
+    # Worker threads for the parallel physics phases, per server. 0 keeps
+    # everything on the server's own thread; -1 derives a default from the
+    # hardware. Contact resolution is never parallel - see PhysicsSystem.h.
+    [int]$PhysicsThreads = 0,
     [int]$RepartitionAt = 0,
     # Interior X boundaries of the new partition: N-1 values for N servers. A comma
     # separated STRING, not an array - powershell -File cannot parse array arguments.
@@ -108,6 +112,7 @@ $manifest = [ordered]@{
     world        = $World
     haloWidth    = $HaloWidth
     haloLookahead = $HaloLookahead
+    physicsThreads = $PhysicsThreads
     repartitionAt = $RepartitionAt
     repartitionX = $RepartitionX
     gitCommit    = (& git -C $repoRoot rev-parse HEAD 2>$null)
@@ -125,7 +130,7 @@ $mgr = Start-Process -PassThru -FilePath (Join-Path $deploy "Manager\EntryPoint.
 Start-Sleep -Seconds 3
 
 $mid = Start-Process -PassThru -FilePath (Join-Path $deploy "Midware\EntryPoint.exe") `
-    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" --handoff-delay-ticks $HandoffDelayTicks --handoff-lookahead $HandoffLookahead --halo-width $HaloWidth --halo-lookahead $HaloLookahead $haloReliableArg --epoch-align-us $EpochAlignUs $bound" `
+    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" --handoff-delay-ticks $HandoffDelayTicks --handoff-lookahead $HandoffLookahead --physics-threads $PhysicsThreads --halo-width $HaloWidth --halo-lookahead $HaloLookahead $haloReliableArg --epoch-align-us $EpochAlignUs $bound" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\mid.log" -RedirectStandardError "$runDir\mid.err" -WindowStyle Hidden
 Start-Sleep -Seconds 4
 

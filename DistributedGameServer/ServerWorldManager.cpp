@@ -8,6 +8,7 @@
 #include "NetworkObject.h"
 #include "PhysicsObject.h"
 #include "PhysicsSystem.h"
+#include "DistributedSystemCommonFiles/TaskPool.h"
 #include "Profiler.h"
 #include "TestObject.h"
 #include "glad/gl.h"
@@ -149,6 +150,13 @@ NCL::CSC8503::GameWorld* NCL::DistributedGameServer::ServerWorldManager::GetGame
 // Out of line: GameWorld is only forward-declared in the header.
 int NCL::DistributedGameServer::ServerWorldManager::GetWorldObjectCount() const {
 	return mGameWorld ? static_cast<int>(mGameWorld->GetGameObjects().size()) : 0;
+}
+
+void NCL::DistributedGameServer::ServerWorldManager::SetPhysicsWorkerThreads(int workerCount) {
+	// Negative asks for the hardware default; 0 stays serial. Set before the world is
+	// built, so the pool exists for the very first tick.
+	const int workers = (workerCount < 0) ? NCL::TaskPool::DefaultWorkerCount() : workerCount;
+	mPhysics->SetWorkerThreadCount(workers);
 }
 
 void NCL::DistributedGameServer::ServerWorldManager::SetFixedTimestep(bool state) {

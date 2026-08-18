@@ -1,5 +1,7 @@
 #pragma once
+#include <memory>
 #include <unordered_map>
+#include "DistributedSystemCommonFiles/TaskPool.h"
 #include "GameWorld.h"
 #include "QuadTree.h"
 
@@ -146,8 +148,9 @@ namespace NCL {
 				float cellSize = 4.0f;
 				// Cell key -> indices into mDynamicObjectList.
 				std::unordered_map<long long, std::vector<int>> cells;
-				// Reused across ticks so the per-tick rebuild does not reallocate.
-				std::vector<int> candidates;
+				// The candidate scratch buffer moved into the collection lambda when
+				// that became parallel - it has to be per thread, and a member cannot
+				// be.
 			};
 			BroadphaseGrid mBroadphaseGrid;
 
@@ -155,6 +158,41 @@ namespace NCL {
 			// the grid. Produces exactly the pairs the quadratic scan produced: the
 			// grid only decides which pairs are TESTED, and the AABB test is unchanged.
 			void BroadPhaseDynamicPairs();
+
+			// --- parallelism ---
+			//
+			// Shared by every phase below that is safe to run in parallel. Owned here
+			// rather than passed in, because the physics loop is the only thing in a
+			// game server with enough per-tick work to be worth splitting.
+			//
+			// Which phases are parallel is a correctness question, not a performance
+			// one. Integration and AABB updates write only to the object being
+			// processed, so they are independent. Broadphase pair COLLECTION is
+			// independent too, provided each thread writes to its own buffer and the
+			// buffers are merged afterwards in a fixed order.
+			//
+			// NarrowPhase is NOT parallelised, and must not be. Sequential impulse
+			// resolution reads and writes the velocity of both bodies in a contact, so
+			// two contacts sharing a body conflict; worse, the ORDER contacts resolve
+			// in changes the result, and this system's central claim is that two runs
+			// of the same configuration are bit-identical.
+			std::unique_ptr<TaskPool> mTaskPool;
+			// Per-thread pair buffers, merged into mBroadphaseCollisions after the
+			// parallel collection. Retained across ticks so the merge does not
+			// reallocate every frame.
+			std::vector<std::vector<CollisionDetection::CollisionInfo>> mPairBuffers;
+
+		public:
+			// 0 workers keeps everything on the calling thread, which is what the unit
+			// tests and any single-core configuration want. Safe to call before the
+			// first Update; not safe to call while one is running.
+			void SetWorkerThreadCount(int workerCount);
+
+			int GetWorkerThreadCount() const {
+				return mTaskPool ? mTaskPool->GetWorkerCount() : 0;
+			}
+
+		protected:
 
 			// Replaces the old mStaticTree.Empty() sentinel for "has the one-time bulk
 			// seed run?". The tree is the wrong thing to ask: a world with no static

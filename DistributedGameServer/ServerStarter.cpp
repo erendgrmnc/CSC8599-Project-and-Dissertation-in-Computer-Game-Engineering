@@ -117,6 +117,10 @@ int StartGameServer(int argc, char* argv[]) {
 		worldManager->SetHaloLookaheadTicks(config.GetInt("--halo-lookahead", 4));
 		// 0, so every configuration that predates the halo behaves exactly as before.
 		worldManager->SetHaloWidth(config.GetFloat("--halo-width", 0.0f));
+		// Parallel physics. 0 (the default) keeps every phase on this thread, so a
+		// run without the flag behaves exactly as every earlier measurement did;
+		// -1 asks TaskPool for a default derived from the hardware.
+		worldManager->SetPhysicsWorkerThreads(config.GetInt("--physics-threads", 0));
 		// Reproducible runs need it; production would not. See PublishHaloBand.
 		serverManager->SetHaloReliable(config.Has("--halo-reliable"));
 		std::cout << "Determinism: fixed-step=" << (fixedStep ? "on" : "off")

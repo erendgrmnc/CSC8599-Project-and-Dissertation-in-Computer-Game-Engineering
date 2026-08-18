@@ -183,7 +183,39 @@ void PhysicsSystem::UpdateCollisionList() {
 	}
 }
 
+void PhysicsSystem::SetWorkerThreadCount(int workerCount) {
+	if (workerCount <= 0) {
+		mTaskPool.reset();
+		mPairBuffers.clear();
+		return;
+	}
+	mTaskPool = std::make_unique<TaskPool>(workerCount);
+	mPairBuffers.assign(mTaskPool->GetBufferCount(), {});
+	std::cout << "Physics worker threads: " << mTaskPool->GetWorkerCount()
+		<< " (+ the calling thread)\n";
+}
+
 void PhysicsSystem::UpdateObjectAABBs() {
+	// Parallel over the dynamic list, serial over the rest. Each object writes only
+	// its own AABB, so there is nothing shared to guard.
+	//
+	// Deliberately NOT OperateOnContents over the whole world: static geometry is
+	// seeded into the quadtree once and never moves, so recomputing its AABB every
+	// tick was wasted work that also could not be split by index.
+	if (mTaskPool && !mDynamicObjectList.empty()) {
+		mTaskPool->ParallelFor(static_cast<int>(mDynamicObjectList.size()),
+			[this](int begin, int end, int) {
+				for (int i = begin; i < end; ++i) {
+					mDynamicObjectList[i]->UpdateBroadphaseAABB();
+				}
+			});
+		// Statics still need one pass, since the seed loop reads their AABBs.
+		if (!mBroadphaseSeeded) {
+			mGameWorld.OperateOnContents([](GameObject* g) { g->UpdateBroadphaseAABB(); });
+		}
+		return;
+	}
+
 	mGameWorld.OperateOnContents(
 		[](GameObject* g) {
 			g->UpdateBroadphaseAABB();
@@ -657,7 +689,23 @@ void PhysicsSystem::BroadPhaseDynamicPairs() {
 	// considered, which is what stops a pair being tested twice - the same rule the
 	// quadratic scan used, and the reason an object spanning several cells cannot
 	// produce duplicates either.
-	for (int i = 0; i < objectCount; ++i) {
+	//
+	// PARALLEL, but only the COLLECTION. Each thread appends the pairs it finds to its
+	// own buffer and nothing is shared; the buffers are then merged into
+	// mBroadphaseCollisions on one thread, below. Inserting into the set directly from
+	// several threads would be a data race, and - worse - the merge order would vary.
+	//
+	// The result is identical either way, because mBroadphaseCollisions is a std::set
+	// ordered by the contact-order comparator: the SET does not depend on the order
+	// things were inserted, and NarrowPhase walks it in comparator order. That is what
+	// makes this safe to parallelise while contact resolution is not.
+	//
+	// The candidate scratch buffer has to be per thread too, so it moves out of
+	// mBroadphaseGrid and into the lambda.
+	const auto collectRange = [&](int begin, int end, int worker) {
+	std::vector<CollisionDetection::CollisionInfo>& pairs = mPairBuffers[worker];
+	std::vector<int> candidates;
+	for (int i = begin; i < end; ++i) {
 		GameObject* objectA = mDynamicObjectList[i];
 		if (!objectA->HasPhysics()) continue;
 		Vector3 halfSizeA;
@@ -670,30 +718,28 @@ void PhysicsSystem::BroadPhaseDynamicPairs() {
 		const int minCellZ = static_cast<int>(std::floor((centreA.z - halfSizeA.z) * invCell));
 		const int maxCellZ = static_cast<int>(std::floor((centreA.z + halfSizeA.z) * invCell));
 
-		mBroadphaseGrid.candidates.clear();
+		candidates.clear();
 		for (int cx = minCellX - 1; cx <= maxCellX + 1; ++cx) {
 			for (int cz = minCellZ - 1; cz <= maxCellZ + 1; ++cz) {
 				const auto cell = mBroadphaseGrid.cells.find(cellKey(cx, cz));
 				if (cell == mBroadphaseGrid.cells.end()) continue;
 				for (int j : cell->second) {
 					if (j > i) {
-						mBroadphaseGrid.candidates.push_back(j);
+						candidates.push_back(j);
 					}
 				}
 			}
 		}
-		if (mBroadphaseGrid.candidates.empty()) continue;
+		if (candidates.empty()) continue;
 
 		// An object spanning several cells appears in each of them, so the same
 		// neighbour can be collected more than once. Sorting and uniquing is cheaper
 		// than a per-object visited set and keeps the work proportional to the
 		// candidates actually found.
-		std::sort(mBroadphaseGrid.candidates.begin(), mBroadphaseGrid.candidates.end());
-		mBroadphaseGrid.candidates.erase(
-			std::unique(mBroadphaseGrid.candidates.begin(), mBroadphaseGrid.candidates.end()),
-			mBroadphaseGrid.candidates.end());
+		std::sort(candidates.begin(), candidates.end());
+		candidates.erase(std::unique(candidates.begin(), candidates.end()), candidates.end());
 
-		for (int j : mBroadphaseGrid.candidates) {
+		for (int j : candidates) {
 			GameObject* objectB = mDynamicObjectList[j];
 			if (!objectB->HasPhysics()) continue;
 
@@ -726,6 +772,31 @@ void PhysicsSystem::BroadPhaseDynamicPairs() {
 				info.b->GetTransform().GetPosition() + info.b->GetBoundingVolume()->GetOffset(),
 				boundsA, boundsB)) continue;
 
+			pairs.push_back(info);
+		}
+	}
+	};
+
+	const int bufferCount = mTaskPool ? mTaskPool->GetBufferCount() : 1;
+	if (static_cast<int>(mPairBuffers.size()) < bufferCount) {
+		mPairBuffers.resize(bufferCount);
+	}
+	for (auto& buffer : mPairBuffers) {
+		buffer.clear();
+	}
+
+	if (mTaskPool) {
+		mTaskPool->ParallelFor(objectCount, collectRange);
+	}
+	else {
+		collectRange(0, objectCount, 0);
+	}
+
+	// Merged on one thread, in buffer order. The destination is an ordered set, so the
+	// merge order cannot affect the result - but doing it here rather than inside the
+	// workers is what removes the race.
+	for (const auto& buffer : mPairBuffers) {
+		for (const CollisionDetection::CollisionInfo& info : buffer) {
 			mBroadphaseCollisions.insert(info);
 		}
 	}
@@ -767,55 +838,73 @@ based on any forces that have been accumulated in the objects during
 the course of the previous game frame.
 */
 void PhysicsSystem::IntegrateAccel(float dt) {
-	int integrated = 0;
-	for (int i = 0; i < mDynamicObjectList.size(); i++) {
-		// Skip deactivated objects, matching BroadPhase. In the distributed build
-		// every server pre-seeds the whole world and deactivates the objects outside
-		// its own region; without this test each server integrated every object in
-		// the world, so per-server physics cost scaled with total world size instead
-		// of region occupancy.
-		if (!mDynamicObjectList[i]->HasPhysics())
-			continue;
-		// A halo shadow has physics so that the broadphase pairs with it, but it is
-		// owned by another server and that server integrates it. Integrating it here
-		// too would make this server a second owner - invariant I7 - and the two
-		// copies would diverge within a tick.
-		if (mDynamicObjectList[i]->IsHaloShadow())
-			continue;
-		PhysicsObject* object = mDynamicObjectList[i]->GetPhysicsObject();
-		if (object == nullptr)
-			continue;
-		++integrated;
-		// inverse mass for multiplication instead of division and unmoving object
-		float inverseMass = object->GetInverseMass();
+	// Independent per object: each iteration writes only to the object it is
+	// processing, so splitting the range changes nothing about the result. The
+	// integrated count is the only shared state, and it is a count - accumulated
+	// atomically rather than merged, since its value does not depend on order.
+	std::atomic<int> integratedCount{ 0 };
 
-		Vector3 linearVel = object->GetLinearVelocity();
-		Vector3 force = object->GetForce();
+	const auto integrateRange = [&](int begin, int end, int) {
+		int integrated = 0;
+		for (int i = begin; i < end; i++) {
+			// Skip deactivated objects, matching BroadPhase. In the distributed build
+			// every server pre-seeds the whole world and deactivates the objects outside
+			// its own region; without this test each server integrated every object in
+			// the world, so per-server physics cost scaled with total world size instead
+			// of region occupancy.
+			if (!mDynamicObjectList[i]->HasPhysics())
+				continue;
+			// A halo shadow has physics so that the broadphase pairs with it, but it is
+			// owned by another server and that server integrates it. Integrating it here
+			// too would make this server a second owner - invariant I7 - and the two
+			// copies would diverge within a tick.
+			if (mDynamicObjectList[i]->IsHaloShadow())
+				continue;
+			PhysicsObject* object = mDynamicObjectList[i]->GetPhysicsObject();
+			if (object == nullptr)
+				continue;
+			++integrated;
+			// inverse mass for multiplication instead of division and unmoving object
+			float inverseMass = object->GetInverseMass();
 
-		Vector3 accel = force * inverseMass;
+			Vector3 linearVel = object->GetLinearVelocity();
+			Vector3 force = object->GetForce();
 
-		if (mApplyGravity && inverseMass > 0)
-			accel += mGravity;
+			Vector3 accel = force * inverseMass;
 
-		linearVel += accel * dt;
-		object->SetLinearVelocity(linearVel);
+			if (mApplyGravity && inverseMass > 0)
+				accel += mGravity;
 
-		// get objects current torque and angular velocity
-		Vector3 torque = object->GetTorque();
-		Vector3 angVel = object->GetAngularVelocity();
+			linearVel += accel * dt;
+			object->SetLinearVelocity(linearVel);
 
-		// update objects orientation
-		object->UpdateInertiaTensor();
+			// get objects current torque and angular velocity
+			Vector3 torque = object->GetTorque();
+			Vector3 angVel = object->GetAngularVelocity();
 
-		// get angular accel using new orientation * torque
-		Vector3 angAccel = object->GetInverseInertiaTensor() * torque;
-		// scale by dt and set as new angular velocity
-		angVel += angAccel * dt;
-		object->SetAngularVelocity(angVel);
+			// update objects orientation
+			object->UpdateInertiaTensor();
+
+			// get angular accel using new orientation * torque
+			Vector3 angAccel = object->GetInverseInertiaTensor() * torque;
+			// scale by dt and set as new angular velocity
+			angVel += angAccel * dt;
+			object->SetAngularVelocity(angVel);
+		}
+		integratedCount.fetch_add(integrated, std::memory_order_relaxed);
+	};
+
+	const int count = static_cast<int>(mDynamicObjectList.size());
+	if (mTaskPool) {
+		mTaskPool->ParallelFor(count, integrateRange);
 	}
+	else {
+		integrateRange(0, count, 0);
+	}
+
 	// Compared against the owned-object count in telemetry: a mismatch means this
 	// server is integrating objects outside its own region.
-	Profiler::SetIntegratedObjects(integrated);
+	Profiler::SetIntegratedObjects(integratedCount.load(std::memory_order_relaxed));
 }
 
 /*
@@ -825,38 +914,51 @@ throughout a physics update, to slowly move the objects through
 the world, looking for collisions.
 */
 void PhysicsSystem::IntegrateVelocity(float dt) {
-	float frameLinearDampening = 1.0f - (0.4f * dt);
-	for (int i = 0; i < mDynamicObjectList.size(); i++) {
-		// See IntegrateAccel: only objects this server owns are integrated, and a
-		// halo shadow is owned elsewhere.
-		if (!mDynamicObjectList[i]->HasPhysics())
-			continue;
-		if (mDynamicObjectList[i]->IsHaloShadow())
-			continue;
-		PhysicsObject* object = mDynamicObjectList[i]->GetPhysicsObject();
-		if (object == nullptr)
-			continue;
-		// determine position
-		Transform& transform = mDynamicObjectList[i]->GetTransform();
-		Vector3 position = transform.GetPosition();
-		Vector3 linearVel = object->GetLinearVelocity();
-		position += linearVel * dt;
-		transform.SetPosition(position);
-		// linear dampening
-		linearVel = linearVel * frameLinearDampening;
-		object->SetLinearVelocity(linearVel);
+	// Independent per object, exactly as IntegrateAccel is: position and orientation
+	// are written only on the object being processed.
+	const float frameLinearDampening = 1.0f - (0.4f * dt);
 
-		// orientation
-		Quaternion orientation = transform.GetOrientation();
-		Vector3 angVel = object->GetAngularVelocity();
-		orientation = orientation + (Quaternion(angVel * dt * 0.5f, 0.0f) * orientation);
-		orientation.Normalise();
-		transform.SetOrientation(orientation);
+	const auto integrateRange = [&](int begin, int end, int) {
+		for (int i = begin; i < end; i++) {
+			// See IntegrateAccel: only objects this server owns are integrated, and a
+			// halo shadow is owned elsewhere.
+			if (!mDynamicObjectList[i]->HasPhysics())
+				continue;
+			if (mDynamicObjectList[i]->IsHaloShadow())
+				continue;
+			PhysicsObject* object = mDynamicObjectList[i]->GetPhysicsObject();
+			if (object == nullptr)
+				continue;
+			// determine position
+			Transform& transform = mDynamicObjectList[i]->GetTransform();
+			Vector3 position = transform.GetPosition();
+			Vector3 linearVel = object->GetLinearVelocity();
+			position += linearVel * dt;
+			transform.SetPosition(position);
+			// linear dampening
+			linearVel = linearVel * frameLinearDampening;
+			object->SetLinearVelocity(linearVel);
 
-		// dampen new angular velocity
-		float frameAngularDamping = 1.0f - (0.4f * dt);
-		angVel = angVel * frameAngularDamping;
-		object->SetAngularVelocity(angVel);
+			// orientation
+			Quaternion orientation = transform.GetOrientation();
+			Vector3 angVel = object->GetAngularVelocity();
+			orientation = orientation + (Quaternion(angVel * dt * 0.5f, 0.0f) * orientation);
+			orientation.Normalise();
+			transform.SetOrientation(orientation);
+
+			// dampen new angular velocity
+			float frameAngularDamping = 1.0f - (0.4f * dt);
+			angVel = angVel * frameAngularDamping;
+			object->SetAngularVelocity(angVel);
+		}
+	};
+
+	const int count = static_cast<int>(mDynamicObjectList.size());
+	if (mTaskPool) {
+		mTaskPool->ParallelFor(count, integrateRange);
+	}
+	else {
+		integrateRange(0, count, 0);
 	}
 }
 

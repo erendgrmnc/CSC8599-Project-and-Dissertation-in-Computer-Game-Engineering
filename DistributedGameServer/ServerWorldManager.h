@@ -142,6 +142,11 @@ namespace NCL {
 			// see PhysicsSystem::SetFixedTimestep.
 			void SetFixedTimestep(bool state);
 
+			// Worker threads for the parallel physics phases. 0 keeps everything on
+			// the server's own thread, which is how every measurement before this ran.
+			// Negative means "pick a sensible default from the hardware".
+			void SetPhysicsWorkerThreads(int workerCount);
+
 			// The pinned substep length, in seconds. Feeding this to the headless loop
 			// as its dt makes each tick perform exactly one substep, which is what
 			// turns a run deterministic.
