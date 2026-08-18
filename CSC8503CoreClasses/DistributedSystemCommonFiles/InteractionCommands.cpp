@@ -17,6 +17,39 @@ namespace NCL::Interaction {
 			return Maths::Vector3(v.x / length, v.y / length, v.z / length);
 		}
 
+		// Where to forward an object-targeted command this server could not apply.
+		//
+		// Position first: while a server still holds a copy of an object it does not
+		// own - a pre-seeded twin today, a halo shadow later - that position lies in
+		// the real owner's region and is the most current answer available.
+		//
+		// Then the forwarding table, for objects this server holds nothing for. A
+		// server that has handed an object away has no position for it, so without
+		// this the command would be rejected as ObjectUnknown and race W2 would
+		// reopen.
+		bool ResolveForwardTarget(const ICommandContext& ctx, int objectID, int& outServerID) {
+			Maths::Vector3 lastKnown;
+			if (ctx.TryGetLastKnownPosition(objectID, lastKnown)) {
+				const int owner = ctx.GetOwningServer(lastKnown);
+				if (owner >= 0 && owner != ctx.GetServerID()) {
+					outServerID = owner;
+					return true;
+				}
+				// Deliberately falls through rather than returning false. A position
+				// that maps back to US for an object that is not active here means we
+				// handed it away and are holding a stale copy; the table knows where
+				// it actually went.
+			}
+
+			int recorded = -1;
+			if (ctx.TryGetLastKnownOwner(objectID, recorded)
+				&& recorded >= 0 && recorded != ctx.GetServerID()) {
+				outServerID = recorded;
+				return true;
+			}
+			return false;
+		}
+
 		// A one-shot push on a single object. Object-targeted, so the owner is
 		// whichever server currently has it active.
 		class ImpulseCommand : public IInteractionCommand {
@@ -75,15 +108,8 @@ namespace NCL::Interaction {
 
 				// Not ours. Forward to whoever the object was last seen with rather
 				// than rejecting - the client's owner table is allowed to be stale.
-				Maths::Vector3 lastKnown;
-				if (!ctx.TryGetLastKnownPosition(args.targetObjectID, lastKnown)) {
-					return CommandResult::ObjectUnknown;
-				}
-
-				const int owner = ctx.GetOwningServer(lastKnown);
-				if (owner < 0 || owner == ctx.GetServerID()) {
-					// Either outside the world, or it should have been ours and is not
-					// active - nothing useful to forward to.
+				int owner = -1;
+				if (!ResolveForwardTarget(ctx, args.targetObjectID, owner)) {
 					return CommandResult::ObjectUnknown;
 				}
 
@@ -225,16 +251,13 @@ namespace NCL::Interaction {
 				}
 
 				// Not active here. It may have been handed off, or already destroyed.
-				Maths::Vector3 lastKnown;
-				if (!ctx.TryGetLastKnownPosition(args.targetObjectID, lastKnown)) {
-					// No pool entry at all, or the entry is a tombstone. Either way
-					// there is nothing left to destroy and nowhere to forward to.
+				// Order matters: a tombstone must report ObjectDestroyed rather than
+				// being forwarded, so the destroyed case is tested before forwarding.
+				int owner = -1;
+				if (!ResolveForwardTarget(ctx, args.targetObjectID, owner)) {
+					// Nothing held, nothing recorded: there is nothing left to destroy
+					// and nowhere to forward to.
 					return CommandResult::ObjectDestroyed;
-				}
-
-				const int owner = ctx.GetOwningServer(lastKnown);
-				if (owner < 0 || owner == ctx.GetServerID()) {
-					return CommandResult::ObjectUnknown;
 				}
 
 				ctx.RelayToServer(owner, GetType(), args);

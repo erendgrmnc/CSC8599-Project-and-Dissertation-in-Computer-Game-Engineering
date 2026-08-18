@@ -119,6 +119,19 @@ namespace NCL::Interaction {
 		// non-owner resolve where an object-targeted command should be relayed.
 		virtual bool TryGetLastKnownPosition(int networkObjectID, Maths::Vector3& out) const = 0;
 
+		// Which server this one last believed owned the object, for objects it does
+		// not hold at all.
+		//
+		// This exists because the deactivated twin was doing a job nobody had written
+		// down. Under the pre-seed model every server holds a copy of every object, so
+		// a server that had handed an object away still had its last position - which
+		// lies in the NEW owner's region - and TryGetLastKnownPosition alone was enough
+		// to forward a misrouted command. That is the whole reason the handoff ack
+		// turned out not to be load-bearing for race W2. Once a server holds only its
+		// own region it has no position for an object it no longer has, so the last
+		// known owner is recorded explicitly instead.
+		virtual bool TryGetLastKnownOwner(int networkObjectID, int& outServerID) const = 0;
+
 		// Returns the allocated networkID, or -1 on failure (ID space exhausted).
 		virtual int  SpawnObject(int archetypeID, const Maths::Vector3& at, int spawnerPlayerID) = 0;
 		virtual bool DestroyObject(int networkObjectID, DespawnReason reason, int destroyerPlayerID) = 0;

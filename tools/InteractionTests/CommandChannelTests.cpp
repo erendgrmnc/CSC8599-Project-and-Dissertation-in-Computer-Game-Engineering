@@ -155,6 +155,11 @@ namespace {
 		bool objectIsActiveHere = true;
 		Maths::Vector3 lastKnownPosition{ 0, 0, 0 };
 		bool hasLastKnownPosition = true;
+		// The forwarding table: what a server that no longer holds an object knows
+		// about where it went. Off by default so existing tests keep exercising the
+		// position path.
+		int lastKnownOwner = -1;
+		bool hasLastKnownOwner = false;
 
 		struct ImpulseCall { int objectID; Maths::Vector3 impulse; };
 		struct MoveAxisCall { int objectID; int playerID; Maths::Vector3 axis; };
@@ -177,6 +182,14 @@ namespace {
 				return false;
 			}
 			out = lastKnownPosition;
+			return true;
+		}
+
+		bool TryGetLastKnownOwner(int, int& outServerID) const override {
+			if (!hasLastKnownOwner) {
+				return false;
+			}
+			outServerID = lastKnownOwner;
 			return true;
 		}
 
