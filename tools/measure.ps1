@@ -58,6 +58,10 @@ param(
     # Small on purpose - unlike the handoff lookahead, this is permanent lag on a
     # continuously tracked position, not a one-off gap.
     [int]$HaloLookahead = 4,
+    # Send halo updates reliably. Costs bandwidth, but a dropped update leaves a
+    # shadow extrapolating from an older sample and drops are not the same from
+    # run to run - so reproducible runs need this.
+    [switch]$HaloReliable,
     [string]$World = "-150,150,-150,150",
     [string]$OutDir = ""
 )
@@ -82,6 +86,7 @@ $metricsDir = $runDir -replace '\\','/'
 # Recorded alongside the CSVs: determinism is per-configuration, so a dataset
 # without its build metadata is not reproducible.
 $mode = if ($Ticks -gt 0) { "reproducible" } else { "realtime" }
+$haloReliableArg = if ($HaloReliable) { "--halo-reliable" } else { "" }
 $bound = if ($Ticks -gt 0) { "--run-ticks $Ticks" } else { "--run-seconds $Seconds" }
 
 $manifest = [ordered]@{
@@ -111,7 +116,7 @@ $mgr = Start-Process -PassThru -FilePath (Join-Path $deploy "Manager\EntryPoint.
 Start-Sleep -Seconds 3
 
 $mid = Start-Process -PassThru -FilePath (Join-Path $deploy "Midware\EntryPoint.exe") `
-    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" --handoff-delay-ticks $HandoffDelayTicks --handoff-lookahead $HandoffLookahead --halo-width $HaloWidth --halo-lookahead $HaloLookahead --epoch-align-us $EpochAlignUs $bound" `
+    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" --handoff-delay-ticks $HandoffDelayTicks --handoff-lookahead $HandoffLookahead --halo-width $HaloWidth --halo-lookahead $HaloLookahead $haloReliableArg --epoch-align-us $EpochAlignUs $bound" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\mid.log" -RedirectStandardError "$runDir\mid.err" -WindowStyle Hidden
 Start-Sleep -Seconds 4
 

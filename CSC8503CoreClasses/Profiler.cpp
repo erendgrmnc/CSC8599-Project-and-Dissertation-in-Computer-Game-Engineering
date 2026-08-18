@@ -58,6 +58,7 @@ int Profiler::sHaloUpdatesSent = 0;
 int Profiler::sHaloObjectsSent = 0;
 int Profiler::sHaloUpdatesReceived = 0;
 int Profiler::sHaloObjectsReceived = 0;
+int Profiler::sHaloUpdatesLate = 0;
 int Profiler::sDeltasApplied = 0;
 int Profiler::sDeltasRejected = 0;
 int Profiler::sFullsApplied = 0;
@@ -337,6 +338,8 @@ int Profiler::GetIntegratedObjects() {
 	return sIntegratedObjects;
 }
 
+int Profiler::GetHaloUpdatesLate() { return sHaloUpdatesLate; }
+void Profiler::SetHaloUpdatesLate(int count) { sHaloUpdatesLate = count; }
 int Profiler::GetHaloUpdatesSent() { return sHaloUpdatesSent; }
 void Profiler::SetHaloUpdatesSent(int count) { sHaloUpdatesSent = count; }
 int Profiler::GetHaloObjectsSent() { return sHaloObjectsSent; }

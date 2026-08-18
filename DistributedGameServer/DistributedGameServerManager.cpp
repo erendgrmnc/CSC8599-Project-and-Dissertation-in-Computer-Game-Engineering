@@ -934,7 +934,20 @@ void DistributedGameServer::DistributedGameServerManager::PublishHaloBand() {
 		if (batch.entryCount == 0 || currentTarget < 0) {
 			return;
 		}
-		if (SendUnreliablePacketToServer(currentTarget, batch)) {
+		// Reliable when the run has to be reproducible, unreliable otherwise.
+		//
+		// Unreliable is the natural choice - a halo update is superseded next tick,
+		// exactly like a snapshot - and it is what a production deployment wants. But
+		// a dropped update leaves the shadow extrapolating from an older sample, and
+		// which packets drop is not the same from run to run: two otherwise identical
+		// uniform runs differed by one received update and by fourteen contacts.
+		// Reliable delivery costs bandwidth and can deliver a state that is already
+		// stale, which is why it is not the default; it is what makes a measurement
+		// run repeatable.
+		const bool delivered = mHaloReliable
+			? SendPacketToServer(currentTarget, batch)
+			: SendUnreliablePacketToServer(currentTarget, batch);
+		if (delivered) {
 			++mHaloUpdatesSent;
 			mHaloObjectsSent += batch.entryCount;
 		}
@@ -973,9 +986,19 @@ void DistributedGameServer::DistributedGameServerManager::HandleHaloUpdatePacket
 	++mHaloUpdatesReceived;
 	mHaloObjectsReceived += packet->entryCount;
 
-	// B3 schedules these at senderTick + halo lookahead and B4 builds the shadows.
-	// Counted but not applied for now, so that this increment can be verified as
-	// "the traffic exists and is correctly addressed" on its own.
+	ServerWorldManager* worldManager = GetServerWorldManager();
+	if (worldManager == nullptr) {
+		return;
+	}
+
+	// entryCount, not MAX_ENTRIES: the packet was sized to the entries actually used,
+	// so anything past entryCount was never sent and reading it would be reading off
+	// the end of the received buffer.
+	const int count = std::min(packet->entryCount, HaloUpdatePacket::MAX_ENTRIES);
+	for (int i = 0; i < count; ++i) {
+		worldManager->ScheduleHaloUpdate(packet->entries[i], packet->senderTick,
+			packet->senderServerID);
+	}
 }
 
 void DistributedGameServer::DistributedGameServerManager::FlushDelayedHandoffs() {

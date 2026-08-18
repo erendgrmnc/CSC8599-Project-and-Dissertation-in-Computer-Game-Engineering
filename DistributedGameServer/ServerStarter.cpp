@@ -117,6 +117,8 @@ int StartGameServer(int argc, char* argv[]) {
 		worldManager->SetHaloLookaheadTicks(config.GetInt("--halo-lookahead", 4));
 		// 0, so every configuration that predates the halo behaves exactly as before.
 		worldManager->SetHaloWidth(config.GetFloat("--halo-width", 0.0f));
+		// Reproducible runs need it; production would not. See PublishHaloBand.
+		serverManager->SetHaloReliable(config.Has("--halo-reliable"));
 		std::cout << "Determinism: fixed-step=" << (fixedStep ? "on" : "off")
 			<< " seed=" << worldManager->GetWorldSeed()
 			<< " workload=" << (worldManager->GetWorkload().empty() ? "(none)" : worldManager->GetWorkload())
@@ -245,6 +247,7 @@ int StartGameServer(int argc, char* argv[]) {
 			<< " haloObjSent=" << Profiler::GetHaloObjectsSent()
 			<< " haloRecv=" << Profiler::GetHaloUpdatesReceived()
 			<< " haloObjRecv=" << Profiler::GetHaloObjectsReceived()
+			<< " haloLate=" << Profiler::GetHaloUpdatesLate()
 			<< "\n";
 		return 0;
 	}

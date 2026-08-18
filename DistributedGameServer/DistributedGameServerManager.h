@@ -37,6 +37,10 @@ namespace NCL {
 
 		class DistributedGameServerManager : public PacketReceiver {
 		public:
+			// Halo updates reliably rather than unreliably. See PublishHaloBand:
+			// needed for a reproducible run, not for a deployment.
+			void SetHaloReliable(bool reliable) { mHaloReliable = reliable; }
+
 			DistributedGameServerManager(int serverID, int gameInstanceID,  const std::string& serverBordersStr);
 			~DistributedGameServerManager();
 
@@ -117,6 +121,8 @@ namespace NCL {
 			// Halo traffic, packets and objects, both directions. Objects rather than
 			// just packets because the batch size is the thing that makes this
 			// affordable, and a packet count alone would hide it.
+			// Set from --halo-reliable. See PublishHaloBand.
+			bool mHaloReliable = false;
 			int mHaloUpdatesSent = 0;
 			int mHaloObjectsSent = 0;
 			int mHaloUpdatesReceived = 0;

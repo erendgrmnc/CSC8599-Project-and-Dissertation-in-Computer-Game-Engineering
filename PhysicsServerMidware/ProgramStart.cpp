@@ -68,6 +68,9 @@ int StartMidware(int argc, char* argv[]) {
 	if (config.Has("--halo-width")) {
 		serverExtraArgs += " --halo-width " + std::to_string(config.GetFloat("--halo-width", 0.0f));
 	}
+	if (config.Has("--halo-reliable")) {
+		serverExtraArgs += " --halo-reliable";
+	}
 	if (config.Has("--halo-lookahead")) {
 		serverExtraArgs += " --halo-lookahead " + std::to_string(config.GetInt("--halo-lookahead", 4));
 	}

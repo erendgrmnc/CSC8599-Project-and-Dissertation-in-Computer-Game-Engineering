@@ -327,6 +327,16 @@ namespace NCL {
 			// object is not one this server owns.
 			bool TryGetHaloState(int objectID, CSC8503::HaloObjectState& state) const;
 
+			// Queues one neighbour's object state for application at
+			// senderTick + halo lookahead, or applies it immediately and counts it as
+			// late if that tick has already passed. Mirrors StartHandlingObject.
+			void ScheduleHaloUpdate(const CSC8503::HaloObjectState& state, int senderTick,
+				int senderServerID);
+
+			int GetHaloUpdatesLate() const {
+				return mHaloUpdatesLate;
+			}
+
 			// What an object IS, for a handoff packet to carry. Recorded for
 			// pre-seeded objects as well as runtime spawns, so this answers for every
 			// object this server knows. Falls back to Cube for an unknown id: a
@@ -426,6 +436,69 @@ namespace NCL {
 			// 0 disables publication entirely, which is what every measurement taken
 			// before this increment ran with.
 			float mHaloWidth = 0.0f;
+			int mHaloUpdatesLate = 0;
+
+			// The authoritative state of each shadow, as its owner last told us.
+			// Re-imposed at the top of every tick, because contact resolution writes
+			// position AND velocity straight into both bodies - skipping the
+			// integrator is not enough to make a shadow read-only.
+			struct HaloAuthoritativeState {
+				Maths::Vector3 position;
+				Maths::Vector3 linearVelocity;
+				Maths::Vector3 angularVelocity;
+				Maths::Quaternion orientation;
+				int ownerServerID = -1;
+				// The SENDER's tick when this state was sampled. Not the tick it was
+				// applied on: the shadow is extrapolated forward from here to the
+				// local tick, so that it sits where the object is now rather than
+				// where it was when the packet left.
+				//
+				// Applying the raw sample was the first attempt and it does not work.
+				// At 60 u/s a four-tick-old sample is two units behind, which is twice
+				// the size of the objects the workloads build, so the owned object
+				// reaches the real contact point before the shadow appears to get
+				// there and passes straight through.
+				uint64_t sampleTick = 0;
+				// Tick a state was last applied on. A shadow with nothing newer for a
+				// while has left the band, been handed off or been destroyed, and is
+				// retired rather than left behind as an invisible wall.
+				uint64_t lastAppliedTick = 0;
+			};
+			std::map<int, HaloAuthoritativeState> mHaloState;
+
+			// Halo updates waiting for their scheduled tick. Held by value: a
+			// HaloObjectState is POD and small, unlike the handoff packet.
+			struct ScheduledHaloUpdate {
+				int objectID = -1;
+				int archetypeID = 0;
+				int ownerServerID = -1;
+				uint64_t applyAtTick = 0;
+				HaloAuthoritativeState state;
+			};
+			std::vector<ScheduledHaloUpdate> mScheduledHaloUpdates;
+			void FlushScheduledHaloUpdates();
+
+			// Builds a shadow. Deliberately NOT CreateObjectFromArchetype: that adds
+			// the object to mCreatedObjectPool and to mNetworkObjects, which would
+			// make a shadow look like one of this server's own objects to the
+			// snapshot loop, the border check and the locality metric.
+			CSC8503::GameObject* CreateHaloShadow(int archetypeID, int networkID,
+				const HaloAuthoritativeState& state);
+
+			// Copies each shadow's authoritative state back over whatever the previous
+			// tick's contact resolution did to it.
+			void ReimposeHaloState();
+
+			// Tears down shadows that have had no update for HALO_STALE_TICKS.
+			//
+			// Not housekeeping: a shadow whose owner has stopped publishing it is an
+			// obstacle sitting where nothing exists any more. Leaving them in place
+			// pushed every object in a headon run onto one server.
+			void RetireStaleHaloShadows();
+
+			// Removes the shadow for an object this server has just taken ownership
+			// of, so the same object is not in the broadphase twice.
+			void RemoveHaloShadow(int networkID);
 
 			// Deliberately SEPARATE from mHandoffLookaheadTicks, and much smaller.
 			//

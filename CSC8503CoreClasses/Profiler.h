@@ -153,6 +153,11 @@ namespace NCL {
 		static void SetHaloUpdatesReceived(int count);
 		static int GetHaloObjectsReceived();
 		static void SetHaloObjectsReceived(int count);
+		// Halo updates that arrived after the tick they were meant to be applied on.
+		// Non-zero means the halo lookahead is smaller than the real delivery jitter,
+		// and the run is not reproducible.
+		static int GetHaloUpdatesLate();
+		static void SetHaloUpdatesLate(int count);
 
 		// Client-side snapshot accounting. Deltas silently failing to apply is the
 		// system's longest-lived bug, and until these existed nothing anywhere
@@ -218,6 +223,7 @@ namespace NCL {
 		static int sHaloObjectsSent;
 		static int sHaloUpdatesReceived;
 		static int sHaloObjectsReceived;
+		static int sHaloUpdatesLate;
 		static int sDeltasApplied;
 		static int sDeltasRejected;
 		static int sFullsApplied;

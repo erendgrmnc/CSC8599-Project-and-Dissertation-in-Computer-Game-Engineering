@@ -41,12 +41,23 @@ namespace {
 	// gap is large enough that the pair is well inside its own region at t=0 and the
 	// collision is unambiguously a border event rather than a spawn overlap.
 	//
-	// Fast and close together on purpose: the pair must meet while still falling from
-	// the spawn height. At 20 u/s over a 40-unit gap they landed first and ground
-	// friction bled the velocity off before they ever reached the border, so the
-	// workload produced no collision even on a single server.
-	constexpr float HEADON_HALF_GAP = 25.0f;
-	constexpr float HEADON_SPEED = 60.0f;
+	// Close together, and only just fast enough. Two constraints pin these:
+	//
+	//  - too slow and the pair lands before it reaches the border and ground friction
+	//    bleeds the velocity off. At 20 u/s over a 40-unit gap no collision happened
+	//    even on a single server.
+	//  - too fast and the pair tunnels. The engine has no continuous collision
+	//    detection, so a pair closing faster than the sum of their half-extents per
+	//    substep can step straight past each other. At 60 u/s each, closing 1.0 units
+	//    per 120 Hz substep against a 1.0-unit contact window, even the SINGLE-server
+	//    case is marginal - which measures the integrator's discrete-collision limit
+	//    rather than anything about region borders.
+	//
+	// 30 u/s each closes 0.5 units per substep, so a pair overlaps for two substeps
+	// and the contact is unambiguous. The gap is shortened to match, so they still
+	// meet while airborne.
+	constexpr float HEADON_HALF_GAP = 12.0f;
+	constexpr float HEADON_SPEED = 30.0f;
 	// Wide enough that neighbouring pairs never reach each other, so every contact
 	// recorded is the head-on one and the count is exactly the number of pairs that
 	// actually collided.
@@ -674,6 +685,204 @@ void DistributedGameServer::ServerWorldManager::CollectHaloPublications(
 	});
 }
 
+void DistributedGameServer::ServerWorldManager::ScheduleHaloUpdate(
+	const CSC8503::HaloObjectState& state, int senderTick, int senderServerID) {
+	// We own it. Happens legitimately around a handoff: the previous owner samples an
+	// object, hands it to us, and its update lands afterwards. Shadowing an object we
+	// simulate would put two copies of it in the broadphase.
+	const auto owned = mCreatedObjectPool.find(state.objectID);
+	if (owned != mCreatedObjectPool.end() && owned->second != nullptr) {
+		return;
+	}
+	if (IsTombstoned(state.objectID)) {
+		return;
+	}
+
+	ScheduledHaloUpdate scheduled;
+	scheduled.objectID = state.objectID;
+	scheduled.archetypeID = state.archetypeID;
+	scheduled.ownerServerID = senderServerID;
+	scheduled.state.position = state.position;
+	scheduled.state.linearVelocity = state.linearVelocity;
+	scheduled.state.angularVelocity = state.angularVelocity;
+	scheduled.state.orientation = state.orientation;
+	scheduled.state.ownerServerID = senderServerID;
+	scheduled.state.sampleTick = static_cast<uint64_t>(std::max(0, senderTick));
+
+	const uint64_t applyAt =
+		static_cast<uint64_t>(senderTick) + static_cast<uint64_t>(std::max(0, mHaloLookaheadTicks));
+
+	if (applyAt <= mTickCounter) {
+		// Missed its slot. Applied anyway - a shadow frozen at an old position is
+		// worse than one that jumps - but counted, because a non-zero total means the
+		// halo lookahead is too small for the actual delivery jitter and the run is
+		// not reproducible.
+		++mHaloUpdatesLate;
+		scheduled.applyAtTick = mTickCounter;
+	}
+	else {
+		scheduled.applyAtTick = applyAt;
+	}
+	mScheduledHaloUpdates.push_back(std::move(scheduled));
+}
+
+void DistributedGameServer::ServerWorldManager::FlushScheduledHaloUpdates() {
+	if (mScheduledHaloUpdates.empty()) {
+		return;
+	}
+
+	// Same total order as FlushScheduledHandoffs, and for the same reason: the vector
+	// is in packet ARRIVAL order, and the order shadows are created in decides their
+	// order in the broadphase pair list, which contact resolution is sensitive to.
+	std::sort(mScheduledHaloUpdates.begin(), mScheduledHaloUpdates.end(),
+		[](const ScheduledHaloUpdate& l, const ScheduledHaloUpdate& r) {
+			if (l.applyAtTick != r.applyAtTick) {
+				return l.applyAtTick < r.applyAtTick;
+			}
+			return l.objectID < r.objectID;
+		});
+
+	for (auto entry = mScheduledHaloUpdates.begin(); entry != mScheduledHaloUpdates.end(); ) {
+		if (entry->applyAtTick > mTickCounter) {
+			break;   // Sorted, so nothing after this is due either.
+		}
+
+		// Re-checked here, not only at schedule time: the object may have been handed
+		// to us, or destroyed, during the lookahead window.
+		const auto owned = mCreatedObjectPool.find(entry->objectID);
+		const bool nowOurs = (owned != mCreatedObjectPool.end() && owned->second != nullptr);
+		if (nowOurs || IsTombstoned(entry->objectID)) {
+			entry = mScheduledHaloUpdates.erase(entry);
+			continue;
+		}
+
+		entry->state.lastAppliedTick = mTickCounter;
+		mHaloState[entry->objectID] = entry->state;
+
+		if (mHaloObjects.find(entry->objectID) == mHaloObjects.end()) {
+			CreateHaloShadow(entry->archetypeID, entry->objectID, entry->state);
+		}
+
+		entry = mScheduledHaloUpdates.erase(entry);
+	}
+}
+
+CSC8503::GameObject* DistributedGameServer::ServerWorldManager::CreateHaloShadow(
+	int archetypeID, int networkID, const HaloAuthoritativeState& state) {
+	Transform transform;
+	transform.SetPosition(state.position);
+	transform.SetOrientation(state.orientation);
+
+	GameObject* object = (archetypeID == static_cast<int>(NCL::Interaction::ObjectArchetype::Sphere))
+		? AddSphereToWorld(transform, networkID, -1)
+		: AddCubeToWorld(transform, networkID, -1);
+	if (object == nullptr) {
+		return nullptr;
+	}
+
+	// No NetworkObject. That is not an omission: the snapshot loop and the border
+	// check both iterate mNetworkObjects, so leaving a shadow out of it is what stops
+	// this server broadcasting someone else's object to clients or trying to hand it
+	// away. Command targeting is covered too, since FindActiveObject reads the pool.
+	object->SetIsHaloShadow(true);
+
+	if (auto* physics = object->GetPhysicsObject()) {
+		physics->SetLinearVelocity(state.linearVelocity);
+		physics->SetAngularVelocity(state.angularVelocity);
+	}
+
+	mGameWorld->AddGameObject(object);
+	mPhysics->RegisterObject(object);
+	mHaloObjects[networkID] = object;
+	return object;
+}
+
+void DistributedGameServer::ServerWorldManager::ReimposeHaloState() {
+	const int substepHz = (mPhysics != nullptr) ? mPhysics->GetSubstepHZ() : 120;
+	const float substepDt = (substepHz > 0) ? (1.0f / static_cast<float>(substepHz)) : (1.0f / 120.0f);
+
+	for (const auto& entry : mHaloObjects) {
+		GameObject* object = entry.second;
+		if (object == nullptr) {
+			continue;
+		}
+		const auto found = mHaloState.find(entry.first);
+		if (found == mHaloState.end()) {
+			continue;
+		}
+		const HaloAuthoritativeState& state = found->second;
+
+		// Dead reckoning from the sample tick to this one, rather than applying the
+		// sample as-is. Two reasons it has to be here rather than a smaller lookahead:
+		//
+		//  - the lag is not the lookahead, it is the lookahead PLUS however long the
+		//    packet took. Shrinking the lookahead to hide the lag just makes updates
+		//    arrive after their slot: at a one-tick lookahead essentially every update
+		//    was late, and the shadows became so inconsistent between the two servers
+		//    that a headon run pushed all 100 objects onto one of them.
+		//  - extrapolation is a pure function of the received state and two tick
+		//    numbers, so it costs nothing in determinism, which applying-on-arrival
+		//    would have.
+		//
+		// Gravity is deliberately not integrated here. Over the few ticks this spans
+		// the 0.5*g*t^2 term is under a hundredth of a unit, and including it would
+		// tie the shadow's path to a gravity setting the owner might not share.
+		const uint64_t elapsedTicks = (mTickCounter > state.sampleTick)
+			? (mTickCounter - state.sampleTick) : 0;
+		const float elapsed = static_cast<float>(elapsedTicks) * substepDt;
+
+		const Maths::Vector3 predicted = state.position + state.linearVelocity * elapsed;
+
+		// Overwrites whatever the previous tick's contact resolution did. Both halves
+		// matter: SeperateObjects moved the transform to resolve penetration, and
+		// ImpulseResolveCollision wrote velocity - a shadow left carrying either would
+		// diverge from the object its owner is actually simulating, and the two
+		// servers would then compute different impulses from it (invariant I8).
+		object->GetTransform().SetPosition(predicted);
+		object->GetTransform().SetOrientation(state.orientation);
+		if (auto* physics = object->GetPhysicsObject()) {
+			physics->SetLinearVelocity(state.linearVelocity);
+			physics->SetAngularVelocity(state.angularVelocity);
+			// A force accumulated from a contact would be integrated by nobody, but
+			// clearing it keeps the shadow's state exactly what its owner sent.
+			physics->ClearForces();
+		}
+	}
+}
+
+// A shadow is only meaningful while its owner keeps publishing it. Generous, because
+// halo updates are unreliable by design and a run of dropped packets must not retire
+// a shadow that is still very much there; the cost of being late to retire is a few
+// ticks of a ghost, and the cost of being early is a missed contact.
+static constexpr uint64_t HALO_STALE_TICKS = 30;
+
+void DistributedGameServer::ServerWorldManager::RetireStaleHaloShadows() {
+	for (auto entry = mHaloObjects.begin(); entry != mHaloObjects.end(); ) {
+		const auto state = mHaloState.find(entry->first);
+		const uint64_t lastTick = (state != mHaloState.end()) ? state->second.lastAppliedTick : 0;
+
+		if (mTickCounter > lastTick && (mTickCounter - lastTick) > HALO_STALE_TICKS) {
+			TeardownObject(entry->second);
+			mHaloState.erase(entry->first);
+			entry = mHaloObjects.erase(entry);
+			continue;
+		}
+		++entry;
+	}
+}
+
+void DistributedGameServer::ServerWorldManager::RemoveHaloShadow(int networkID) {
+	const auto entry = mHaloObjects.find(networkID);
+	if (entry == mHaloObjects.end()) {
+		return;
+	}
+	// The object has become ours. Without this it would be in the broadphase twice -
+	// once as the object we simulate and once as a shadow sitting where it used to be.
+	TeardownObject(entry->second);
+	mHaloObjects.erase(entry);
+	mHaloState.erase(networkID);
+}
+
 void NCL::DistributedGameServer::ServerWorldManager::EnableMetrics(const std::string& outputPath, size_t capacity) {
 	mMetrics = std::make_unique<NCL::MetricSink>(outputPath, capacity);
 	std::cout << "Per-tick metrics -> " << outputPath << " (capacity " << capacity << " samples)\n";
@@ -770,6 +979,14 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	// this tick's simulation, not the next one.
 	FlushScheduledHandoffs();
 
+	// Same reason, and in this order: a halo update due this tick creates or refreshes
+	// the shadow's authoritative state, then ReimposeHaloState writes that state over
+	// whatever last tick's contact resolution left behind. Doing it the other way
+	// round would re-impose the state the new update was about to replace.
+	FlushScheduledHaloUpdates();
+	RetireStaleHaloShadows();
+	ReimposeHaloState();
+
 	// Before the integrator, so this tick's control input contributes to this tick's
 	// motion rather than arriving a frame late.
 	ApplyControlForces();
@@ -788,6 +1005,8 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	// dangling pointer in those containers for the rest of the tick.
 	FlushPendingDeletions();
 
+	Profiler::SetHandoffsLate(mHandoffsLate);
+	Profiler::SetHaloUpdatesLate(mHaloUpdatesLate);
 	Profiler::SetHandoffsSent(mHandoffsSent);
 	Profiler::SetHandoffsReceived(mHandoffsReceived);
 	Profiler::SetHandoffsFailed(mHandoffsFailed);
@@ -1019,6 +1238,12 @@ bool DistributedGameServer::ServerWorldManager::ApplyIncomingObject(StartSimulat
 			<< " - dropped rather than resurrected.\n";
 		return true;
 	}
+
+	// This server has been shadowing the object right up to the moment it became
+	// ours. The shadow has to go before the real object is installed, or the same
+	// object is in the broadphase twice - once where it actually is and once where
+	// its previous owner last published it.
+	RemoveHaloShadow(packet->objectID);
 
 	auto poolEntry = mCreatedObjectPool.find(packet->objectID);
 	if (poolEntry == mCreatedObjectPool.end()) {
