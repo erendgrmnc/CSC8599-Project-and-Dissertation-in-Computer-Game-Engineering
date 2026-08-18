@@ -36,6 +36,22 @@ namespace {
 	// dominated by resolving the initial contacts rather than by the workload.
 	constexpr float OBJECT_GRID_SPACING = 2.0f;
 
+	// "headon" workload. Pairs start this far either side of x = 0 and are launched
+	// straight at each other, so every pair meets exactly on the region border. The
+	// gap is large enough that the pair is well inside its own region at t=0 and the
+	// collision is unambiguously a border event rather than a spawn overlap.
+	//
+	// Fast and close together on purpose: the pair must meet while still falling from
+	// the spawn height. At 20 u/s over a 40-unit gap they landed first and ground
+	// friction bled the velocity off before they ever reached the border, so the
+	// workload produced no collision even on a single server.
+	constexpr float HEADON_HALF_GAP = 25.0f;
+	constexpr float HEADON_SPEED = 60.0f;
+	// Wide enough that neighbouring pairs never reach each other, so every contact
+	// recorded is the head-on one and the count is exactly the number of pairs that
+	// actually collided.
+	constexpr float HEADON_LANE_SPACING = 6.0f;
+
 	// Where each player's grid is centred, alternating either side of the origin.
 	constexpr float PLAYER_START_OFFSET = 50.0f;
 	constexpr float PLAYER_START_STRIDE = 40.0f;
@@ -234,8 +250,9 @@ int NCL::DistributedGameServer::ServerWorldManager::SpawnObject(int archetypeID,
 		return -1;
 	}
 
-	// The owner activates; peers will hold a deactivated twin. This is the pre-seed
-	// model reproduced at runtime, which is what lets handoff work unchanged.
+	// The owner activates. Peers build nothing at all - they take only the owner id
+	// off the spawn broadcast - so a later handoff constructs the object on arrival
+	// rather than reactivating a copy that was sitting there all along.
 	const bool ownedHere = (GetObjectServer(at) == mServerID);
 	object->SetActive(ownedHere);
 	if (ownedHere) {
@@ -573,15 +590,26 @@ void NCL::DistributedGameServer::ServerWorldManager::FlushMetrics() {
 // coordination, and a run repeats exactly for a given --seed.
 void NCL::DistributedGameServer::ServerWorldManager::ApplyWorkloadInitialState(
 	CSC8503::GameObject& obj, int playerID, int objectIndex) const {
+	auto* physicsComp = obj.GetPhysicsObject();
+	if (physicsComp == nullptr) {
+		return;
+	}
+
+	if (mWorkload == "headon") {
+		// Direction from the object's own position rather than its grid index: the
+		// index-to-row mapping depends on how SetupWorld shaped the grid, and reading
+		// it back here would be a second place to keep that in step. Sign of x is the
+		// same answer and cannot drift.
+		const float x = obj.GetTransform().GetPosition().x;
+		physicsComp->SetLinearVelocity(
+			Maths::Vector3((x < 0.0f) ? HEADON_SPEED : -HEADON_SPEED, 0.0f, 0.0f));
+		return;
+	}
+
 	// "uniform" shares shuttle's motion model; only the STARTING distribution
 	// differs. Without motion an evenly-spread world produces zero handoffs, which
 	// would measure partitioning with the handoff path switched off.
 	if (mWorkload != "shuttle" && mWorkload != "uniform") {
-		return;
-	}
-
-	auto* physicsComp = obj.GetPhysicsObject();
-	if (physicsComp == nullptr) {
 		return;
 	}
 
@@ -681,6 +709,7 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 		sample.poolObjects = static_cast<int32_t>(mCreatedObjectPool.size());
 		sample.worldObjects = static_cast<int32_t>(mGameWorld->GetGameObjects().size());
 		sample.forwardEntries = static_cast<int32_t>(mLastKnownOwner.size());
+		sample.contacts = static_cast<int32_t>(Profiler::GetContactsResolved());
 		mMetrics->Record(sample);
 	}
 	++mTickCounter;
@@ -712,8 +741,8 @@ void DistributedGameServer::ServerWorldManager::CreatePlayerObjects(int playerCo
 		// Grid sized to the requested object count. This was hardcoded 10x10, which
 		// silently capped every player at 100 objects however many were asked for -
 		// making an object-count sweep impossible and reporting nothing.
-		const int cols = std::max(1, static_cast<int>(std::ceil(std::sqrt(static_cast<double>(objectsPerPlayer)))));
-		const int rows = std::max(1, static_cast<int>(std::ceil(static_cast<double>(objectsPerPlayer) / cols)));
+		int cols = std::max(1, static_cast<int>(std::ceil(std::sqrt(static_cast<double>(objectsPerPlayer)))));
+		int rows = std::max(1, static_cast<int>(std::ceil(static_cast<double>(objectsPerPlayer) / cols)));
 
 		// The "seam" workload centres each grid ON the world origin, where the region
 		// borders meet. The grid grows in +x/+z from startPos, so centring it means
@@ -731,6 +760,25 @@ void DistributedGameServer::ServerWorldManager::CreatePlayerObjects(int playerCo
 
 		float rowSpacing = OBJECT_GRID_SPACING;
 		float colSpacing = OBJECT_GRID_SPACING;
+
+		// "headon" is not a square grid at all: exactly two rows, at x = -gap and
+		// x = +gap, spread along z. Every object therefore has a partner directly
+		// opposite it across the border and nothing else within reach.
+		//
+		// This exists because the cross-border collision gap is otherwise measured as
+		// a small difference between two large contact totals. Here it is the whole
+		// signal: on one server every pair collides, on two servers - one region each
+		// side of x = 0 - no pair collides at all, because neither server holds both
+		// halves of any pair.
+		if (mWorkload == "headon") {
+			rows = 2;
+			cols = std::max(1, (objectsPerPlayer + 1) / 2);
+			rowSpacing = 2.0f * HEADON_HALF_GAP;
+			colSpacing = HEADON_LANE_SPACING;
+			startPos.x = -HEADON_HALF_GAP;
+			startPos.z = -(cols / 2) * HEADON_LANE_SPACING;
+			startPos.y = 10.f;
+		}
 
 		// "uniform" spreads the grid across the WHOLE world rather than clustering it
 		// in one region. The shuttle workload launches every object from a single

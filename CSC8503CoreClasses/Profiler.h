@@ -132,6 +132,16 @@ namespace NCL {
 		static int GetIntegratedObjects();
 		static void SetIntegratedObjects(int count);
 
+		// Contacts actually resolved this tick. The baseline for cross-border
+		// collision: an object pair straddling a region boundary is currently
+		// simulated by neither server, so the pair produces no contact anywhere and
+		// the two objects pass through each other. Summing this across servers and
+		// comparing against the same world on ONE server is what turns that from an
+		// assertion into a measurement.
+		static int GetContactsResolved();
+		static void SetContactsResolved(int count);
+		static long long GetContactsResolvedTotal();
+
 		// Client-side snapshot accounting. Deltas silently failing to apply is the
 		// system's longest-lived bug, and until these existed nothing anywhere
 		// reported whether a delta was used or thrown away. Cumulative per run.
@@ -190,6 +200,8 @@ namespace NCL {
 		static int sObjectsDestroyed;
 		static int sManifestEntriesSent;
 		static int sIntegratedObjects;
+		static int sContactsResolved;
+		static long long sContactsResolvedTotal;
 		static int sDeltasApplied;
 		static int sDeltasRejected;
 		static int sFullsApplied;

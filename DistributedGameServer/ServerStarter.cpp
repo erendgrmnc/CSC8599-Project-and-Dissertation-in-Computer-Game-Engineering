@@ -212,6 +212,10 @@ int StartGameServer(int argc, char* argv[]) {
 			// The forwarding table, reported for the same reason as objPool: it is
 			// the other per-server structure that could scale with the world.
 			<< " objFwd=" << forwardEntries
+			// Run total, not a tick sample. Summed across servers and compared with
+			// the same world on one server, this is the size of the cross-border
+			// collision gap.
+			<< " contacts=" << Profiler::GetContactsResolvedTotal()
 			<< " hoSent=" << Profiler::GetHandoffsSent()
 			<< " hoRecv=" << Profiler::GetHandoffsReceived()
 			<< " hoFail=" << Profiler::GetHandoffsFailed()

@@ -44,6 +44,10 @@ namespace NCL {
 		// The other candidate for hidden O(world) growth - see
 		// ServerWorldManager::GetForwardEntryCount.
 		int32_t forwardEntries = 0;    // entries in mLastKnownOwner
+		// Contacts resolved this tick. A pair straddling a region boundary produces
+		// none on either server today - that is the cross-border collision gap, and
+		// this is how it is sized.
+		int32_t contacts = 0;
 	};
 
 	// Fixed-capacity, allocation-free per-tick recorder.

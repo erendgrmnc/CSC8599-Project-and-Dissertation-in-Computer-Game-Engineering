@@ -616,11 +616,13 @@ The broadphase will now only give us likely collisions, so we can now go through
 and work out if they are truly colliding, and if so, add them into the main collision list
 */
 void PhysicsSystem::NarrowPhase() {
+	int resolved = 0;
 	// iteratr through all collisions added and if collision then call impulse resolve collision
 	for (std::set<CollisionDetection::CollisionInfo>::iterator i = mBroadphaseCollisions.begin(); i != mBroadphaseCollisions.end(); i++) {
 		CollisionDetection::CollisionInfo info = *i;
 
 		if (CollisionDetection::ObjectIntersection(info.a, info.b, info)) {
+			++resolved;
 			info.framesLeft = mNumCollisionFrames;
 			if (!(info.a->GetCollisionLayer() & NO_COLLISION_RESOLUTION || info.b->GetCollisionLayer() & NO_COLLISION_RESOLUTION)) {
 				float j = ImpulseResolveCollision(*info.a, *info.b, info.point);
@@ -629,6 +631,7 @@ void PhysicsSystem::NarrowPhase() {
 			mAllCollisions.insert(info);
 		}
 	}
+	Profiler::SetContactsResolved(resolved);
 }
 
 /*

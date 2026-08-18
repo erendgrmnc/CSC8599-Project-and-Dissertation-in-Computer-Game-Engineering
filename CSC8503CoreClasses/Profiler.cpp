@@ -52,6 +52,8 @@ int Profiler::sObjectsSpawned = 0;
 int Profiler::sObjectsDestroyed = 0;
 int Profiler::sManifestEntriesSent = 0;
 int Profiler::sIntegratedObjects = 0;
+int Profiler::sContactsResolved = 0;
+long long Profiler::sContactsResolvedTotal = 0;
 int Profiler::sDeltasApplied = 0;
 int Profiler::sDeltasRejected = 0;
 int Profiler::sFullsApplied = 0;
@@ -329,6 +331,22 @@ void Profiler::SetManifestEntriesSent(int count) {
 
 int Profiler::GetIntegratedObjects() {
 	return sIntegratedObjects;
+}
+
+int Profiler::GetContactsResolved() {
+	return sContactsResolved;
+}
+
+long long Profiler::GetContactsResolvedTotal() {
+	return sContactsResolvedTotal;
+}
+
+void Profiler::SetContactsResolved(int count) {
+	sContactsResolved = count;
+	// Cumulative as well as per-tick: the per-tick figure is what the CSV plots,
+	// but the run total is what @@FINAL reports and what the before/after
+	// comparison actually rests on.
+	sContactsResolvedTotal += count;
 }
 
 void Profiler::SetIntegratedObjects(int count) {
