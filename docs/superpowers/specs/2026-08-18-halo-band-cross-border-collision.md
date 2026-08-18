@@ -81,11 +81,21 @@ I8 below and is the main thing that can go wrong.
 | A shadow does not appear in `objPool` as owned | It would corrupt the locality measurement | reported separately as `objHalo` |
 | A shadow's state is re-imposed each tick | Contact resolution writes to its velocity | before `IntegrateAccel` |
 
-The last one is the subtle one. `ImpulseResolveCollision` writes velocity to **both** bodies. The
-shadow's position will not drift, because it is not integrated — but its *velocity* will be
-corrupted by every contact it takes part in, and velocity feeds the next contact's relative-velocity
-term. So the shadow's state must be restored from the last received update at the top of every tick,
-not merely on arrival.
+The last one is the subtle one, and B1 measured it rather than leaving it as an argument. **Skipping
+the integrator is not sufficient to make a shadow read-only.** Contact resolution reaches around the
+integrator and writes to both bodies directly:
+
+- `ImpulseResolveCollision` writes linear and angular **velocity** to both. A shadow held stationary
+  against an object approaching at 20 u/s came out of five ticks carrying **9.42 u/s** it does not
+  own.
+- `SeperateObjects` writes **position** to both, proportionally to inverse mass, to resolve
+  penetration. So the shadow is displaced as well — the failure is not confined to velocity, as this
+  section originally claimed.
+
+Both are correct behaviour for a single server; both make a shadow diverge from the copy its owner is
+simulating. The shadow's authoritative state must therefore be re-imposed at the top of **every**
+tick, not merely when an update arrives. `HaloShadowTests.cpp` pins the corruption as it stands, and
+that test is to be inverted when B4 lands.
 
 ---
 
@@ -141,14 +151,22 @@ I8 is where this increment is most likely to be quietly wrong, because both side
 `contacts` per tick in the CSV and cumulatively in `@@FINAL`, plus `--workload headon`. §0 is its
 output. Shipped as `7c3ece0`.
 
-### B1 — Shadow objects exist, and are inert
+### B1 — Shadow objects exist, and are inert *(done)*
 
-Add a shadow flag to `GameObject` distinct from `SetActive`, and a `mHaloObjects` map on
-`ServerWorldManager`. Shadows are constructed from the archetype exactly as handoff arrivals are
-(A3 already provides `CreateObjectFromArchetype`), added to the `GameWorld`, and excluded from
-integration, handoff, snapshots and command targeting. **No halo traffic yet** — the set stays
-empty, so every existing measurement must come out unchanged. That is the point of doing it
-separately: it is the increment that can break everything and produce no new behaviour to explain it.
+`GameObject::IsHaloShadow`, distinct from `SetActive` because the two states it has to combine —
+*has physics* and *is not simulated* — are the same flag today. `mHaloObjects` on
+`ServerWorldManager`, deliberately **not** in `mCreatedObjectPool`: keeping shadows out of the pool
+is what makes `FindActiveObject`, the snapshot loop and the handoff path skip them without a guard
+in each. The loops that iterate the `GameWorld` instead do carry an explicit test.
+
+Reported as `objHalo` in `@@FINAL` and `halo_objects` in the CSV, separate from `objPool` — one is
+what a server is responsible for, the other what it is merely watching, and adding them would make
+the I6 locality figure unreadable.
+
+No halo traffic, so the set stays empty and every existing measurement had to come out unchanged.
+It did: `headon` still 261,750 contacts on one server and 108,500 + 108,500 with 100 handoffs on two,
+`shuttle` still 359/41 objects and 41/41 handoffs, and the 7,200-tick reproducibility pair still
+byte-identical on both servers. Tier 0 75/75. Shipped as `6fdfd93`.
 
 ### B2 — Publish the band
 
