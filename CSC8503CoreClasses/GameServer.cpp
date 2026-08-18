@@ -30,7 +30,45 @@ GameServer::~GameServer() {
 }
 
 void GameServer::Shutdown() {
+	if (netHandle == nullptr) {
+		return;
+	}
+
 	SendGlobalPacket(BasicNetworkMessages::Shutdown);
+
+	// enet_host_destroy does not flush. Without the drain below it discarded every
+	// queued outgoing packet - including the Shutdown notification queued on the line
+	// above, which therefore never arrived, and any handoff still in flight, which
+	// lost the object outright. Same fault as GameClient::Disconnect had.
+	enet_host_flush(netHandle);
+
+	for (const auto& handle : mPeerHandles) {
+		if (handle.second != nullptr) {
+			// disconnect_later, so the peer stays open until its queues drain rather
+			// than resetting them the way enet_peer_disconnect would.
+			enet_peer_disconnect_later(handle.second, 0);
+		}
+	}
+
+	// Bounded: a peer that has already gone away must not stall the exit, and a
+	// server exiting on --run-ticks is being timed.
+	constexpr enet_uint32 DRAIN_TIMEOUT_MS = 1000;
+	constexpr enet_uint32 SERVICE_SLICE_MS = 25;
+	size_t remaining = mPeerHandles.size();
+	ENetEvent event;
+	for (enet_uint32 waited = 0; waited < DRAIN_TIMEOUT_MS && remaining > 0;
+		waited += SERVICE_SLICE_MS) {
+		while (enet_host_service(netHandle, &event, SERVICE_SLICE_MS) > 0) {
+			if (event.type == ENET_EVENT_TYPE_RECEIVE) {
+				enet_packet_destroy(event.packet);
+			}
+			else if (event.type == ENET_EVENT_TYPE_DISCONNECT && remaining > 0) {
+				--remaining;
+			}
+		}
+	}
+
+	mPeerHandles.clear();
 	enet_host_destroy(netHandle);
 	netHandle = nullptr;
 }
