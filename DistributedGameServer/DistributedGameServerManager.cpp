@@ -15,8 +15,19 @@
 using namespace NCL;
 
 namespace {
-	constexpr int TEST_MAX_CLIENT = 10;
-	constexpr int TEST_MAX_GAME_SERVER = 10;
+	// Peer slots the packet-sender host is created with.
+	//
+	// This used to be TEST_MAX_CLIENT + (TEST_MAX_GAME_SERVER - 1) = 19, and it was a
+	// hard cap on instance size that had nothing to do with the wire format: an ENet
+	// host's peer capacity is fixed at enet_host_create, so on a 24-server instance
+	// the 20th peer onwards was simply refused, every server's readiness test stayed
+	// false, and the game never started - with no error anywhere.
+	//
+	// Sized generously instead. An ENetPeer is on the order of a kilobyte, so 256
+	// slots costs a few hundred KB per server, against an instance size limit that
+	// was previously invisible. The logical bound is still set from the real instance
+	// size by SetMaxClients; this is only the ceiling that bound may reach.
+	constexpr int PACKET_SENDER_PEER_SLOTS = 256;
 }
 
 DistributedGameServer::GameServerConnection::GameServerConnection(int serverID, GameClient* client) {
@@ -62,7 +73,7 @@ bool DistributedGameServer::DistributedGameServerManager::StartDistributedGameSe
 }
 
 bool DistributedGameServer::DistributedGameServerManager::StartDistributedPacketSenderServer() {
-	mMaxGameClientsToConnectPacketSender = TEST_MAX_CLIENT + (TEST_MAX_GAME_SERVER - 1);
+	mMaxGameClientsToConnectPacketSender = PACKET_SENDER_PEER_SLOTS;
 	mPacketSenderServerPort = (mThisDistributedPhysicsServer->GetPeerID() * 10) + 1000;
 	mDistributedPacketSenderServer = new NCL::Networking::DistributedPacketSenderServer(mPacketSenderServerPort, mMaxGameClientsToConnectPacketSender);
 	if (mDistributedPacketSenderServer) {
@@ -159,6 +170,7 @@ void DistributedGameServer::DistributedGameServerManager::RegisterGameServerPack
 	mThisDistributedPhysicsServer->RegisterPacketHandler(BasicNetworkMessages::StartDistributedPhysicsServer, this);
 	// From the manager, which owns the partition.
 	mThisDistributedPhysicsServer->RegisterPacketHandler(BasicNetworkMessages::DistributedRepartition, this);
+	mThisDistributedPhysicsServer->RegisterPacketHandler(BasicNetworkMessages::DistributedServerRegistry, this);
 }
 
 void DistributedGameServer::DistributedGameServerManager::RegisterPacketSenderServerPackets() {
@@ -321,6 +333,10 @@ void DistributedGameServer::DistributedGameServerManager::ReceivePacket(int type
 	}
 	case BasicNetworkMessages::DistributedRepartition: {
 		HandleRepartitionPacket(static_cast<DistributedRepartitionPacket*>(payload));
+		break;
+	}
+	case BasicNetworkMessages::DistributedServerRegistry: {
+		HandleServerRegistryPacket(static_cast<DistributedServerRegistryPacket*>(payload));
 		break;
 	}
 	case BasicNetworkMessages::ClientPlayerInputState: {
@@ -520,6 +536,11 @@ void DistributedGameServer::DistributedGameServerManager::HandleStartGameServerP
 	if (packet->gameInstanceID != mGameInstanceID) {
 		return;
 	}
+
+	// Kept for the packet-sender bound, which the registry recomputes once it is
+	// complete. The arrays further down this packet are the legacy 20-server path and
+	// are only still read so a run works if the registry has not arrived yet.
+	mExpectedClientCount = packet->clientsToConnect;
 
 	int maxClient = (packet->totalServerCount - 1) + packet->clientsToConnect;
 
@@ -990,22 +1011,146 @@ void DistributedGameServer::DistributedGameServerManager::HandleRepartitionPacke
 		return;
 	}
 
-	ServerWorldManager::PendingPartition partition;
-	partition.effectiveTick = packet->effectiveTick;
+	// Accumulated by effective tick, because a partition arrives in PAGES. Adopting a
+	// partial one would leave this server disagreeing with its peers about where the
+	// borders are, which is the one thing a repartition must never do - so nothing is
+	// scheduled until every region has arrived.
+	auto& assembling = mAssemblingPartitions[packet->effectiveTick];
 
-	// regionCount, not MAX_REGIONS: the packet was sized to the regions actually used,
-	// so anything past it was never sent.
-	const int count = std::min(packet->regionCount, DistributedRepartitionPacket::MAX_REGIONS);
-	partition.regions.reserve(count);
+	// regionCount, not the page capacity: the packet was sized to the regions actually
+	// used, so anything past it was never sent and reading it would run off the end of
+	// the received buffer.
+	const int count = std::min(packet->regionCount,
+		DistributedRepartitionPacket::MAX_REGIONS_PER_PAGE);
 	for (int i = 0; i < count; ++i) {
 		const RegionBoundsWire& wire = packet->regions[i];
-		partition.regions.push_back(NCL::Interaction::RegionBounds{
-			wire.serverID, wire.minX, wire.maxX, wire.minZ, wire.maxZ });
+		// Keyed by server id, so a page delivered twice cannot produce a duplicate
+		// region and a partition with a hole is impossible to mistake for a full one.
+		assembling[wire.serverID] = NCL::Interaction::RegionBounds{
+			wire.serverID, wire.minX, wire.maxX, wire.minZ, wire.maxZ };
 	}
 
-	std::cout << "Repartition received: " << count << " regions, effective at tick "
-		<< packet->effectiveTick << "\n";
+	if (static_cast<int>(assembling.size()) < packet->totalRegionCount) {
+		std::cout << "Repartition page: " << assembling.size() << " of "
+			<< packet->totalRegionCount << " regions for tick "
+			<< packet->effectiveTick << "\n";
+		return;
+	}
+
+	ServerWorldManager::PendingPartition partition;
+	partition.effectiveTick = packet->effectiveTick;
+	partition.regions.reserve(assembling.size());
+	for (const auto& entry : assembling) {
+		partition.regions.push_back(entry.second);
+	}
+	mAssemblingPartitions.erase(packet->effectiveTick);
+
+	std::cout << "Repartition complete: " << partition.regions.size()
+		<< " regions, effective at tick " << packet->effectiveTick << "\n";
 	worldManager->SchedulePartitionChange(partition);
+}
+
+// One page of the instance's server registry.
+//
+// This replaces the fixed 20-entry arrays that used to ride inside the start packet
+// and capped an instance at 20 servers. Pages are accumulated until the registry is
+// complete; nothing is acted on before that, so a page arriving late or out of order
+// costs nothing.
+void DistributedGameServer::DistributedGameServerManager::HandleServerRegistryPacket(
+	DistributedServerRegistryPacket* packet) {
+	if (packet == nullptr || packet->gameInstanceID != mGameInstanceID) {
+		return;
+	}
+
+	const int count = std::min(packet->entryCount,
+		DistributedServerRegistryPacket::MAX_ENTRIES_PER_PAGE);
+	for (int i = 0; i < count; ++i) {
+		// Keyed by server id: a page delivered twice overwrites rather than appending,
+		// so the completeness test below cannot be satisfied by duplicates.
+		mServerRegistry[packet->entries[i].serverID] = packet->entries[i];
+	}
+
+	mRegistryTotalServerCount = packet->totalServerCount;
+	if (static_cast<int>(mServerRegistry.size()) < packet->totalServerCount) {
+		std::cout << "Server registry: " << mServerRegistry.size() << " of "
+			<< packet->totalServerCount << " servers\n";
+		return;
+	}
+
+	std::cout << "Server registry complete: " << mServerRegistry.size() << " servers\n";
+	ApplyServerRegistry();
+}
+
+// Builds the border map and the peer links from a COMPLETE registry.
+//
+// Idempotent: the registry is rebroadcast whenever another server registers, so this
+// runs several times during bootstrap and must only ever add what is missing.
+void DistributedGameServer::DistributedGameServerManager::ApplyServerRegistry() {
+	for (const auto& entry : mServerRegistry) {
+		if (mPhysicsServerBorderMap.contains(entry.first)) {
+			continue;
+		}
+		auto* border = new PhysicsServerBorderData();
+		border->minXVal = entry.second.minX;
+		border->maxXVal = entry.second.maxX;
+		border->minZVal = entry.second.minZ;
+		border->maxZVal = entry.second.maxZ;
+		mPhysicsServerBorderMap.insert(std::make_pair(entry.first, border));
+		std::cout << "Registry border for server " << entry.first
+			<< " x " << border->minXVal << ".." << border->maxXVal
+			<< " z " << border->minZVal << ".." << border->maxZVal << "\n";
+	}
+
+	// The packet sender has to expect every peer plus every client. Recomputed here
+	// rather than taken from the start packet, since the registry is the authority on
+	// how many servers the instance has.
+	if (mDistributedPacketSenderServer != nullptr && mRegistryTotalServerCount > 0) {
+		mDistributedPacketSenderServer->SetMaxClients(
+			(mRegistryTotalServerCount - 1) + mExpectedClientCount);
+	}
+
+	for (const auto& entry : mServerRegistry) {
+		if (entry.first == mGameServerID) {
+			continue;
+		}
+		// A server that has not registered with the manager yet has a region but no
+		// address. Its borders are already usable; the link is made when a later
+		// registry broadcast carries its address.
+		const std::string peerIP(entry.second.ip);
+		if (peerIP.empty() || entry.second.port == 0) {
+			continue;
+		}
+		// Our own entry, matched by address and port rather than id, because the
+		// registry lists this server exactly as it lists any other.
+		if (peerIP == DistributedUtils::GetMachineIPV4Address()
+			&& entry.second.port == mPacketSenderServerPort) {
+			continue;
+		}
+
+		bool alreadyLinked = false;
+		for (const auto* connection : mDistributedPhysicsClients) {
+			if (connection->serverID == entry.first) {
+				alreadyLinked = true;
+				break;
+			}
+		}
+		if (alreadyLinked) {
+			continue;
+		}
+
+		const std::vector<char> octets = IpToCharArray(peerIP);
+		if (octets.size() < 4) {
+			continue;
+		}
+		if (auto* connection = ConnectServerToAnotherGameServer(
+			octets[0], octets[1], octets[2], octets[3], entry.second.port, entry.first)) {
+			std::cout << "Linked to server " << entry.first << " from registry\n";
+			mDistributedPhysicsClients.push_back(connection);
+		}
+		else {
+			std::cout << "Failed to link to server " << entry.first << " from registry\n";
+		}
+	}
 }
 
 void DistributedGameServer::DistributedGameServerManager::HandleHaloUpdatePacket(

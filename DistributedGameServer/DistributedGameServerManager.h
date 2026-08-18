@@ -6,6 +6,7 @@
 #include "NetworkBase.h"
 #include "NetworkObject.h"
 #include "DistributedSystemCommonFiles/SequenceWindow.h"
+#include "DistributedSystemCommonFiles/RegionOwnership.h"
 
 namespace NCL::CSC8503 {
 	struct DistributedManagerAllGameServersAreConnectedPacket;
@@ -123,6 +124,25 @@ namespace NCL {
 			// affordable, and a packet count alone would hide it.
 			// Set from --halo-reliable. See PublishHaloBand.
 			bool mHaloReliable = false;
+			// The instance's server registry, assembled from pages. Keyed by server id,
+			// so a page delivered twice overwrites rather than appending and the
+			// completeness test cannot be satisfied by duplicates.
+			//
+			// This replaces the five fixed 20-entry arrays that used to ride inside
+			// StartDistributedGameServerPacket, which capped an instance at 20 servers
+			// and made that one message about 6 KB.
+			std::map<int, CSC8503::ServerRegistryEntry> mServerRegistry;
+			int mRegistryTotalServerCount = 0;
+			// From the start packet, needed to size the packet sender's peer bound.
+			int mExpectedClientCount = 0;
+
+			// Partitions still arriving, keyed by effective tick. A partition is only
+			// scheduled once every one of its regions has been received; adopting a
+			// partial one would leave this server disagreeing with its peers about
+			// where the borders are.
+			std::map<long long, std::map<int, NCL::Interaction::RegionBounds>>
+				mAssemblingPartitions;
+
 			int mHaloUpdatesSent = 0;
 			int mHaloObjectsSent = 0;
 			int mHaloUpdatesReceived = 0;
@@ -177,6 +197,10 @@ namespace NCL {
 			void HandleObjectSpawnedPacket(CSC8503::DistributedObjectSpawnedPacket* packet);
 			void HandleHaloUpdatePacket(CSC8503::HaloUpdatePacket* packet);
 			void HandleRepartitionPacket(CSC8503::DistributedRepartitionPacket* packet);
+			void HandleServerRegistryPacket(CSC8503::DistributedServerRegistryPacket* packet);
+			// Builds borders and peer links from a COMPLETE registry. Idempotent: the
+			// registry is rebroadcast as servers register, so this runs repeatedly.
+			void ApplyServerRegistry();
 			// Publishes this server's border objects to the neighbours whose regions
 			// they are close to. Called once per tick while the game is running.
 			void PublishHaloBand();

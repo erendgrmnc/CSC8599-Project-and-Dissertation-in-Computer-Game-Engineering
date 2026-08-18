@@ -17,6 +17,7 @@ GameServer::GameServer(int onPort, int maxClients, bool isStartingServer) {
 	for (int i = 0; i < mClientMax; ++i) {
 		mPeers[i] = -1;
 	}
+	mHostPeerCapacity = mClientMax;
 
 	if (isStartingServer) {
 		Initialise();
@@ -177,6 +178,16 @@ void GameServer::UpdateServer() {
 void GameServer::SetMaxClients(int maxClients) {
 	if (maxClients == mClientMax) {
 		return;
+	}
+	// This raises the LOGICAL bound only. The ENet host's peer capacity is fixed at
+	// enet_host_create and cannot grow, so a bound above it can never be reached:
+	// connections past the host's capacity are refused and the "have all peers
+	// arrived?" test stays false forever. Loud, because the symptom is a system that
+	// bootstraps in silence and then simply never starts.
+	if (mHostPeerCapacity > 0 && maxClients > mHostPeerCapacity) {
+		std::cout << "ERROR: max clients raised to " << maxClients
+			<< " but this host was created with room for " << mHostPeerCapacity
+			<< " peers. Connections beyond that will be refused.\n";
 	}
 	// The peer table must grow with the bound: every loop over mPeers runs to
 	// mClientMax, so raising the count without reallocating overflows the buffer.

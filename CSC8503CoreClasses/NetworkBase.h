@@ -70,7 +70,10 @@ enum BasicNetworkMessages {
 	DistributedHaloUpdate,           // Game Server -> Game Server
 	// Manager -> every game server and client: the partition changes to these
 	// borders at an absolute tick. APPEND ONLY, as above.
-	DistributedRepartition           // Manager -> Game Servers + Clients
+	DistributedRepartition,          // Manager -> Game Servers + Clients
+	// Manager -> game servers: one PAGE of the server registry. Replaces the fixed
+	// 20-entry arrays that used to ride inside the start packet. APPEND ONLY.
+	DistributedServerRegistry        // Manager -> Game Servers
 };
 
 enum DistributedSystemClientType {

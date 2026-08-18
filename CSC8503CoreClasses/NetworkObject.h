@@ -203,17 +203,70 @@ namespace NCL::CSC8503 {
 	// both of them or by neither. An offset from receipt would put the switch wherever
 	// the packet happened to land.
 	struct DistributedRepartitionPacket : public GamePacket {
-		// Matches the 20-server bound the bootstrap packet's arrays already use.
-		static constexpr int MAX_REGIONS = 20;
+		// PAGED, for the same reason the server registry is: a fixed bound here would
+		// cap the number of servers an instance can have just as the bootstrap arrays
+		// did. 16 regions is 320 bytes of payload, well inside an MTU.
+		static constexpr int MAX_REGIONS_PER_PAGE = 16;
 
 		long long effectiveTick;
+		// Across ALL pages. A partition is only adopted once this many regions have
+		// arrived: adopting a partial one would leave the server disagreeing with its
+		// peers about where the borders are, which is the one thing a repartition must
+		// never do.
+		int totalRegionCount;
 		int regionCount;
-		RegionBoundsWire regions[MAX_REGIONS];
+		RegionBoundsWire regions[MAX_REGIONS_PER_PAGE];
 
-		DistributedRepartitionPacket(long long effectiveTick);
+		DistributedRepartitionPacket(long long effectiveTick, int totalRegionCount);
 		bool TryAddRegion(const RegionBoundsWire& region);
 	};
 	static_assert(std::is_trivially_copyable_v<DistributedRepartitionPacket>);
+
+	// One server's entry in the instance registry: where it is, and what it owns.
+	//
+	// Borders as floats rather than the "minX/maxX|minZ/maxZ" text the old bootstrap
+	// packet carried. That format cost 256 bytes per server and needed parsing on
+	// arrival, which is a second place for a rounding difference to appear between
+	// servers; 16 bytes of float is exact and free to read.
+	struct ServerRegistryEntry {
+		int serverID;
+		int port;
+		char ip[PACKET_IP_LENGTH];
+		float minX;
+		float maxX;
+		float minZ;
+		float maxZ;
+	};
+	static_assert(std::is_trivially_copyable_v<ServerRegistryEntry>);
+
+	// Manager -> game servers. One PAGE of the instance's server registry.
+	//
+	// This exists to remove a hard architectural ceiling. The registry used to ride
+	// inside StartDistributedGameServerPacket as five fixed 20-entry arrays - the
+	// largest being char borders[20][256] - which capped an instance at 20 servers
+	// and already made the bootstrap message about 6 KB. Widening the arrays does not
+	// help: sized for 200 servers the same packet would be over 50 KB, sent to every
+	// server, whether or not the instance is that large.
+	//
+	// Paging removes the cap entirely. A receiver accumulates entries until it holds
+	// totalServerCount of them and only then builds its world, so a page arriving late
+	// or out of order costs nothing. Sent reliably, because the registry is one-shot
+	// bootstrap state with no retry: a server missing one page never starts.
+	struct DistributedServerRegistryPacket : public GamePacket {
+		// 16 entries is 640 bytes of payload, comfortably inside a typical 1400-byte
+		// MTU, so a page is never fragmented by ENet.
+		static constexpr int MAX_ENTRIES_PER_PAGE = 16;
+
+		int gameInstanceID;
+		// Across ALL pages. The receiver uses this to know when it has the full set.
+		int totalServerCount;
+		int entryCount;
+		ServerRegistryEntry entries[MAX_ENTRIES_PER_PAGE];
+
+		DistributedServerRegistryPacket(int gameInstanceID, int totalServerCount);
+		bool TryAddEntry(const ServerRegistryEntry& entry);
+	};
+	static_assert(std::is_trivially_copyable_v<DistributedServerRegistryPacket>);
 
 	struct ClientPacket : public GamePacket {
 		int		lastID;

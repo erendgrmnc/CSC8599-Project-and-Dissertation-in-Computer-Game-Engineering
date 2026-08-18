@@ -798,19 +798,42 @@ HaloUpdatePacket::HaloUpdatePacket(int senderServerID, int senderTick) {
 	this->entryCount = 0;
 }
 
-DistributedRepartitionPacket::DistributedRepartitionPacket(long long effectiveTick) {
+DistributedRepartitionPacket::DistributedRepartitionPacket(long long effectiveTick,
+	int totalRegionCount) {
 	type = BasicNetworkMessages::DistributedRepartition;
 	// Sized to the regions actually used, like HaloUpdatePacket: a two-server
-	// partition must not put twenty regions of uninitialised stack on the wire.
+	// partition must not put a full page of uninitialised stack on the wire.
 	size = static_cast<short>(sizeof(DistributedRepartitionPacket) - sizeof(GamePacket)
 		- sizeof(regions));
 
 	this->effectiveTick = effectiveTick;
+	this->totalRegionCount = totalRegionCount;
 	this->regionCount = 0;
 }
 
+DistributedServerRegistryPacket::DistributedServerRegistryPacket(int gameInstanceID,
+	int totalServerCount) {
+	type = BasicNetworkMessages::DistributedServerRegistry;
+	size = static_cast<short>(sizeof(DistributedServerRegistryPacket) - sizeof(GamePacket)
+		- sizeof(entries));
+
+	this->gameInstanceID = gameInstanceID;
+	this->totalServerCount = totalServerCount;
+	this->entryCount = 0;
+}
+
+bool DistributedServerRegistryPacket::TryAddEntry(const ServerRegistryEntry& entry) {
+	if (entryCount >= MAX_ENTRIES_PER_PAGE) {
+		return false;
+	}
+	entries[entryCount] = entry;
+	++entryCount;
+	size = static_cast<short>(size + sizeof(ServerRegistryEntry));
+	return true;
+}
+
 bool DistributedRepartitionPacket::TryAddRegion(const RegionBoundsWire& region) {
-	if (regionCount >= MAX_REGIONS) {
+	if (regionCount >= MAX_REGIONS_PER_PAGE) {
 		return false;
 	}
 	regions[regionCount] = region;

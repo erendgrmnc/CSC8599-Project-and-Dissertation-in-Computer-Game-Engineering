@@ -81,6 +81,9 @@ namespace NCL {
 
 			void SendDistributedPhysicsServerInfoToClients(const std::string& ip, const int serverID, const int port, const std::string& borderStr) const;
 			void SendStartDataToPhysicsServer(int gameInstanceID, int physicsServerID) const;
+			// The instance's server registry, in pages. Removes the 20-server cap the
+			// fixed arrays in the bootstrap packet imposed.
+			void SendServerRegistry(int gameInstanceID) const;
 			void SendPhysicsServerMiddlewareDataPacket(int peerID, int midwareID);
 
 			void HandleDistributedClientConnectedPacketReceived(int peerID, NCL::CSC8503::DistributedClientConnectedToSystemPacket* packet);

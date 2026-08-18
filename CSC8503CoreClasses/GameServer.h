@@ -43,6 +43,11 @@ namespace NCL {
 			// send can find its destination. Kept as a map rather than an array so it
 			// cannot fall out of step with mClientMax.
 			std::map<int, _ENetPeer*> mPeerHandles;
+
+			// What enet_host_create was actually given. Fixed for the life of the
+			// host, so SetMaxClients can warn rather than silently promising room the
+			// host does not have.
+			int mHostPeerCapacity = 0;
 			GameWorld*	mGameWorld;
 
 			int mIncomingDataRate;

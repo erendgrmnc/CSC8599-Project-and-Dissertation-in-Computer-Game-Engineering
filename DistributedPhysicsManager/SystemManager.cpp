@@ -133,7 +133,25 @@ void NCL::DistributedManager::SystemManager::SendRepartitionPacket(int gameInsta
 	std::vector<double> sortedX = interiorX;
 	std::sort(sortedX.begin(), sortedX.end());
 
-	DistributedRepartitionPacket packet(effectiveTick);
+	// Paged, like the registry: a fixed bound here would cap the server count exactly
+	// as the bootstrap arrays used to. A receiver adopts nothing until it holds all
+	// totalRegionCount regions, so a partial partition is never applied.
+	const int totalRegions = static_cast<int>(serverIDs.size());
+	DistributedRepartitionPacket page(effectiveTick, totalRegions);
+	int pagesSent = 0;
+
+	auto flush = [&]() {
+		if (page.regionCount == 0) {
+			return;
+		}
+		// Reliable and one-shot: a server that misses a page stays on the old
+		// partition while everyone else moves, and every ownership question is then
+		// answered differently there than anywhere else.
+		mDistributedPhysicsManagerServer->SendGlobalReliablePacket(page);
+		++pagesSent;
+		page = DistributedRepartitionPacket(effectiveTick, totalRegions);
+	};
+
 	for (size_t i = 0; i < serverIDs.size(); ++i) {
 		RegionBoundsWire region;
 		region.serverID = serverIDs[i];
@@ -143,15 +161,15 @@ void NCL::DistributedManager::SystemManager::SendRepartitionPacket(int gameInsta
 		// flag needs to express, and it is also what the first policy will produce.
 		region.minZ = static_cast<float>(worldMinZ);
 		region.maxZ = static_cast<float>(worldMaxZ);
-		packet.TryAddRegion(region);
+		if (!page.TryAddRegion(region)) {
+			flush();
+			page.TryAddRegion(region);
+		}
 	}
+	flush();
 
-	std::cout << "Broadcasting repartition: " << packet.regionCount
-		<< " regions, effective at tick " << effectiveTick << "\n";
-	// Reliable and one-shot: a server that misses it stays on the old partition while
-	// everyone else moves, and every ownership question is then answered differently
-	// there than anywhere else.
-	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
+	std::cout << "Broadcasting repartition: " << totalRegions << " regions in "
+		<< pagesSent << " page(s), effective at tick " << effectiveTick << "\n";
 }
 
 void DistributedManager::SystemManager::
@@ -176,6 +194,92 @@ void DistributedManager::SystemManager::SendStartDataToPhysicsServer(int gameIns
 	auto& physicsServersBorderStrMap = gameInstance->GetServerBorderStrMap();
 	StartDistributedGameServerPacket packet(mSystemManagerPort, gameInstanceID, mMaxClientCount, gameInstance->GetObjectsPerPlayer(), serverPorts, serverIps, connectedServerIds, physicsServersBorderStrMap);
 	mDistributedPhysicsManagerServer->SendGlobalReliablePacket(packet);
+
+	// The registry the receivers actually use. The arrays inside the packet above are
+	// retained only so an unmodified role still boots; they cap an instance at 20
+	// servers and are ignored by any receiver that has assembled a full registry.
+	SendServerRegistry(gameInstanceID);
+}
+
+// The instance's server registry, in pages.
+//
+// This is what removes the 20-server ceiling. The registry used to ride inside
+// StartDistributedGameServerPacket as five fixed 20-entry arrays - the largest being
+// char borders[20][256] - which made that one message about 6 KB and capped an
+// instance at 20 servers however much hardware was available. Widening the arrays
+// only moves the problem: sized for 200 servers the same packet is over 50 KB, sent
+// to everyone, whatever the instance's actual size.
+//
+// Reliable, because this is one-shot bootstrap state with no retry: a server missing
+// a single page never assembles a complete registry and never builds its world.
+void DistributedManager::SystemManager::SendServerRegistry(int gameInstanceID) const {
+	GameInstance* instance = (mDistributedPhysicsManagerServer != nullptr)
+		? mDistributedPhysicsManagerServer->GetGameInstance(gameInstanceID)
+		: nullptr;
+	if (instance == nullptr) {
+		return;
+	}
+
+	const auto& borderMap = instance->GetServerBorderMap();
+
+	// Registration data is keyed by server id here, unlike the legacy arrays, so a
+	// receiver never has to reconcile two differently-indexed families.
+	// Non-const pointers: the accessors on DistributedPhysicsServerData are not const.
+	std::map<int, DistributedPhysicsServerData*> registered;
+	for (auto* server : mDistributedPhysicsServers) {
+		if (server->GetGameInstanceID() == gameInstanceID) {
+			registered[server->GetServerID()] = server;
+		}
+	}
+
+	const int totalServerCount = static_cast<int>(borderMap.size());
+	DistributedServerRegistryPacket page(gameInstanceID, totalServerCount);
+	int pagesSent = 0;
+
+	auto flush = [&]() {
+		if (page.entryCount == 0) {
+			return;
+		}
+		mDistributedPhysicsManagerServer->SendGlobalReliablePacket(page);
+		++pagesSent;
+		page = DistributedServerRegistryPacket(gameInstanceID, totalServerCount);
+	};
+
+	for (const auto& border : borderMap) {
+		if (border.second == nullptr) {
+			continue;
+		}
+
+		ServerRegistryEntry entry{};
+		entry.serverID = border.first;
+		entry.minX = static_cast<float>(border.second->minX);
+		entry.maxX = static_cast<float>(border.second->maxX);
+		entry.minZ = static_cast<float>(border.second->minZ);
+		entry.maxZ = static_cast<float>(border.second->maxZ);
+
+		// A server that has not registered yet still gets a region entry, with an
+		// empty address: peers need its BORDERS to answer ownership questions long
+		// before they need a link to it, and withholding the region until it connects
+		// would leave holes in the partition.
+		const auto found = registered.find(border.first);
+		if (found != registered.end()) {
+			entry.port = found->second->GetDataSenderPort();
+			CopyToPacketField(entry.ip, found->second->GetServerIPAddress());
+		}
+		else {
+			entry.port = 0;
+			CopyToPacketField(entry.ip, std::string());
+		}
+
+		if (!page.TryAddEntry(entry)) {
+			flush();
+			page.TryAddEntry(entry);
+		}
+	}
+	flush();
+
+	std::cout << "Server registry broadcast: " << totalServerCount << " servers in "
+		<< pagesSent << " page(s)\n";
 }
 
 void DistributedManager::SystemManager::SendPhysicsServerMiddlewareDataPacket(int peerID, int midwareID) {
