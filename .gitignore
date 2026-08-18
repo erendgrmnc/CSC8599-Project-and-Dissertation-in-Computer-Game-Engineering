@@ -140,3 +140,5 @@ tools/InteractionTests/cmake_install.cmake
 
 # Measurement run outputs
 runs/
+
+__pycache__/
