@@ -58,6 +58,26 @@ namespace NCL::CSC8503 {
 			return mIsNetworkActive;
 		}
 
+		// --- halo shadow ---
+		//
+		// A read-only copy of an object owned by a NEIGHBOURING server, held so that
+		// objects either side of a region border can collide. It is deliberately not
+		// expressible as a combination of the flags above: it must have physics (or
+		// the broadphase never forms a pair with it) while not being simulated (or two
+		// servers integrate the same object, which is a second owner), and those two
+		// are the same flag today.
+		//
+		// Everything that treats an object as this server's responsibility - the
+		// integrator, the border check, the snapshot loop, command targeting - must
+		// test this and skip. See the table in the halo band spec.
+		bool IsHaloShadow() const {
+			return mIsHaloShadow;
+		}
+
+		void SetIsHaloShadow(bool isShadow) {
+			mIsHaloShadow = isShadow;
+		}
+
 		// --- player control (increment 7) ---
 		//
 		// Continuous movement input is STATE, not an event: it is applied every tick
@@ -215,6 +235,7 @@ namespace NCL::CSC8503 {
 		bool		mIsSensed;
 		bool		mHasPhysics;
 		bool		mIsNetworkActive;
+		bool		mIsHaloShadow = false;
 		int			mControllerPlayerID = -1;
 		Vector3		mMoveAxis;
 		bool		mIsRendered;

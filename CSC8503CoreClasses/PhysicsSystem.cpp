@@ -653,6 +653,12 @@ void PhysicsSystem::IntegrateAccel(float dt) {
 		// of region occupancy.
 		if (!mDynamicObjectList[i]->HasPhysics())
 			continue;
+		// A halo shadow has physics so that the broadphase pairs with it, but it is
+		// owned by another server and that server integrates it. Integrating it here
+		// too would make this server a second owner - invariant I7 - and the two
+		// copies would diverge within a tick.
+		if (mDynamicObjectList[i]->IsHaloShadow())
+			continue;
 		PhysicsObject* object = mDynamicObjectList[i]->GetPhysicsObject();
 		if (object == nullptr)
 			continue;
@@ -698,8 +704,11 @@ the world, looking for collisions.
 void PhysicsSystem::IntegrateVelocity(float dt) {
 	float frameLinearDampening = 1.0f - (0.4f * dt);
 	for (int i = 0; i < mDynamicObjectList.size(); i++) {
-		// See IntegrateAccel: only objects this server owns are integrated.
+		// See IntegrateAccel: only objects this server owns are integrated, and a
+		// halo shadow is owned elsewhere.
 		if (!mDynamicObjectList[i]->HasPhysics())
+			continue;
+		if (mDynamicObjectList[i]->IsHaloShadow())
 			continue;
 		PhysicsObject* object = mDynamicObjectList[i]->GetPhysicsObject();
 		if (object == nullptr)

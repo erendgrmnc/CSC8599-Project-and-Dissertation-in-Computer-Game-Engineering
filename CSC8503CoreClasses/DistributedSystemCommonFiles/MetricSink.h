@@ -48,6 +48,9 @@ namespace NCL {
 		// none on either server today - that is the cross-border collision gap, and
 		// this is how it is sized.
 		int32_t contacts = 0;
+		// Halo shadows held. Separate from poolObjects: one is what this server
+		// simulates, the other is what it only watches.
+		int32_t haloObjects = 0;
 	};
 
 	// Fixed-capacity, allocation-free per-tick recorder.

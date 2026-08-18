@@ -188,11 +188,13 @@ int StartGameServer(int argc, char* argv[]) {
 		int poolObjects = -1;
 		int worldObjects = -1;
 		int forwardEntries = -1;
+		int haloObjects = -1;
 		if (auto* worldManager = serverManager->GetServerWorldManager()) {
 			worldManager->FlushMetrics();
 			poolObjects = worldManager->GetPoolObjectCount();
 			worldObjects = worldManager->GetWorldObjectCount();
 			forwardEntries = worldManager->GetForwardEntryCount();
+			haloObjects = worldManager->GetHaloObjectCount();
 		}
 
 		// Final totals rather than a 2 Hz sample, so the I4 and I5 invariants can be
@@ -212,6 +214,9 @@ int StartGameServer(int argc, char* argv[]) {
 			// The forwarding table, reported for the same reason as objPool: it is
 			// the other per-server structure that could scale with the world.
 			<< " objFwd=" << forwardEntries
+			// Watched, not simulated. Kept out of objPool so the locality figure keeps
+			// meaning what it meant before the halo existed.
+			<< " objHalo=" << haloObjects
 			// Run total, not a tick sample. Summed across servers and compared with
 			// the same world on one server, this is the size of the cross-border
 			// collision gap.

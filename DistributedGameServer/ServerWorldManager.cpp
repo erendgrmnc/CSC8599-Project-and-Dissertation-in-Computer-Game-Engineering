@@ -710,6 +710,7 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 		sample.worldObjects = static_cast<int32_t>(mGameWorld->GetGameObjects().size());
 		sample.forwardEntries = static_cast<int32_t>(mLastKnownOwner.size());
 		sample.contacts = static_cast<int32_t>(Profiler::GetContactsResolved());
+		sample.haloObjects = static_cast<int32_t>(mHaloObjects.size());
 		mMetrics->Record(sample);
 	}
 	++mTickCounter;
@@ -815,6 +816,12 @@ void NCL::DistributedGameServer::ServerWorldManager::AddNetworkObjectToNetworkOb
 
 void DistributedGameServer::ServerWorldManager::CheckPositionOutOfServerBoundaries() {
 	for (const auto& gameObj : mGameWorld->GetGameObjects()) {
+		// A halo shadow is already outside this server's region by construction -
+		// that is what makes it a shadow. Handing it off would mean offering a
+		// neighbour an object it already owns.
+		if (gameObj->IsHaloShadow()) {
+			continue;
+		}
 		if (gameObj->HasPhysics() && gameObj->IsNetworkActive()) {
 			if (auto* networkComp = gameObj->GetNetworkObject()) {
 				if (auto* physicsComp = gameObj->GetPhysicsObject()) {

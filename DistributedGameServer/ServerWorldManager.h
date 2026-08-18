@@ -266,6 +266,16 @@ namespace NCL {
 				return static_cast<int>(mLastKnownOwner.size());
 			}
 
+			// Halo shadows: read-only copies of objects owned by a NEIGHBOURING server,
+			// held so that objects either side of a border can collide. Reported
+			// separately from objPool rather than folded into it, because the two
+			// answer different questions - objPool is what this server is responsible
+			// for, objHalo is what it is merely watching. Adding them would make the
+			// locality measurement (I6) unreadable.
+			int GetHaloObjectCount() const {
+				return static_cast<int>(mHaloObjects.size());
+			}
+
 			// What an object IS, for a handoff packet to carry. Recorded for
 			// pre-seeded objects as well as runtime spawns, so this answers for every
 			// object this server knows. Falls back to Cube for an unknown id: a
@@ -355,6 +365,13 @@ namespace NCL {
 			// needs to be. Only objects that have actually passed through this server
 			// appear here, so it does not reintroduce an O(world) cost.
 			std::map<int, int> mLastKnownOwner;
+
+			// Deliberately NOT in mCreatedObjectPool. A shadow is not this server's
+			// object, and keeping it out of the pool is what makes FindActiveObject,
+			// the snapshot loop and the handoff path skip it without needing a guard
+			// in each - the ones that iterate the GameWorld instead do need the
+			// explicit IsHaloShadow() test.
+			std::map<int, CSC8503::GameObject*> mHaloObjects;
 
 			// A destroy can arrive at the new owner BEFORE the object does (race W3).
 			// Dropping it would resurrect the object, so it is held here and applied
