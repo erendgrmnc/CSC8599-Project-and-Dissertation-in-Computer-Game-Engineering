@@ -197,12 +197,14 @@ int StartGameServer(int argc, char* argv[]) {
 		int worldObjects = -1;
 		int forwardEntries = -1;
 		int haloObjects = -1;
+		int pendingReleases = 0;
 		if (auto* worldManager = serverManager->GetServerWorldManager()) {
 			worldManager->FlushMetrics();
 			poolObjects = worldManager->GetPoolObjectCount();
 			worldObjects = worldManager->GetWorldObjectCount();
 			forwardEntries = worldManager->GetForwardEntryCount();
 			haloObjects = worldManager->GetHaloObjectCount();
+			pendingReleases = worldManager->GetPendingReleaseCount();
 		}
 
 		// Final totals rather than a 2 Hz sample, so the I4 and I5 invariants can be
@@ -233,6 +235,10 @@ int StartGameServer(int argc, char* argv[]) {
 			<< " hoRecv=" << Profiler::GetHandoffsReceived()
 			<< " hoFail=" << Profiler::GetHandoffsFailed()
 			<< " hoLate=" << Profiler::GetHandoffsLate()
+			// Transfers started but not yet released. hoSent counts the start and
+			// hoRecv the completion, so a run ending mid-transfer is short by this
+			// many and the parity check has to allow for it.
+			<< " hoPending=" << pendingReleases
 			<< " cmdApplied=" << Profiler::GetCommandsApplied()
 			<< " cmdRelayed=" << Profiler::GetCommandsRelayed()
 			<< " cmdDup=" << Profiler::GetCommandsDuplicate()

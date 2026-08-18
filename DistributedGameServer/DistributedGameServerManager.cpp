@@ -157,6 +157,8 @@ void DistributedGameServer::DistributedGameServerManager::RegisterGameServerPack
 	mThisDistributedPhysicsServer->RegisterPacketHandler(String_Message, this);
 	mThisDistributedPhysicsServer->RegisterPacketHandler(BasicNetworkMessages::GameStartState, this);
 	mThisDistributedPhysicsServer->RegisterPacketHandler(BasicNetworkMessages::StartDistributedPhysicsServer, this);
+	// From the manager, which owns the partition.
+	mThisDistributedPhysicsServer->RegisterPacketHandler(BasicNetworkMessages::DistributedRepartition, this);
 }
 
 void DistributedGameServer::DistributedGameServerManager::RegisterPacketSenderServerPackets() {
@@ -315,6 +317,10 @@ void DistributedGameServer::DistributedGameServerManager::ReceivePacket(int type
 	}
 	case BasicNetworkMessages::DistributedHaloUpdate: {
 		HandleHaloUpdatePacket(static_cast<HaloUpdatePacket*>(payload));
+		break;
+	}
+	case BasicNetworkMessages::DistributedRepartition: {
+		HandleRepartitionPacket(static_cast<DistributedRepartitionPacket*>(payload));
 		break;
 	}
 	case BasicNetworkMessages::ClientPlayerInputState: {
@@ -972,6 +978,34 @@ void DistributedGameServer::DistributedGameServerManager::PublishHaloBand() {
 		}
 	}
 	flush();
+}
+
+void DistributedGameServer::DistributedGameServerManager::HandleRepartitionPacket(
+	DistributedRepartitionPacket* packet) {
+	if (packet == nullptr) {
+		return;
+	}
+	ServerWorldManager* worldManager = GetServerWorldManager();
+	if (worldManager == nullptr) {
+		return;
+	}
+
+	ServerWorldManager::PendingPartition partition;
+	partition.effectiveTick = packet->effectiveTick;
+
+	// regionCount, not MAX_REGIONS: the packet was sized to the regions actually used,
+	// so anything past it was never sent.
+	const int count = std::min(packet->regionCount, DistributedRepartitionPacket::MAX_REGIONS);
+	partition.regions.reserve(count);
+	for (int i = 0; i < count; ++i) {
+		const RegionBoundsWire& wire = packet->regions[i];
+		partition.regions.push_back(NCL::Interaction::RegionBounds{
+			wire.serverID, wire.minX, wire.maxX, wire.minZ, wire.maxZ });
+	}
+
+	std::cout << "Repartition received: " << count << " regions, effective at tick "
+		<< packet->effectiveTick << "\n";
+	worldManager->SchedulePartitionChange(partition);
 }
 
 void DistributedGameServer::DistributedGameServerManager::HandleHaloUpdatePacket(

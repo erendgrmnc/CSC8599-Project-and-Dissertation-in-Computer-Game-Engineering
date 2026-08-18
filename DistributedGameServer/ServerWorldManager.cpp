@@ -1003,6 +1003,11 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	// the shadow's authoritative state, then ReimposeHaloState writes that state over
 	// whatever last tick's contact resolution left behind. Doing it the other way
 	// round would re-impose the state the new update was about to replace.
+	// Before everything else that reads a border. The partition must change for the
+	// whole of the tick it takes effect on, or the ownership answers within that tick
+	// would come from two different partitions.
+	FlushPendingPartitions();
+
 	// Same tick the receiving server installs the object on, so ownership changes
 	// atomically rather than leaving a gap the width of the lookahead.
 	FlushScheduledReleases();
@@ -1161,6 +1166,79 @@ void NCL::DistributedGameServer::ServerWorldManager::AddNetworkObjectToNetworkOb
 	mNetworkObjects.push_back(networkObj);
 }
 
+
+void DistributedGameServer::ServerWorldManager::SchedulePartitionChange(
+	const PendingPartition& partition) {
+	if (partition.regions.empty()) {
+		return;
+	}
+	mPendingPartitions.push_back(partition);
+}
+
+void DistributedGameServer::ServerWorldManager::FlushPendingPartitions() {
+	if (mPendingPartitions.empty()) {
+		return;
+	}
+
+	// Oldest effective tick first, so two partitions queued together are adopted in
+	// the order they were meant to take effect rather than the order they arrived.
+	std::sort(mPendingPartitions.begin(), mPendingPartitions.end(),
+		[](const PendingPartition& l, const PendingPartition& r) {
+			return l.effectiveTick < r.effectiveTick;
+		});
+
+	for (auto entry = mPendingPartitions.begin(); entry != mPendingPartitions.end(); ) {
+		if (static_cast<uint64_t>(entry->effectiveTick) > mTickCounter) {
+			break;   // Sorted, so nothing later is due either.
+		}
+
+		if (static_cast<uint64_t>(entry->effectiveTick) < mTickCounter) {
+			// Adopted anyway. Refusing a late partition would leave this server on one
+			// nobody else is using, and every ownership question would then be
+			// answered differently here than everywhere else - unrecoverable, where a
+			// late switch is merely wrong for the ticks it was late by.
+			++mRepartitionsLate;
+			std::cout << "WARNING: partition for tick " << entry->effectiveTick
+				<< " arrived at tick " << mTickCounter << "; adopting late.\n";
+		}
+
+		for (const NCL::Interaction::RegionBounds& region : entry->regions) {
+			// Contents overwritten, pointers left alone. ServerWorldManager holds a
+			// PhysicsServerBorderData& taken at construction and TestObject copies one,
+			// so replacing the structs would dangle or silently stale those.
+			auto existing = mServerBorderMap->find(region.serverId);
+			if (existing == mServerBorderMap->end() || existing->second == nullptr) {
+				auto* created = new PhysicsServerBorderData();
+				created->minXVal = region.minX;
+				created->maxXVal = region.maxX;
+				created->minZVal = region.minZ;
+				created->maxZVal = region.maxZ;
+				(*mServerBorderMap)[region.serverId] = created;
+				continue;
+			}
+
+			existing->second->minXVal = region.minX;
+			existing->second->maxXVal = region.maxX;
+			existing->second->minZVal = region.minZ;
+			existing->second->maxZVal = region.maxZ;
+		}
+
+		// Ownership answers come from a cached copy of the border map, and the cache
+		// only noticed a change in the map's SIZE. Without this the borders move for
+		// the halo, which reads the map directly, and not for GetObjectServer.
+		mRegionsDirty = true;
+
+		++mRepartitionCount;
+		std::cout << "Partition adopted at tick " << mTickCounter << ": ";
+		for (const NCL::Interaction::RegionBounds& region : entry->regions) {
+			std::cout << "[" << region.serverId << " x " << region.minX << ".." << region.maxX
+				<< " z " << region.minZ << ".." << region.maxZ << "] ";
+		}
+		std::cout << "\n";
+
+		entry = mPendingPartitions.erase(entry);
+	}
+}
 
 void DistributedGameServer::ServerWorldManager::ScheduleOutgoingObject(int networkObjectID,
 	int newOwnerServerID) {
@@ -1554,7 +1632,8 @@ std::vector<CSC8503::NetworkObject*>* DistributedGameServer::ServerWorldManager:
 const std::vector<NCL::Interaction::RegionBounds>&
 DistributedGameServer::ServerWorldManager::GetRegionBounds() const {
 	const size_t mapSize = (mServerBorderMap != nullptr) ? mServerBorderMap->size() : 0;
-	if (mCachedRegions.size() != mapSize) {
+	if (mRegionsDirty || mCachedRegions.size() != mapSize) {
+		mRegionsDirty = false;
 		mCachedRegions.clear();
 		mCachedRegions.reserve(mapSize);
 		if (mServerBorderMap != nullptr) {

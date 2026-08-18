@@ -140,7 +140,14 @@ def summarise_run(run_dir):
         invariants["conservation_delta"] = owned - (preseed + spawned - destroyed)
         invariants["ho_sent"] = total(server_finals, "hoSent")
         invariants["ho_recv"] = total(server_finals, "hoRecv")
-        invariants["ho_parity_delta"] = invariants["ho_sent"] - invariants["ho_recv"]
+        # Minus the transfers still in flight. Ownership changes on an agreed tick
+        # rather than on send, so hoSent counts the START of a transfer and hoRecv
+        # its COMPLETION: a run that ends mid-transfer is legitimately short by the
+        # number still pending. The object is not lost - the sender still owns it,
+        # which is what conservation and the per-tick ownership check confirm.
+        invariants["ho_pending"] = total(server_finals, "hoPending")
+        invariants["ho_parity_delta"] = (invariants["ho_sent"] - invariants["ho_recv"]
+                                         - invariants["ho_pending"])
         invariants["ho_fail"] = total(server_finals, "hoFail")
         invariants["ho_late"] = total(server_finals, "hoLate")
 

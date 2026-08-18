@@ -62,6 +62,12 @@ param(
     # shadow extrapolating from an older sample and drops are not the same from
     # run to run - so reproducible runs need this.
     [switch]$HaloReliable,
+    # Forces one partition change at an ABSOLUTE tick, for testing the repartition
+    # mechanism before any policy decides when to use it. 0 disables.
+    [int]$RepartitionAt = 0,
+    # Interior X boundaries of the new partition: N-1 values for N servers. A comma
+    # separated STRING, not an array - powershell -File cannot parse array arguments.
+    [string]$RepartitionX = "",
     [string]$World = "-150,150,-150,150",
     [string]$OutDir = ""
 )
@@ -87,6 +93,7 @@ $metricsDir = $runDir -replace '\\','/'
 # without its build metadata is not reproducible.
 $mode = if ($Ticks -gt 0) { "reproducible" } else { "realtime" }
 $haloReliableArg = if ($HaloReliable) { "--halo-reliable" } else { "" }
+$repartitionArgs = if ($RepartitionAt -gt 0 -and $RepartitionX -ne "") { "--repartition-at $RepartitionAt --repartition-x $RepartitionX" } else { "" }
 $bound = if ($Ticks -gt 0) { "--run-ticks $Ticks" } else { "--run-seconds $Seconds" }
 
 $manifest = [ordered]@{
@@ -101,6 +108,8 @@ $manifest = [ordered]@{
     world        = $World
     haloWidth    = $HaloWidth
     haloLookahead = $HaloLookahead
+    repartitionAt = $RepartitionAt
+    repartitionX = $RepartitionX
     gitCommit    = (& git -C $repoRoot rev-parse HEAD 2>$null)
     gitDirty     = [bool](& git -C $repoRoot status --porcelain 2>$null)
     machine      = $env:COMPUTERNAME
@@ -111,7 +120,7 @@ $manifest | ConvertTo-Json | Out-File -FilePath (Join-Path $runDir "manifest.jso
 Write-Host "run=$Tag mode=$mode world=$World servers=$Servers objects=$Objects bound='$bound' seed=$Seed workload=$Workload"
 
 $mgr = Start-Process -PassThru -FilePath (Join-Path $deploy "Manager\EntryPoint.exe") `
-    -ArgumentList "--servers $Servers --clients 1 --objects $Objects --port 1234 --world $World --midwares 1 --autostart --headless" `
+    -ArgumentList "--servers $Servers --clients 1 --objects $Objects --port 1234 --world $World --midwares 1 --autostart --headless $repartitionArgs" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\mgr.log" -RedirectStandardError "$runDir\mgr.err" -WindowStyle Hidden
 Start-Sleep -Seconds 3
 

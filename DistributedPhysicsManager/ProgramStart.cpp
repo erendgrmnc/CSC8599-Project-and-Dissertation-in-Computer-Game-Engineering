@@ -1,3 +1,4 @@
+#include <sstream>
 #include <iostream>
 
 #include "SystemManager.h"
@@ -102,6 +103,37 @@ int StartProgram(int argc, char* argv[]) {
 	}
 
 	systemManager = new DistributedManager::SystemManager(maxPhysicsServer, maxClients);
+
+	// Forced partition change, for testing the repartition mechanism before any policy
+	// decides when to use it. --repartition-at is an ABSOLUTE tick, which is what makes
+	// the switch land on the same simulated tick on every server; --repartition-x gives
+	// the interior X boundaries of the new partition, so N-1 values for N servers.
+	if (useFlags) {
+		const long long repartitionAt =
+			static_cast<long long>(config.GetInt("--repartition-at", 0));
+		const std::string boundaryList = config.GetString("--repartition-x", "");
+		if (repartitionAt > 0 && !boundaryList.empty()) {
+			std::vector<double> interiorX;
+			std::stringstream stream(boundaryList);
+			std::string field;
+			while (std::getline(stream, field, ',')) {
+				if (!field.empty()) {
+					try {
+						interiorX.push_back(std::stod(field));
+					}
+					catch (...) {
+						std::cout << "WARNING: ignoring unparsable --repartition-x value '"
+							<< field << "'\n";
+					}
+				}
+			}
+			if (!interiorX.empty()) {
+				std::cout << "Forced repartition at tick " << repartitionAt << " with "
+					<< interiorX.size() << " interior X boundaries.\n";
+				systemManager->SetForcedRepartition(repartitionAt, interiorX);
+			}
+		}
+	}
 
 	std::cout << "Starting server on port: " << managerPort << "\n";
 	systemManager->StartManagerServer(managerPort, maxPhysicsServer + maxClients + 20);

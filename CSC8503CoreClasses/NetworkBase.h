@@ -67,7 +67,10 @@ enum BasicNetworkMessages {
 	// Owning game server -> the neighbouring servers whose regions its objects are
 	// close to. Carries a batch of read-only object states so that objects either
 	// side of a region border can collide. APPEND ONLY, as above.
-	DistributedHaloUpdate            // Game Server -> Game Server
+	DistributedHaloUpdate,           // Game Server -> Game Server
+	// Manager -> every game server and client: the partition changes to these
+	// borders at an absolute tick. APPEND ONLY, as above.
+	DistributedRepartition           // Manager -> Game Servers + Clients
 };
 
 enum DistributedSystemClientType {

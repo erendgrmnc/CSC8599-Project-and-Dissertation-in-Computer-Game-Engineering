@@ -36,6 +36,19 @@ namespace NCL {
 		bool IsServersReadyToStart();
 
 		std::map<int, const std::string>& GetServerBorderStrMap();
+
+		// Needed by whoever recomputes the partition at runtime. The manager owns
+		// border calculation, so it is the only thing that should be reading these.
+		const std::map<int, GameBorder*>& GetServerBorderMap() const {
+			return mPhysicsServerBorderMap;
+		}
+
+		void GetWorldBounds(double& minX, double& maxX, double& minZ, double& maxZ) const {
+			minX = mWorldMinX;
+			maxX = mWorldMaxX;
+			minZ = mWorldMinZ;
+			maxZ = mWorldMaxZ;
+		}
 	protected:
 		int mGameID;
 		int mServerCount;

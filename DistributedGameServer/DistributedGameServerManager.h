@@ -176,6 +176,7 @@ namespace NCL {
 			void DrainPendingSpawns();
 			void HandleObjectSpawnedPacket(CSC8503::DistributedObjectSpawnedPacket* packet);
 			void HandleHaloUpdatePacket(CSC8503::HaloUpdatePacket* packet);
+			void HandleRepartitionPacket(CSC8503::DistributedRepartitionPacket* packet);
 			// Publishes this server's border objects to the neighbours whose regions
 			// they are close to. Called once per tick while the game is running.
 			void PublishHaloBand();

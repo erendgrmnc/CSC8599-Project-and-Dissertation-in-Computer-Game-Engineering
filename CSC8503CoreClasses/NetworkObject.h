@@ -181,6 +181,40 @@ namespace NCL::CSC8503 {
 	};
 	static_assert(std::is_trivially_copyable_v<HaloUpdatePacket>);
 
+	// One server's region, on the wire. Floats rather than the "minX/maxX|minZ/maxZ"
+	// string the bootstrap packet uses: that format exists because the manager
+	// serialises borders as text for the launch string, and re-parsing text here would
+	// be a second place for a rounding difference to creep in between servers.
+	struct RegionBoundsWire {
+		int serverID;
+		float minX;
+		float maxX;
+		float minZ;
+		float maxZ;
+	};
+	static_assert(std::is_trivially_copyable_v<RegionBoundsWire>);
+
+	// Manager -> every game server (and every client, which needs the same partition
+	// to route commands). The partition becomes `regions` at tick `effectiveTick`.
+	//
+	// An ABSOLUTE tick, not an offset from receipt. Every server must switch on the
+	// same simulated tick: if two disagree about where a border is, even for one tick,
+	// OwningServerFor gives different answers on each and an object is either owned by
+	// both of them or by neither. An offset from receipt would put the switch wherever
+	// the packet happened to land.
+	struct DistributedRepartitionPacket : public GamePacket {
+		// Matches the 20-server bound the bootstrap packet's arrays already use.
+		static constexpr int MAX_REGIONS = 20;
+
+		long long effectiveTick;
+		int regionCount;
+		RegionBoundsWire regions[MAX_REGIONS];
+
+		DistributedRepartitionPacket(long long effectiveTick);
+		bool TryAddRegion(const RegionBoundsWire& region);
+	};
+	static_assert(std::is_trivially_copyable_v<DistributedRepartitionPacket>);
+
 	struct ClientPacket : public GamePacket {
 		int		lastID;
 		char	buttonstates[8];

@@ -82,6 +82,47 @@ namespace NCL {
 			// pending window, so without this it would be re-detected and re-sent
 			// every tick until the release finally fired.
 			bool IsReleasePending(int networkObjectID) const;
+
+			// Transfers initiated but not yet released, at the moment this is read.
+			//
+			// Since ownership transfers on an agreed tick rather than on send, hoSent
+			// counts the START of a transfer and hoRecv its COMPLETION. A run that ends
+			// mid-transfer therefore has hoSent > hoRecv legitimately, and the handoff
+			// parity invariant has to subtract these rather than treat the difference
+			// as a lost object. The object is not lost: the sender still owns it, which
+			// is why conservation and the per-tick ownership check both stay exact.
+			int GetPendingReleaseCount() const {
+				return static_cast<int>(mScheduledReleases.size());
+			}
+
+			// --- dynamic repartitioning ---
+			//
+			// Queues a new partition for adoption at an ABSOLUTE tick. Every server
+			// must switch on the same simulated tick: while two disagree about where a
+			// border is, OwningServerFor gives different answers on each and an object
+			// is owned by both of them or by neither.
+			//
+			// One region per server. A region for an id this server has never heard of
+			// is inserted; the structs themselves are overwritten in place rather than
+			// replaced, because ServerWorldManager and TestObject both hold references
+			// taken from them at construction.
+			struct PendingPartition {
+				long long effectiveTick = 0;
+				std::vector<NCL::Interaction::RegionBounds> regions;
+			};
+			void SchedulePartitionChange(const PendingPartition& partition);
+
+			// Partitions that arrived after the tick they were meant to take effect on.
+			// Adopted immediately anyway - a server left on a partition nobody else is
+			// using cannot recover - but counted, because it means the run is not
+			// reproducible and I1 may have been violated in the interval.
+			int GetRepartitionsLate() const {
+				return mRepartitionsLate;
+			}
+
+			int GetRepartitionCount() const {
+				return mRepartitionCount;
+			}
 			void CreateObjectGrid(int rowCount, int colCount, int objectsPerPlayer, float rowSpacing, float colSpacing, int playerID, const Maths::Vector3& startPos);
 
 			std::vector<CSC8503::TestObject*> GetTestObjects();
@@ -507,6 +548,12 @@ namespace NCL {
 			std::map<int, ScheduledRelease> mScheduledReleases;
 			void FlushScheduledReleases();
 
+			// Adopts any queued partition whose effective tick has arrived.
+			void FlushPendingPartitions();
+			std::vector<PendingPartition> mPendingPartitions;
+			int mRepartitionsLate = 0;
+			int mRepartitionCount = 0;
+
 			// Turns an existing halo shadow into an object this server owns, rather
 			// than tearing the shadow down and building a replacement.
 			//
@@ -582,6 +629,12 @@ namespace NCL {
 			// construction (when the manager's start packet arrives), hence the lazy
 			// rebuild keyed on its size rather than a one-shot copy.
 			mutable std::vector<NCL::Interaction::RegionBounds> mCachedRegions;
+			// The cache was rebuilt only when the map's SIZE changed, which is fine
+			// while borders are fixed and silently wrong once they can move: a
+			// repartition changes the values, not the count. Ownership then kept
+			// answering from the old partition while the halo, which reads the map
+			// directly, had already moved to the new one.
+			mutable bool mRegionsDirty = true;
 			const std::vector<NCL::Interaction::RegionBounds>& GetRegionBounds() const;
 			std::map<const int, PhysicsServerBorderData*>* mServerBorderMap;
 
