@@ -564,19 +564,33 @@ void DistributedGameServer::DistributedGameServerManager::HandleStartGameServerP
 }
 
 void DistributedGameServer::DistributedGameServerManager::HandleObjectTransitions() const {
+	// Collected FIRST, then acted on. HandleOutgoingObject now tears the object down
+	// rather than merely deactivating it, and teardown erases the object's
+	// NetworkObject from the very vector being walked here - so iterating it directly
+	// while releasing objects invalidates the iterators mid-loop. The transition set
+	// is tiny (a handful of objects a tick at most), so copying it is free.
+	std::vector<NetworkObject*> transitioning;
 	for (auto& networkObj : *mNetworkObjects) {
 		if (networkObj->GetIsActualPosOutOfServer()) {
-			std::cout << "Sending Finish Transition Packet to server: " << networkObj->GetNewServerID() << "\n";
-			// Release the object ONLY once the packet is actually on a link to the new
-			// owner. The transition flag is left set on failure, so the next tick
-			// retries rather than the object being lost to a link that was not up yet.
-			if (!SendFinishTransactionPacket(*networkObj)) {
-				continue;
-			}
-			mServerWorldManager->RecordHandoffSent();
-			networkObj->HandleTransitionComplete();
-			mServerWorldManager->HandleOutgoingObject(networkObj->GetNetworkID());
+			transitioning.push_back(networkObj);
 		}
+	}
+
+	for (auto* networkObj : transitioning) {
+		std::cout << "Sending Finish Transition Packet to server: " << networkObj->GetNewServerID() << "\n";
+		// Release the object ONLY once the packet is actually on a link to the new
+		// owner. The transition flag is left set on failure, so the next tick
+		// retries rather than the object being lost to a link that was not up yet.
+		if (!SendFinishTransactionPacket(*networkObj)) {
+			continue;
+		}
+		mServerWorldManager->RecordHandoffSent();
+		// Read before the release: HandleOutgoingObject destroys the object that owns
+		// this NetworkObject, so nothing may be read back off it afterwards.
+		const int networkID = networkObj->GetNetworkID();
+		const int newOwner = networkObj->GetNewServerID();
+		networkObj->HandleTransitionComplete();
+		mServerWorldManager->HandleOutgoingObject(networkID, newOwner);
 	}
 }
 

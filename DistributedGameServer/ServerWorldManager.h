@@ -56,7 +56,10 @@ namespace NCL {
 			void AddNetworkObject(CSC8503::GameObject& objToAdd);
 			void CreatePlayerObjects(int playerCount, int objectsPerPlayer);
 			void HandleTransitionHandshakeReceived(CSC8503::StartSimulatingObjectReceivedPacket* packet);
-			void HandleOutgoingObject(int networkObjectID);
+			// newOwnerServerID is recorded so a command that arrives here after the
+			// handoff can still be forwarded. Without it, releasing the object leaves
+			// this server unable to say where it went and race W2 reopens.
+			void HandleOutgoingObject(int networkObjectID, int newOwnerServerID);
 			void CreateObjectGrid(int rowCount, int colCount, int objectsPerPlayer, float rowSpacing, float colSpacing, int playerID, const Maths::Vector3& startPos);
 
 			std::vector<CSC8503::TestObject*> GetTestObjects();
@@ -90,6 +93,12 @@ namespace NCL {
 			bool GetWorldExtent(float& minX, float& maxX, float& minZ, float& maxZ) const;
 			CSC8503::GameObject* FindActiveObject(int networkObjectID) const override;
 			bool TryGetLastKnownPosition(int networkObjectID, Maths::Vector3& out) const override;
+			bool TryGetLastKnownOwner(int networkObjectID, int& outServerID) const override;
+
+			// Records where an object went. Called when this server hands one away,
+			// when it learns of a spawn owned elsewhere, and for every pre-seed grid
+			// cell outside its own region.
+			void RecordObjectOwner(int networkObjectID, int serverID);
 			int SpawnObject(int archetypeID, const Maths::Vector3& at, int spawnerPlayerID) override;
 			bool DestroyObject(int networkObjectID, NCL::Interaction::DespawnReason reason,
 				int destroyerPlayerID) override;
@@ -326,6 +335,15 @@ namespace NCL {
 			// a distributed GC problem), which is exactly what makes a permanent
 			// tombstone safe and cheap.
 			std::set<int> mTombstones;
+
+			// objectID -> the server this one last believed owned it. Replaces the job
+			// the deactivated twin was doing for command forwarding: a server that has
+			// handed an object away keeps 8 bytes saying where it went, instead of a
+			// whole GameObject. Entries are pure cache - a miss falls back to the
+			// client's own owner table - so this can be bounded or dropped if it ever
+			// needs to be. Only objects that have actually passed through this server
+			// appear here, so it does not reintroduce an O(world) cost.
+			std::map<int, int> mLastKnownOwner;
 
 			// A destroy can arrive at the new owner BEFORE the object does (race W3).
 			// Dropping it would resurrect the object, so it is held here and applied

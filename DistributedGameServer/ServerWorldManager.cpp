@@ -170,6 +170,27 @@ bool NCL::DistributedGameServer::ServerWorldManager::TryGetLastKnownPosition(int
 	return true;
 }
 
+bool NCL::DistributedGameServer::ServerWorldManager::TryGetLastKnownOwner(int networkObjectID,
+	int& outServerID) const {
+	const auto entry = mLastKnownOwner.find(networkObjectID);
+	if (entry == mLastKnownOwner.end()) {
+		return false;
+	}
+	outServerID = entry->second;
+	return true;
+}
+
+void NCL::DistributedGameServer::ServerWorldManager::RecordObjectOwner(int networkObjectID,
+	int serverID) {
+	if (networkObjectID < 0 || serverID < 0) {
+		return;
+	}
+	// Last write wins. An entry naming THIS server is still worth keeping: it is what
+	// tells a later handoff-out that the object was ours, and ResolveForwardTarget
+	// ignores self-entries rather than forwarding in a loop.
+	mLastKnownOwner[networkObjectID] = serverID;
+}
+
 NCL::CSC8503::GameObject* NCL::DistributedGameServer::ServerWorldManager::CreateObjectFromArchetype(
 	int archetypeID, const Maths::Vector3& position, int networkID, int playerID) {
 	Transform transform;
@@ -268,9 +289,12 @@ bool NCL::DistributedGameServer::ServerWorldManager::CreateReplicatedSpawn(int n
 		return false;
 	}
 
-	// Deactivated: this server holds the twin so a future handoff can reactivate it,
-	// exactly as it would for a pre-seeded object it does not currently own.
+	// Deactivated, and its owner recorded. The twin used to be required because
+	// StartHandlingObject could only reactivate an object it already had; handoff now
+	// constructs on arrival, so the twin is no longer load-bearing for that - but the
+	// OWNER record is, for forwarding commands aimed at this object.
 	object->SetActive(false);
+	RecordObjectOwner(networkID, ownerServerID);
 	std::cout << "Created deactivated twin for runtime object " << networkID
 		<< " owned by server " << ownerServerID << "\n";
 	return true;
@@ -904,6 +928,9 @@ bool DistributedGameServer::ServerWorldManager::ApplyIncomingObject(StartSimulat
 
 		objectToHandle->SetActive(true);
 		objectToHandle->SetServerID(mServerID);
+		// We own it now. Recorded rather than erased so a stale relay that arrives
+		// here is answered with "us" instead of falling through to ObjectUnknown.
+		RecordObjectOwner(packet->objectID, mServerID);
 
 		++mHandoffsReceived;
 
@@ -920,18 +947,30 @@ void DistributedGameServer::ServerWorldManager::HandleTransitionHandshakeReceive
 
 }
 
-void DistributedGameServer::ServerWorldManager::HandleOutgoingObject(int networkObjectID) {
+void DistributedGameServer::ServerWorldManager::HandleOutgoingObject(int networkObjectID,
+	int newOwnerServerID) {
+	// Recorded before anything else, so it holds even on the error path below: a
+	// command arriving after the release must still be forwardable.
+	RecordObjectOwner(networkObjectID, newOwnerServerID);
+
 	auto poolEntry = mCreatedObjectPool.find(networkObjectID);
 	if (poolEntry == mCreatedObjectPool.end()) {
 		std::cout << "ERROR: outgoing handoff for unknown object id " << networkObjectID << "\n";
 		return;
 	}
 	if (auto* gameObj = poolEntry->second) {
-		std::cout << "Removing object from server with network ID" << gameObj->GetNetworkObject()->GetNetworkID() << "\n";
-		gameObj->SetActive(false);
-		if (TestObject* testComp = dynamic_cast<TestObject*>(gameObj)) {
-			std::erase(mTestObjects, testComp);
-		}
+		std::cout << "Removing object from server with network ID" << networkObjectID << "\n";
+		// Torn down, not just deactivated. Leaving a deactivated copy behind is what
+		// made per-server state O(world): an object handed away stayed allocated here
+		// forever. The pool entry is ERASED rather than nulled - unlike a destroy,
+		// this object still exists, it just lives somewhere else now, so a later
+		// arrival must be able to construct it (a null entry would be read as a
+		// tombstone). mLastKnownOwner, written above, is what remains of it here.
+		//
+		// The actual free is deferred to FlushPendingDeletions at the end of the tick:
+		// the collision sets hold raw pointers to this object for several frames.
+		TeardownObject(gameObj);
+		mCreatedObjectPool.erase(poolEntry);
 	}
 }
 
@@ -945,46 +984,74 @@ void DistributedGameServer::ServerWorldManager::CreateObjectGrid(int rowCount, i
 			objPos.x += x * rowSpacing;
 			objPos.z += z * colSpacing;
 
-			Transform transform;
-			transform.SetPosition(objPos);
+			// Index, id and archetype are derived for EVERY cell, owned or not.
+			//
+			// This loop is the shared naming of the world: mNetworkIdBuffer advances
+			// in grid order and is the ONLY reason ids agree across servers. Skipping
+			// an iteration - rather than skipping construction within an iteration -
+			// would shift every subsequent id and silently desynchronise the entire id
+			// space, which would surface much later as handoffs for objects that do
+			// not exist. Gate the construction, never the iteration.
+			const int objectIndex = objCounter++;
+			const int networkId = mNetworkIdBuffer++;
 
-			GameObject* obj = nullptr;
-
-			const bool isCube = (DeterministicHash(mWorldSeed, playerID, objCounter) & 1u) != 0;
-			if (isCube) {
-				std::cout << "Creating Object at: " << transform.GetPosition() << "\n";
-				obj = AddCubeToWorld(transform, objCounter++, playerID);
-			}
-			else {
-				obj = AddSphereToWorld(transform, objCounter++, playerID);
-			}
-
-			AddNetworkObject(*obj);
-			auto networkId = obj->GetNetworkObject()->GetNetworkID();
-			mCreatedObjectPool[networkId] = obj;
-			// Recorded for pre-seeded objects too: without it a late joiner would be
-			// told every existing object is the default archetype.
-			mObjectArchetypes[networkId] = static_cast<int>(isCube
+			const bool isCube = (DeterministicHash(mWorldSeed, playerID, objectIndex) & 1u) != 0;
+			const int archetypeID = static_cast<int>(isCube
 				? NCL::Interaction::ObjectArchetype::Cube
 				: NCL::Interaction::ObjectArchetype::Sphere);
 
-			ApplyWorkloadInitialState(*obj, playerID, objCounter - 1);
+			const int owner = GetObjectServer(objPos);
 
-			if (IsObjectInBorder(transform.GetPosition())) {
-				std::cout << "Added object to world. Obj name: " << obj->GetName() << "/ Network Id: " << networkId << "\n";
+			if (owner == mServerID) {
+				Transform transform;
+				transform.SetPosition(objPos);
+
+				GameObject* obj = isCube
+					? AddCubeToWorld(transform, objectIndex, playerID)
+					: AddSphereToWorld(transform, objectIndex, playerID);
+
+				// Explicit id rather than AddNetworkObject's counter side effect: the
+				// counter is advanced above for every cell, so taking it here as well
+				// would double-count.
+				auto* networkObject = new NetworkObject(*obj, networkId);
+				obj->SetNetworkObject(networkObject);
+				AddNetworkObjectToNetworkObjects(networkObject);
+
+				mCreatedObjectPool[networkId] = obj;
+				// Recorded for pre-seeded objects too: without it a late joiner would
+				// be told every existing object is the default archetype.
+				mObjectArchetypes[networkId] = archetypeID;
+
+				ApplyWorkloadInitialState(*obj, playerID, objectIndex);
+
 				mTestObjects.push_back(dynamic_cast<TestObject*>(obj));
+				mGameWorld->AddGameObject(obj);
+			}
+			else if (owner >= 0) {
+				// Not ours. No object is built at all - this is the whole point of the
+				// increment - just 8 bytes saying where it lives, so a command aimed at
+				// it can still be forwarded.
+				RecordObjectOwner(networkId, owner);
 			}
 			else {
-				obj->SetActive(false);
+				// Outside every region. Previously such an object was built on every
+				// server and left deactivated, so it existed everywhere and was
+				// simulated nowhere; now it exists nowhere. Loud, because it means the
+				// grid extends past the world bounds.
+				std::cout << "WARNING: pre-seed cell " << networkId << " at " << objPos
+					<< " maps to no server; not created.\n";
 			}
 
-			mGameWorld->AddGameObject(obj);
-
 			if (objectsPerPlayer == objCounter) {
+				Profiler::SetTotalObjectsInServer(mNetworkIdBuffer - NETWORK_ID_BUFFER);
 				return;
 			}
 		}
 	}
+
+	// objPreseed counts ids ALLOCATED, not objects built here, so it stays the
+	// world-wide total and remains comparable across servers and across this change.
+	Profiler::SetTotalObjectsInServer(mNetworkIdBuffer - NETWORK_ID_BUFFER);
 }
 
 std::vector<CSC8503::TestObject*> DistributedGameServer::ServerWorldManager::GetTestObjects() {
