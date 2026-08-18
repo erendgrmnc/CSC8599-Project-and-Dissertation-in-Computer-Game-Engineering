@@ -680,6 +680,7 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 		// Today both equal the world total on every server.
 		sample.poolObjects = static_cast<int32_t>(mCreatedObjectPool.size());
 		sample.worldObjects = static_cast<int32_t>(mGameWorld->GetGameObjects().size());
+		sample.forwardEntries = static_cast<int32_t>(mLastKnownOwner.size());
 		mMetrics->Record(sample);
 	}
 	++mTickCounter;
@@ -1026,10 +1027,14 @@ void DistributedGameServer::ServerWorldManager::CreateObjectGrid(int rowCount, i
 				mGameWorld->AddGameObject(obj);
 			}
 			else if (owner >= 0) {
-				// Not ours. No object is built at all - this is the whole point of the
-				// increment - just 8 bytes saying where it lives, so a command aimed at
-				// it can still be forwarded.
-				RecordObjectOwner(networkId, owner);
+				// Not ours, and nothing at all is recorded - not an object, not even a
+				// forwarding entry. An 8-byte entry per non-owned cell sounds cheap
+				// until the world is the size this system is for: it is O(world) per
+				// server, the same order as the pre-seed model this increment removed,
+				// just with a smaller constant. A command that arrives here for this
+				// object is forwarded using the position the client stamped on it
+				// (CommandFlags::HasObjectPosition); the forwarding table is now only
+				// for objects this server has actually handed away.
 			}
 			else {
 				// Outside every region. Previously such an object was built on every

@@ -1,3 +1,4 @@
+#include <functional>
 #include "TestHarness.h"
 
 #include "DistributedSystemCommonFiles/InteractionCommand.h"
@@ -169,8 +170,16 @@ namespace {
 		std::vector<MoveAxisCall> moveAxes;
 		std::vector<RelayCall> relays;
 
+		// Set this when a test needs ownership to actually depend on WHICH point is
+		// asked about - the difference between the position this server holds and the
+		// one the client stamped onto the command is the whole subject of the
+		// forwarding tests below.
+		std::function<int(const Maths::Vector3&)> owningServerFn;
+
 		int GetServerID() const override { return serverID; }
-		int GetOwningServer(const Maths::Vector3&) const override { return owningServerResult; }
+		int GetOwningServer(const Maths::Vector3& point) const override {
+			return owningServerFn ? owningServerFn(point) : owningServerResult;
+		}
 
 		CSC8503::GameObject* FindActiveObject(int) const override {
 			// Non-null only matters as a yes/no here; commands must not dereference it.
@@ -567,4 +576,183 @@ TEST(DestroyRejectsMissingTarget) {
 	args.targetObjectID = -1;
 
 	CHECK(!registry.Find(CommandType::Destroy)->Validate(args));
+}
+
+
+// --- Forwarding without a world-sized table --------------------------------
+//
+// A server that holds nothing for an object used to be told at startup where every
+// object it does not own lives. That is O(world) per server and defeats region-local
+// state, so the client now stamps the object's last known position onto the command
+// and the server forwards on that. These tests pin the resulting precedence.
+
+namespace {
+	// Two regions split at x = 0: server 0 owns x < 0, server 1 owns x >= 0.
+	int SplitAtOrigin(const Maths::Vector3& p) { return p.x < 0.0f ? 0 : 1; }
+}
+
+TEST(ImpulseForwardsUsingClientStampedPositionWhenNothingIsKnownLocally) {
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+	IInteractionCommand* impulse = registry.Find(CommandType::Impulse);
+
+	FakeContext ctx;
+	ctx.serverID = 0;
+	ctx.objectIsActiveHere = false;
+	ctx.hasLastKnownPosition = false;   // nothing held
+	ctx.hasLastKnownOwner = false;      // never handed it away
+	ctx.owningServerFn = SplitAtOrigin;
+
+	CommandArgs args;
+	args.targetObjectID = 7;
+	args.playerID = 1;
+	args.direction = Maths::Vector3(1, 0, 0);
+	args.magnitude = 5.0f;
+	args.worldPoint = Maths::Vector3(50, 0, 0);   // in server 1's half
+	args.flags = static_cast<int>(CommandFlags::HasObjectPosition);
+
+	CHECK_EQ(static_cast<int>(impulse->Apply(ctx, args)),
+		static_cast<int>(CommandResult::Relayed));
+	CHECK_EQ(static_cast<int>(ctx.relays.size()), 1);
+	CHECK_EQ(ctx.relays[0].serverID, 1);
+}
+
+TEST(StampedPositionIsIgnoredWithoutTheFlag) {
+	// Without the flag, worldPoint is whatever the sender left there - and an unset
+	// Vector3 is (0,0,0), a real point in a real region. Acting on it would forward
+	// commands to an arbitrary server instead of reporting the object unknown.
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+	IInteractionCommand* impulse = registry.Find(CommandType::Impulse);
+
+	FakeContext ctx;
+	ctx.serverID = 0;
+	ctx.objectIsActiveHere = false;
+	ctx.hasLastKnownPosition = false;
+	ctx.hasLastKnownOwner = false;
+	ctx.owningServerFn = SplitAtOrigin;
+
+	CommandArgs args;
+	args.targetObjectID = 7;
+	args.playerID = 1;
+	args.direction = Maths::Vector3(1, 0, 0);
+	args.magnitude = 5.0f;
+	args.worldPoint = Maths::Vector3(50, 0, 0);
+	args.flags = 0;
+
+	CHECK_EQ(static_cast<int>(impulse->Apply(ctx, args)),
+		static_cast<int>(CommandResult::ObjectUnknown));
+	CHECK_EQ(static_cast<int>(ctx.relays.size()), 0);
+}
+
+TEST(ForwardingTableBeatsTheClientStampedPosition) {
+	// The table is written by THIS server at the moment it handed the object away, so
+	// it is newer than anything the client can have seen. If the client's stale view
+	// won, a command issued during a handoff would chase the object backwards.
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+	IInteractionCommand* impulse = registry.Find(CommandType::Impulse);
+
+	FakeContext ctx;
+	ctx.serverID = 0;
+	ctx.objectIsActiveHere = false;
+	ctx.hasLastKnownPosition = false;
+	ctx.hasLastKnownOwner = true;
+	ctx.lastKnownOwner = 3;             // we handed it to server 3
+	ctx.owningServerFn = SplitAtOrigin; // the stamped point would say server 1
+
+	CommandArgs args;
+	args.targetObjectID = 7;
+	args.playerID = 1;
+	args.direction = Maths::Vector3(1, 0, 0);
+	args.magnitude = 5.0f;
+	args.worldPoint = Maths::Vector3(50, 0, 0);
+	args.flags = static_cast<int>(CommandFlags::HasObjectPosition);
+
+	CHECK_EQ(static_cast<int>(impulse->Apply(ctx, args)),
+		static_cast<int>(CommandResult::Relayed));
+	CHECK_EQ(static_cast<int>(ctx.relays.size()), 1);
+	CHECK_EQ(ctx.relays[0].serverID, 3);
+}
+
+TEST(StampedPositionResolvingToSelfDoesNotRelayToSelf) {
+	// A self-relay is an infinite loop dressed up as routing.
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+	IInteractionCommand* impulse = registry.Find(CommandType::Impulse);
+
+	FakeContext ctx;
+	ctx.serverID = 1;
+	ctx.objectIsActiveHere = false;
+	ctx.hasLastKnownPosition = false;
+	ctx.hasLastKnownOwner = false;
+	ctx.owningServerFn = SplitAtOrigin;
+
+	CommandArgs args;
+	args.targetObjectID = 7;
+	args.playerID = 1;
+	args.direction = Maths::Vector3(1, 0, 0);
+	args.magnitude = 5.0f;
+	args.worldPoint = Maths::Vector3(50, 0, 0);   // resolves to server 1 - us
+	args.flags = static_cast<int>(CommandFlags::HasObjectPosition);
+
+	CHECK_EQ(static_cast<int>(impulse->Apply(ctx, args)),
+		static_cast<int>(CommandResult::ObjectUnknown));
+	CHECK_EQ(static_cast<int>(ctx.relays.size()), 0);
+}
+
+TEST(DestroyForwardsUsingClientStampedPosition) {
+	// Destroy shares the resolver, so race W2 is still covered when the forwarding
+	// table has no entry for the object.
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+	IInteractionCommand* destroy = registry.Find(CommandType::Destroy);
+
+	FakeContext ctx;
+	ctx.serverID = 0;
+	ctx.objectIsActiveHere = false;
+	ctx.hasLastKnownPosition = false;
+	ctx.hasLastKnownOwner = false;
+	ctx.owningServerFn = SplitAtOrigin;
+
+	CommandArgs args;
+	args.targetObjectID = 7;
+	args.playerID = 1;
+	args.worldPoint = Maths::Vector3(50, 0, 0);
+	args.flags = static_cast<int>(CommandFlags::HasObjectPosition);
+
+	CHECK_EQ(static_cast<int>(destroy->Apply(ctx, args)),
+		static_cast<int>(CommandResult::Relayed));
+	CHECK_EQ(static_cast<int>(ctx.relays.size()), 1);
+	CHECK_EQ(ctx.relays[0].serverID, 1);
+}
+
+TEST(LocalPositionStillBeatsEverythingElse) {
+	// Precedence check in full: a copy this server actually holds is the freshest
+	// answer, so it must win over both the table and the client's stamp.
+	CommandRegistry registry;
+	CommandRegistry::RegisterDefaultsInto(registry);
+	IInteractionCommand* impulse = registry.Find(CommandType::Impulse);
+
+	FakeContext ctx;
+	ctx.serverID = 0;
+	ctx.objectIsActiveHere = false;
+	ctx.hasLastKnownPosition = true;
+	ctx.lastKnownPosition = Maths::Vector3(50, 0, 0);   // server 1 under the split
+	ctx.hasLastKnownOwner = true;
+	ctx.lastKnownOwner = 3;
+	ctx.owningServerFn = SplitAtOrigin;
+
+	CommandArgs args;
+	args.targetObjectID = 7;
+	args.playerID = 1;
+	args.direction = Maths::Vector3(1, 0, 0);
+	args.magnitude = 5.0f;
+	args.worldPoint = Maths::Vector3(-50, 0, 0);        // server 0 - would be wrong
+	args.flags = static_cast<int>(CommandFlags::HasObjectPosition);
+
+	CHECK_EQ(static_cast<int>(impulse->Apply(ctx, args)),
+		static_cast<int>(CommandResult::Relayed));
+	CHECK_EQ(static_cast<int>(ctx.relays.size()), 1);
+	CHECK_EQ(ctx.relays[0].serverID, 1);
 }

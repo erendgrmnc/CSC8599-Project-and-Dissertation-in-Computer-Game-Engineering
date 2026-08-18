@@ -224,6 +224,21 @@ bool DistributedMultiplayerGameScene::SendCommandTo(NCL::Interaction::CommandTyp
 	}
 
 	const NCL::Interaction::CommandScope scope = command->GetScope(args);
+
+	// Stamp the object's last known position onto an object-targeted command, so a
+	// server that receives it but holds nothing for the object can still work out who
+	// owns it. Without this every server would have to be told at startup where every
+	// object it does NOT own lives - O(world) per server, which is exactly the cost
+	// region-local state exists to remove. Only for object-targeted commands: for a
+	// point-targeted one worldPoint is the command's own argument and must not be
+	// overwritten.
+	if (scope.targetsObject && args.targetObjectID >= 0) {
+		if (NetworkObject* replica = FindNetworkObject(args.targetObjectID)) {
+			args.worldPoint = replica->GetGameObject().GetTransform().GetPosition();
+			args.flags |= static_cast<int>(NCL::Interaction::CommandFlags::HasObjectPosition);
+		}
+	}
+
 	const int targetServerId = (forcedServerId >= 0)
 		? forcedServerId
 		: ResolveCommandTarget(args, scope);

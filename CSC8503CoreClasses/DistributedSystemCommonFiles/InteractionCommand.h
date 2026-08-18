@@ -55,7 +55,15 @@ namespace NCL::Interaction {
 		// Set by the origin server when it fans an area effect out to overlapped
 		// regions. A receiver applies it locally but must not fan out again, or one
 		// blast would circulate around the peer mesh forever.
-		AlreadyFannedOut = 1 << 0
+		AlreadyFannedOut = 1 << 0,
+		// Set by the client on an object-targeted command: worldPoint carries the
+		// object's last known position as the client saw it. It lets a server that
+		// holds nothing for the object still forward the command, which is what
+		// removes the need for every server to remember where every object in the
+		// world lives. Never trust worldPoint on an object-targeted command without
+		// this bit - an unset Vector3 is (0,0,0), which is a real point inside a real
+		// region, so the absent case and the origin would otherwise be identical.
+		HasObjectPosition = 1 << 1
 	};
 
 	// POD payload shared by every command type. Fixed size; no std::string, no
