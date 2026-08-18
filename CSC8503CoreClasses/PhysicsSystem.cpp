@@ -555,8 +555,18 @@ void PhysicsSystem::BroadPhase() {
 			CollisionDetection::CollisionInfo info;
 			for (auto j = data.begin(); j != data.end(); j++) {
 				if (!(*j).object->HasPhysics()) continue;
-				info.a = std::min(mDynamicObjectList[i], (*j).object);
-				info.b = std::max(mDynamicObjectList[i], (*j).object);
+				// By world ID, for the same reason as the dynamic/dynamic pass below.
+				// std::min/std::max on GameObject* orders by ADDRESS, so which body
+				// became `a` - and therefore the direction of the contact normal and
+				// the operand order of the impulse arithmetic - depended on heap
+				// layout. It also flipped the key this pair takes in
+				// mBroadphaseCollisions, since CollisionInfo::operator< reads world
+				// IDs off a and b.
+				GameObject* dynamicObj = mDynamicObjectList[i];
+				GameObject* staticObj = (*j).object;
+				const bool staticFirst = staticObj->GetWorldID() < dynamicObj->GetWorldID();
+				info.a = staticFirst ? staticObj : dynamicObj;
+				info.b = staticFirst ? dynamicObj : staticObj;
 				Vector3 halfSizeA;
 				Vector3 halfSizeB;
 				info.a->GetBroadphaseAABB(halfSizeA);
