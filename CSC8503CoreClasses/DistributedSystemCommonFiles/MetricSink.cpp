@@ -75,7 +75,7 @@ namespace NCL {
 			out << "tick,time_us,physics_ms,predict_ms,world_ms,"
 				<< "owned_objects,integrated_objects,"
 				<< "handoffs_sent,handoffs_received,handoffs_failed,"
-				<< "pool_objects,world_objects\n";
+				<< "pool_objects,world_objects,forward_entries\n";
 		}
 
 		for (size_t i = mWritten; i < mSamples.size(); ++i) {
@@ -91,7 +91,8 @@ namespace NCL {
 				<< s.handoffsReceived << ','
 				<< s.handoffsFailed << ','
 				<< s.poolObjects << ','
-				<< s.worldObjects << '\n';
+				<< s.worldObjects << ','
+				<< s.forwardEntries << '\n';
 		}
 		mWritten = mSamples.size();
 

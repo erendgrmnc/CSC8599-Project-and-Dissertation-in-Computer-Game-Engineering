@@ -187,10 +187,12 @@ int StartGameServer(int argc, char* argv[]) {
 		// numbers are meant to make visible, so it must not crash the report.
 		int poolObjects = -1;
 		int worldObjects = -1;
+		int forwardEntries = -1;
 		if (auto* worldManager = serverManager->GetServerWorldManager()) {
 			worldManager->FlushMetrics();
 			poolObjects = worldManager->GetPoolObjectCount();
 			worldObjects = worldManager->GetWorldObjectCount();
+			forwardEntries = worldManager->GetForwardEntryCount();
 		}
 
 		// Final totals rather than a 2 Hz sample, so the I4 and I5 invariants can be
@@ -207,6 +209,9 @@ int StartGameServer(int argc, char* argv[]) {
 			// to remove. -1 means the world was never built.
 			<< " objPool=" << poolObjects
 			<< " objWorld=" << worldObjects
+			// The forwarding table, reported for the same reason as objPool: it is
+			// the other per-server structure that could scale with the world.
+			<< " objFwd=" << forwardEntries
 			<< " hoSent=" << Profiler::GetHandoffsSent()
 			<< " hoRecv=" << Profiler::GetHandoffsReceived()
 			<< " hoFail=" << Profiler::GetHandoffsFailed()

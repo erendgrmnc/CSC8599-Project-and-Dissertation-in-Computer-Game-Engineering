@@ -256,6 +256,16 @@ namespace NCL {
 
 			int GetWorldObjectCount() const;
 
+			// The forwarding table. Reported alongside the pool because it is the
+			// other thing that could quietly scale with the world: it was once
+			// pre-populated with every object this server does not own, which is
+			// O(world) per server dressed up as a small constant. It now only holds
+			// objects this server has actually handed away, so it scales with handoff
+			// traffic, not world size.
+			int GetForwardEntryCount() const {
+				return static_cast<int>(mLastKnownOwner.size());
+			}
+
 			// What an object IS, for a handoff packet to carry. Recorded for
 			// pre-seeded objects as well as runtime spawns, so this answers for every
 			// object this server knows. Falls back to Cube for an unknown id: a

@@ -41,6 +41,9 @@ namespace NCL {
 		// to be recorded to be falsifiable.
 		int32_t poolObjects = 0;       // entries in mCreatedObjectPool
 		int32_t worldObjects = 0;      // objects in the GameWorld
+		// The other candidate for hidden O(world) growth - see
+		// ServerWorldManager::GetForwardEntryCount.
+		int32_t forwardEntries = 0;    // entries in mLastKnownOwner
 	};
 
 	// Fixed-capacity, allocation-free per-tick recorder.
