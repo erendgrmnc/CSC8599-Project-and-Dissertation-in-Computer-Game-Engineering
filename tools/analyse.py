@@ -34,6 +34,99 @@ import sys
 # initial contacts and the numbers there describe construction, not the workload.
 WARMUP_TICKS = 200
 
+# The halo safety floor implemented in ServerWorldManager::MinimumSafeHaloWidth()
+# (DistributedGameServer/ServerWorldManager.cpp:656-668):
+#
+#   w_min = HALO_ASSUMED_MAX_SPEED * lookahead * dt + 2 * HALO_ASSUMED_MAX_RADIUS
+#
+# The constants are hardcoded in the server, so they are MIRRORED here rather than
+# read out of a run. If they change there they must change here too, or this report
+# compares a measurement against a floor the run never actually used.
+HALO_ASSUMED_MAX_SPEED = 60.0
+HALO_ASSUMED_MAX_RADIUS = 2.0
+DEFAULT_SUBSTEP_HZ = 120
+
+
+def predicted_halo_floor(lookahead_ticks, substep_hz=DEFAULT_SUBSTEP_HZ):
+    """The narrowest halo band that can still catch every border contact.
+
+    Deliberately conservative: it uses an ASSUMED maximum speed of 60 units/s, not
+    the speed the workload actually runs at, so the value it returns is an upper
+    bound on what is needed rather than an estimate of it. An object faster than
+    the assumed maximum falls outside the guarantee.
+    """
+    if substep_hz <= 0:
+        raise ValueError("substep_hz must be positive")
+    lag = max(0, lookahead_ticks) / float(substep_hz)
+    return HALO_ASSUMED_MAX_SPEED * lag + 2.0 * HALO_ASSUMED_MAX_RADIUS
+
+
+def find_knee(crossings_by_width):
+    """The smallest swept width from which NO wider swept width shows a crossing.
+
+    Not simply the first zero. An isolated zero followed by a non-zero at a larger
+    width is noise, and reporting it would claim the soundness condition holds at a
+    width where it demonstrably does not - the exact error this experiment exists
+    to avoid. Returns None when no swept width achieves it.
+    """
+    knee = None
+    for width in sorted(crossings_by_width, reverse=True):
+        if crossings_by_width[width] != 0:
+            break
+        knee = width
+    return knee
+
+
+def print_knee_report(manifest, rows):
+    """Border crossings against halo width, with the predicted floor overlaid.
+
+    Only meaningful for a haloWidth sweep on the `headon` workload, where every
+    object is launched at a partner across x = 0: a pair that collides bounces and
+    never crosses, a pair whose contact was MISSED passes through and is handed off.
+    So ho_sent counts missed border contacts on a fixed, interpretable scale.
+
+    Returns a dict describing the point, or None if this is not a haloWidth sweep.
+    """
+    if manifest.get("sweep") != "haloWidth":
+        return None
+
+    lookahead = int(manifest.get("fixed", {}).get("haloLookahead", 4))
+    floor = predicted_halo_floor(lookahead)
+
+    # Run-level invariants are duplicated onto every server row, so dedupe by
+    # (point, repeat) before taking a median - otherwise the sample is weighted by
+    # server count rather than by repeat.
+    per_repeat = {}
+    for row in rows:
+        per_repeat.setdefault((row["point"], row["repeat"]), row["ho_sent"])
+
+    by_width = {}
+    for (width, _repeat), crossings in per_repeat.items():
+        by_width.setdefault(width, []).append(crossings)
+    medians = {w: statistics.median(v) for w, v in by_width.items()}
+
+    knee = find_knee(medians)
+    sound = (knee is not None) and (knee <= floor + 1e-9)
+
+    print()
+    print(f"halo soundness: lookahead {lookahead} ticks, "
+          f"predicted floor w_min = {floor:g}")
+    print(f"{'width':>8} {'crossings (median)':>19} {'repeats':>8} {'vs floor':>10}")
+    print("-" * 49)
+    for width in sorted(medians):
+        marker = "AT FLOOR" if abs(width - floor) < 1e-9 else (
+            "below" if width < floor else "above")
+        print(f"{width:>8g} {medians[width]:>19.0f} "
+              f"{len(by_width[width]):>8} {marker:>10}")
+
+    if knee is None:
+        print("empirical knee : NONE - no swept width caught every border contact")
+    else:
+        verdict = "SOUND" if sound else "UNSOUND - the bound was optimistic"
+        print(f"empirical knee : {knee:g}  (predicted {floor:g})  -> {verdict}")
+
+    return {"lookahead": lookahead, "floor": floor, "knee": knee, "sound": sound}
+
 
 def percentile(values, pct):
     if not values:
@@ -203,7 +296,52 @@ def main():
         print(__doc__)
         return 2
 
-    experiment_dir = sys.argv[1]
+    # More than one directory is how the halo soundness sweep is read: the knee
+    # moving with the lookahead is a claim ACROSS experiments, not within one.
+    exit_code = 0
+    knees = []
+    for index, experiment_dir in enumerate(sys.argv[1:]):
+        if index > 0:
+            print()
+            print("=" * 72)
+        result = analyse_experiment(experiment_dir)
+        if result is None:
+            exit_code = 1
+            continue
+        code, knee = result
+        exit_code = exit_code or code
+        if knee is not None:
+            knees.append(knee)
+
+    if len(knees) > 1:
+        print_tracking_report(knees)
+    return exit_code
+
+
+def print_tracking_report(knees):
+    """Does the knee move where the formula says it moves?
+
+    One knee in the right place is a coincidence. Three knees that track the
+    prediction across lookaheads is a validated condition - and a knee that stops
+    tracking at long lookahead, while still never exceeding its floor, is the
+    'halo lag is permanent, keep the lookahead small' argument, measured.
+    """
+    print()
+    print("=" * 72)
+    print("halo soundness across lookaheads")
+    print(f"{'lookahead':>10} {'floor':>8} {'knee':>8} {'slack':>8} {'verdict':>10}")
+    print("-" * 48)
+    for entry in sorted(knees, key=lambda e: e["lookahead"]):
+        knee = entry["knee"]
+        knee_text = "none" if knee is None else f"{knee:g}"
+        slack = "-" if knee is None else f"{entry['floor'] - knee:g}"
+        verdict = "sound" if entry["sound"] else "UNSOUND"
+        print(f"{entry['lookahead']:>10} {entry['floor']:>8g} {knee_text:>8} "
+              f"{slack:>8} {verdict:>10}")
+
+
+def analyse_experiment(experiment_dir):
+    """Returns (exit_code, knee_dict_or_None), or None if the directory is unusable."""
     manifest_path = os.path.join(experiment_dir, "experiment.json")
     manifest = {}
     if os.path.exists(manifest_path):
@@ -221,7 +359,7 @@ def main():
     )
     if not run_dirs:
         print(f"No runs found under {experiment_dir}")
-        return 1
+        return None
 
     rows = []
     failures = []
@@ -254,7 +392,7 @@ def main():
 
     if not rows:
         print("No usable runs.")
-        return 1
+        return None
 
     out_path = os.path.join(experiment_dir, "summary.csv")
     with open(out_path, "w", newline="") as handle:
@@ -313,8 +451,10 @@ def main():
         print("All invariants hold on every run (conservation, handoff parity, "
               "command accounting, no failures, no resurrections).")
 
+    knee = print_knee_report(manifest, rows)
+
     print(f"\nsummary -> {out_path}")
-    return 1 if failures else 0
+    return (1 if failures else 0), knee
 
 
 if __name__ == "__main__":
