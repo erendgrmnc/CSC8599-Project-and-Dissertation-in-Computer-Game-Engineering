@@ -92,6 +92,20 @@ def summarise_run(run_dir):
             ),
         })
 
+    # Only meaningful when the run was PACED. In realtime mode each server advances
+    # its own tick counter as fast as it can, so server A's tick 500 and server B's
+    # tick 500 are different simulated moments and summing across them compares
+    # unrelated instants - which reads as thousands of ownership gaps that are not
+    # there. The check below is therefore skipped, not weakened, for realtime runs.
+    paced = True
+    manifest_file = os.path.join(run_dir, "manifest.json")
+    if os.path.exists(manifest_file):
+        try:
+            with open(manifest_file, encoding="utf-8-sig") as handle:
+                paced = json.load(handle).get("mode") == "reproducible"
+        except Exception:
+            paced = True
+
     # Invariant I1, checked CONTINUOUSLY rather than only at the end.
     #
     # @@FINAL totals say what each server held when it stopped, which is silent about
@@ -116,7 +130,7 @@ def summarise_run(run_dir):
     complete = [sum(v) for v in per_tick.values() if len(v) == server_count]
     ownership_gap_ticks = 0
     ownership_double_ticks = 0
-    if complete:
+    if complete and paced:
         expected = max(complete)
         ownership_gap_ticks = sum(1 for v in complete if v < expected)
         ownership_double_ticks = sum(1 for v in complete if v > expected)

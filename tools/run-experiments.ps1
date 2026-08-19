@@ -85,6 +85,18 @@ param(
     [double]$RebalanceAlpha = 0.5,
     [double]$RebalanceThreshold = 0.1,
 
+    # Locality (I6). When sweeping servers, grow the WORLD and the object count with
+    # the server count so objects-per-region stays fixed.
+    #
+    # Without this, adding servers only subdivides a fixed world, and per-server state
+    # falls simply because each region got smaller - which is arithmetic, not a
+    # property of the design. The claim worth testing is that per-server state stays
+    # FLAT as the world grows, and that needs the world to actually grow.
+    #
+    # The world is square, so its side scales with sqrt(servers) to keep area
+    # proportional; objects scale linearly.
+    [switch]$ScaleWorldWithServers,
+
     [string]$OutDir = ""
 )
 $ErrorActionPreference = "Continue"
@@ -126,6 +138,7 @@ $manifest = [ordered]@{
         physicsThreads = $PhysicsThreads
         rebalanceInterval = $RebalanceInterval
         rebalanceAlpha = $RebalanceAlpha; rebalanceThreshold = $RebalanceThreshold
+        scaleWorldWithServers = [bool]$ScaleWorldWithServers
     }
     gitCommit  = (& git -C $repoRoot rev-parse HEAD 2>$null)
     gitDirty   = [bool](& git -C $repoRoot status --porcelain 2>$null)
@@ -153,6 +166,7 @@ foreach ($value in $valueList) {
     $runHaloWidth = $HaloWidth; $runInterest = $InterestRadius
     $runThreads = $PhysicsThreads; $runRebalance = $RebalanceInterval
 
+    $runWorld = $World
     switch ($Sweep) {
         "servers"           { $runServers = [int]$value }
         "objects"           { $runObjects = [int]$value }
@@ -164,6 +178,20 @@ foreach ($value in $valueList) {
         "rebalanceInterval" { $runRebalance = [int]$value }
     }
 
+    if ($ScaleWorldWithServers -and $Sweep -eq "servers") {
+        # Baseline extent taken from -World, scaled so area grows with the server
+        # count. Objects grow linearly, so objects per unit area - and therefore per
+        # region - is held constant.
+        $bounds = @($World -split ',' | ForEach-Object { [double]$_.Trim() })
+        if ($bounds.Count -eq 4) {
+            $scale = [Math]::Sqrt($runServers / [double]$Servers)
+            $minX = $bounds[0] * $scale; $maxX = $bounds[1] * $scale
+            $minZ = $bounds[2] * $scale; $maxZ = $bounds[3] * $scale
+            $runWorld = "{0},{1},{2},{3}" -f $minX, $maxX, $minZ, $maxZ
+            $runObjects = [int]([Math]::Round($Objects * ($runServers / [double]$Servers)))
+        }
+    }
+
     for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
         # The value can be fractional, and a '.' in a directory name is legal but
         # awkward to match with a glob, so it is replaced.
@@ -171,11 +199,11 @@ foreach ($value in $valueList) {
         $tag = "$Sweep$valueTag-r$repeat"
         $done++
         Write-Host ""
-        Write-Host "--- [$done/$total] $tag (servers=$runServers objects=$runObjects ticks=$runTicks halo=$runHaloWidth interest=$runInterest threads=$runThreads rebalance=$runRebalance) ---"
+        Write-Host "--- [$done/$total] $tag (servers=$runServers objects=$runObjects world=$runWorld ticks=$runTicks halo=$runHaloWidth interest=$runInterest threads=$runThreads rebalance=$runRebalance) ---"
 
         & (Join-Path $PSScriptRoot "measure.ps1") `
             -Servers $runServers -Objects $runObjects -Ticks $runTicks -Seconds $runSeconds `
-            -Seed $Seed -Workload $Workload -World $World `
+            -Seed $Seed -Workload $Workload -World $runWorld `
             -ImpulseTest $ImpulseTest -MisrouteEvery $MisrouteEvery -BlastEvery $BlastEvery `
             -SpawnEvery $SpawnEvery -DestroyEvery $DestroyEvery -DriveEvery $DriveEvery `
             -HandoffLookahead $HandoffLookahead -EpochAlignUs $EpochAlignUs `
