@@ -28,6 +28,7 @@ add_executable(InteractionTests
     "ContactSymmetryTests.cpp"
     "TaskPoolTests.cpp"
     "HandoffPacketTests.cpp"
+    "PacketSizeTests.cpp"
 )
 
 # The engine headers assume these are already included - the role targets get them
