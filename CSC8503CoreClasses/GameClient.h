@@ -49,7 +49,9 @@ namespace NCL {
 
 			void SendPacket(GamePacket&  payload);
 
-			void SendReliablePacket(GamePacket& payload) const;
+			// Returns whether ENet accepted the packet. A caller that releases state on
+			// the strength of a send - handoff does - must check it.
+			bool SendReliablePacket(GamePacket& payload) const;
 
 			virtual bool UpdateClient();
 

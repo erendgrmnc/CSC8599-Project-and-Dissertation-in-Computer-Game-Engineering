@@ -47,6 +47,7 @@ void NCL::DistributedManager::SystemManager::RegisterPacketHandlers() {
 	mDistributedPhysicsManagerServer->RegisterPacketHandler(DistributedPhysicsClientConnectedToManager, this);
 	mDistributedPhysicsManagerServer->RegisterPacketHandler(BasicNetworkMessages::DistributedPhysicsServerAllClientsAreConnected, this);
 	mDistributedPhysicsManagerServer->RegisterPacketHandler(BasicNetworkMessages::PhysicsServerMiddlewareConnected, this);
+	mDistributedPhysicsManagerServer->RegisterPacketHandler(BasicNetworkMessages::DistributedServerLoadReport, this);
 }
 
 void NCL::DistributedManager::SystemManager::ReceivePacket(int type, GamePacket* payload, int source) {
@@ -65,6 +66,10 @@ void NCL::DistributedManager::SystemManager::ReceivePacket(int type, GamePacket*
 	case DistributedPhysicsServerAllClientsAreConnected: {
 		auto* distributedPhysicsServerAllClientsAreConnectedPacket = static_cast<NCL::CSC8503::DistributedPhysicsServerAllClientsAreConnectedPacket*>(payload);
 		HandleAllClientsConnectedToPhysicsServer(distributedPhysicsServerAllClientsAreConnectedPacket);
+		break;
+	}
+	case BasicNetworkMessages::DistributedServerLoadReport: {
+		HandleServerLoadReport(static_cast<NCL::CSC8503::DistributedServerLoadReportPacket*>(payload));
 		break;
 	}
 	case BasicNetworkMessages::PhysicsServerMiddlewareConnected: {
@@ -97,6 +102,227 @@ void NCL::DistributedManager::SystemManager::SendStartGameStatusPacket(int gameI
 	if (mForcedRepartitionTick > 0 && !mForcedRepartitionX.empty()) {
 		SendRepartitionPacket(gameInstanceID, mForcedRepartitionTick, mForcedRepartitionX);
 	}
+}
+
+// One server's load report. Held until the round is complete.
+void NCL::DistributedManager::SystemManager::HandleServerLoadReport(
+	NCL::CSC8503::DistributedServerLoadReportPacket* packet) {
+	if (packet == nullptr) {
+		return;
+	}
+
+	ServerLoadReport report;
+	report.serverID = packet->serverID;
+	report.contacts = packet->contacts;
+	report.ownedObjects = packet->ownedObjects;
+	report.minX = packet->minX;
+	report.maxX = packet->maxX;
+	for (int i = 0; i < NCL::CSC8503::DistributedServerLoadReportPacket::LOAD_BUCKETS; ++i) {
+		report.buckets[i] = packet->bucketContacts[i];
+	}
+	mLoadReports[packet->tick][packet->serverID] = report;
+
+	GameInstance* instance = (mDistributedPhysicsManagerServer != nullptr)
+		? mDistributedPhysicsManagerServer->GetGameInstance(packet->gameInstanceID)
+		: nullptr;
+	if (instance == nullptr) {
+		return;
+	}
+
+	const size_t expected = instance->GetServerBorderMap().size();
+	if (mLoadReports[packet->tick].size() < expected) {
+		return;   // Round not complete; a partial one would balance against a hole.
+	}
+
+	RunRebalancePolicy(packet->gameInstanceID, packet->tick);
+
+	// Everything up to and including this round is spent. Older rounds can never
+	// complete now - the servers have moved past them - so they would otherwise sit in
+	// the map for the life of the process.
+	mLoadReports.erase(mLoadReports.begin(), mLoadReports.upper_bound(packet->tick));
+}
+
+// Moves each interior boundary towards the heavier of the two servers it separates.
+//
+// A diffusive rule, not a global optimum: each boundary is corrected by a fraction of
+// its own local imbalance, and repeated rounds converge. That is deliberately the
+// simplest policy that works, because the risky part of this increment was the
+// mechanism - moving a border without losing an object - and a crude policy on a safe
+// mechanism is a result, where a perfect policy on an unsafe one is worthless.
+//
+// It balances CONTACTS, not object counts. The best partition found by hand for the
+// shuttle workload held 100 objects against 300 and still had near-equal wall clock,
+// because its contact counts were near-equal: contact cost scales with local density,
+// which an object count cannot see.
+void NCL::DistributedManager::SystemManager::RunRebalancePolicy(int gameInstanceID,
+	long long tick) {
+	const auto round = mLoadReports.find(tick);
+	if (round == mLoadReports.end()) {
+		return;
+	}
+
+	// Nothing is decided until the previous move has taken effect AND its bulk handoff
+	// has settled.
+	//
+	// This is not politeness, it is correctness. A border move can transfer hundreds of
+	// objects, each released at senderTick + lookahead. Deciding again before those
+	// have landed means measuring a partition that does not exist yet, and the second
+	// decision is made from load that is still in flight. The first version of this
+	// policy did exactly that on a 300-tick interval against a 300-tick lookahead: the
+	// boundary swung -75, -67, -135, -10 over four rounds and 396 of 400 objects were
+	// lost in the churn.
+	constexpr long long SETTLE_TICKS = 300;
+	if (mLastRepartitionEffectiveTick >= 0
+		&& tick < mLastRepartitionEffectiveTick + SETTLE_TICKS) {
+		return;
+	}
+
+	// Ordered by server id, and the partition is a 1-D split in the same order, so
+	// entry i and entry i+1 are neighbours sharing one boundary.
+	std::vector<ServerLoadReport> reports;
+	reports.reserve(round->second.size());
+	for (const auto& entry : round->second) {
+		reports.push_back(entry.second);
+	}
+	if (reports.size() < 2) {
+		return;   // Nothing to balance.
+	}
+
+	long long totalContacts = 0;
+	for (const ServerLoadReport& report : reports) {
+		totalContacts += report.contacts;
+	}
+	if (totalContacts <= 0) {
+		return;   // Nothing happened this round; no evidence to act on.
+	}
+
+	std::vector<double> boundaries;
+	bool anyMoved = false;
+
+	for (size_t i = 0; i + 1 < reports.size(); ++i) {
+		const ServerLoadReport& left = reports[i];
+		const ServerLoadReport& right = reports[i + 1];
+		const double boundary = static_cast<double>(left.maxX);
+		const double leftWidth = boundary - static_cast<double>(left.minX);
+		const double rightWidth = static_cast<double>(right.maxX) - boundary;
+
+		if (leftWidth <= 0.0 || rightWidth <= 0.0) {
+			boundaries.push_back(boundary);
+			continue;
+		}
+
+		const double pairLoad = static_cast<double>(left.contacts + right.contacts);
+		if (pairLoad <= 0.0) {
+			boundaries.push_back(boundary);
+			continue;
+		}
+
+		const double imbalance =
+			(static_cast<double>(left.contacts) - static_cast<double>(right.contacts)) / pairLoad;
+		if (std::abs(imbalance) < mRebalanceThreshold) {
+			boundaries.push_back(boundary);   // Inside the dead band; leave it alone.
+			continue;
+		}
+
+		// Build the pair's load profile along X from both servers' histograms, then
+		// find the X that splits it in half.
+		//
+		// A single total per server cannot do this. A cluster sitting entirely inside
+		// one region looks the same whether it is at that region's left edge or its
+		// right, so a policy working from totals can only guess which way to move the
+		// border - and guessing wrong walks it straight past the cluster. That is what
+		// happened: the border was driven until one server held all 4,000 objects and
+		// the other held none, having only swapped which server was overloaded.
+		constexpr int BUCKETS = NCL::CSC8503::DistributedServerLoadReportPacket::LOAD_BUCKETS;
+		struct Slice { double from; double to; double load; };
+		std::vector<Slice> profile;
+		profile.reserve(BUCKETS * 2);
+
+		const double leftBucketWidth = leftWidth / BUCKETS;
+		for (int b = 0; b < BUCKETS; ++b) {
+			const double from = static_cast<double>(left.minX) + leftBucketWidth * b;
+			profile.push_back({ from, from + leftBucketWidth, static_cast<double>(left.buckets[b]) });
+		}
+		const double rightBucketWidth = rightWidth / BUCKETS;
+		for (int b = 0; b < BUCKETS; ++b) {
+			const double from = boundary + rightBucketWidth * b;
+			profile.push_back({ from, from + rightBucketWidth, static_cast<double>(right.buckets[b]) });
+		}
+
+		double profileTotal = 0.0;
+		for (const Slice& slice : profile) {
+			profileTotal += slice.load;
+		}
+		if (profileTotal <= 0.0) {
+			boundaries.push_back(boundary);
+			continue;
+		}
+
+		// Walk the profile until half the load is behind us, interpolating inside the
+		// slice that straddles the halfway point so the answer is finer than a bucket.
+		const double half = profileTotal * 0.5;
+		double running = 0.0;
+		double target = boundary;
+		for (const Slice& slice : profile) {
+			if (running + slice.load >= half) {
+				const double needed = half - running;
+				const double fraction = (slice.load > 0.0) ? (needed / slice.load) : 0.0;
+				target = slice.from + (slice.to - slice.from) * fraction;
+				break;
+			}
+			running += slice.load;
+		}
+
+		double moved = boundary + mRebalanceAlpha * (target - boundary);
+
+		// Still clamped per round. The profile is a snapshot of a world that keeps
+		// moving, so a large single step lands on where the load WAS.
+		constexpr double MAX_STEP_FRACTION = 0.15;
+		const double maxStep = (leftWidth + rightWidth) * MAX_STEP_FRACTION;
+		moved = std::max(boundary - maxStep, std::min(boundary + maxStep, moved));
+
+		// Never so close to a neighbour that a region becomes degenerate. An EMPTY
+		// region is legal and the policy must be allowed to produce one; a zero-width
+		// region is not, because every point in the world must belong to someone.
+		constexpr double MIN_REGION_WIDTH = 1.0;
+		const double lowerLimit = static_cast<double>(left.minX) + MIN_REGION_WIDTH;
+		const double upperLimit = static_cast<double>(right.maxX) - MIN_REGION_WIDTH;
+		if (lowerLimit < upperLimit) {
+			moved = std::max(lowerLimit, std::min(upperLimit, moved));
+		}
+		else {
+			moved = boundary;
+		}
+
+		if (std::abs(moved - boundary) > 1e-3) {
+			anyMoved = true;
+		}
+		boundaries.push_back(moved);
+	}
+
+	if (!anyMoved) {
+		return;
+	}
+
+	// Far enough ahead that every server has the packet before the tick arrives. The
+	// same margin the handoff lookahead uses, for the same reason.
+	constexpr long long REPARTITION_MARGIN_TICKS = 300;
+	const long long effectiveTick = tick + REPARTITION_MARGIN_TICKS;
+	mLastRebalanceTick = tick;
+	mLastRepartitionEffectiveTick = effectiveTick;
+
+	std::cout << "Rebalance at tick " << tick << " (effective " << effectiveTick << "): loads";
+	for (const ServerLoadReport& report : reports) {
+		std::cout << " [" << report.serverID << " contacts=" << report.contacts
+			<< " objs=" << report.ownedObjects << "]";
+	}
+	std::cout << " -> boundaries";
+	for (double boundary : boundaries) {
+		std::cout << " " << boundary;
+	}
+	std::cout << "\n";
+
+	SendRepartitionPacket(gameInstanceID, effectiveTick, boundaries);
 }
 
 void NCL::DistributedManager::SystemManager::SendRepartitionPacket(int gameInstanceID,

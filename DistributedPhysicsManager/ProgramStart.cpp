@@ -109,6 +109,12 @@ int StartProgram(int argc, char* argv[]) {
 	// the switch land on the same simulated tick on every server; --repartition-x gives
 	// the interior X boundaries of the new partition, so N-1 values for N servers.
 	if (useFlags) {
+		// Dynamic rebalancing. The interval lives on the game servers (they emit the
+		// reports); alpha and the dead band live here, where the decision is made.
+		systemManager->SetRebalance(
+			config.GetFloat("--rebalance-alpha", 0.5f),
+			config.GetFloat("--rebalance-threshold", 0.1f));
+
 		const long long repartitionAt =
 			static_cast<long long>(config.GetInt("--repartition-at", 0));
 		const std::string boundaryList = config.GetString("--repartition-x", "");

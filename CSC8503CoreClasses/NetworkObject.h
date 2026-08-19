@@ -297,6 +297,55 @@ namespace NCL::CSC8503 {
 	};
 	static_assert(std::is_trivially_copyable_v<DistributedClientInterestPacket>);
 
+	// Game server -> manager. What this server cost over the last reporting interval.
+	//
+	// The cost measure is CONTACTS, not object count and not milliseconds.
+	//
+	// Not object count, because balancing that does not balance the work: the best
+	// partition found by hand for the shuttle workload held 100 objects against 300
+	// and still had near-equal wall clock, because its CONTACT counts were near-equal.
+	// Contact cost scales with local density, which object count does not see.
+	//
+	// Not milliseconds, because a measured duration is not reproducible: two runs of
+	// the same configuration would balance differently, and every determinism claim in
+	// this system would become conditional on machine timing. Contacts per tick are a
+	// deterministic function of the simulation.
+	struct DistributedServerLoadReportPacket : public GamePacket {
+		int serverID;
+		int gameInstanceID;
+		// The tick this report covers up to. The manager decides using reports for one
+		// specific tick rather than "the latest", so the decision does not depend on
+		// arrival order.
+		long long tick;
+		int ownedObjects;
+		// Summed over the interval since the previous report.
+		long long contacts;
+		// This server's current X extent, so the manager can move a boundary without
+		// having to remember the partition it last sent.
+		float minX;
+		float maxX;
+
+		// Where the load IS inside this server's region, as a histogram along X.
+		//
+		// A single total is not enough to place a border. A cluster sitting entirely
+		// inside one region looks identical whether it is at the left edge or the
+		// right, so a manager working from totals can only guess which way to move -
+		// and guessing wrong walks the border straight past the cluster. That is
+		// exactly what happened: the policy moved a border until one server held all
+		// 4,000 objects and the other held none, having simply swapped which server was
+		// overloaded.
+		//
+		// Eight buckets is 32 bytes and locates a border to an eighth of a region,
+		// which is finer than one round's damped step ever moves it.
+		static constexpr int LOAD_BUCKETS = 8;
+		int bucketContacts[LOAD_BUCKETS];
+
+		DistributedServerLoadReportPacket(int serverID, int gameInstanceID, long long tick,
+			int ownedObjects, long long contacts, float minX, float maxX,
+			const int* buckets);
+	};
+	static_assert(std::is_trivially_copyable_v<DistributedServerLoadReportPacket>);
+
 	struct ClientPacket : public GamePacket {
 		int		lastID;
 		char	buttonstates[8];

@@ -96,9 +96,30 @@ void GameClient::SendPacket(GamePacket&  payload) {
 	enet_peer_send(mNetPeer, 0, dataPacket);
 }
 
-void GameClient::SendReliablePacket(GamePacket& payload) const {
+// Returns whether ENet ACCEPTED the packet.
+//
+// It used to return void and discard enet_peer_send's result, which made every caller
+// unable to tell a queued packet from a refused one. That is fine for a snapshot and
+// fatal for a handoff: SendPacketToServer reported success regardless, so the sender
+// released the object even when the packet had been refused, and the object was lost.
+// It showed up when a border move tried to migrate thousands of objects at once and
+// filled the peer's outgoing queue - 6,026 transfers sent, 516 accounted for.
+//
+// On failure ENet does NOT take ownership of the packet, so it has to be destroyed
+// here or every refused send leaks.
+bool GameClient::SendReliablePacket(GamePacket& payload) const {
+	if (mNetPeer == nullptr) {
+		return false;
+	}
 	ENetPacket* dataPacket = enet_packet_create(&payload, payload.GetTotalSize(), ENET_PACKET_FLAG_RELIABLE);
-	enet_peer_send(mNetPeer, 0, dataPacket);
+	if (dataPacket == nullptr) {
+		return false;
+	}
+	if (enet_peer_send(mNetPeer, 0, dataPacket) < 0) {
+		enet_packet_destroy(dataPacket);
+		return false;
+	}
+	return true;
 }
 
 void GameClient::Disconnect() {

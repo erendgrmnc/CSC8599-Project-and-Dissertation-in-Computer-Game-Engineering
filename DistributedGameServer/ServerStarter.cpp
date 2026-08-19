@@ -121,6 +121,9 @@ int StartGameServer(int argc, char* argv[]) {
 		// run without the flag behaves exactly as every earlier measurement did;
 		// -1 asks TaskPool for a default derived from the hardware.
 		worldManager->SetPhysicsWorkerThreads(config.GetInt("--physics-threads", 0));
+		// Load reporting for dynamic rebalancing. 0 disables it, which is how every
+		// run before the policy existed behaved.
+		worldManager->SetLoadReportInterval(config.GetInt("--rebalance-interval", 0));
 		// Reproducible runs need it; production would not. See PublishHaloBand.
 		serverManager->SetHaloReliable(config.Has("--halo-reliable"));
 		std::cout << "Determinism: fixed-step=" << (fixedStep ? "on" : "off")
@@ -193,6 +196,39 @@ int StartGameServer(int argc, char* argv[]) {
 
 		NCL::RunHeadlessLoop(tick, runOptions);
 
+		// Drain phase: keep pumping the network, and keep applying scheduled arrivals,
+		// after this server's own run has ended.
+		//
+		// A fixed tick count does NOT mean the servers finish together. An overloaded
+		// server takes longer in wall clock for the same ticks, so a lightly loaded
+		// peer reaches its last tick first and exits - and everything the busy one
+		// hands it afterwards goes to a dead peer and is lost. Measured on a 4,000
+		// object cluster: the light server finished 17 s early and 1,008 objects
+		// vanished into the gap, with no error anywhere, because from the sender's side
+		// ENet had accepted every packet.
+		//
+		// Draining does not extend the simulation - the world is not stepped - so the
+		// measured run is unchanged. It only lets transfers already in flight land and
+		// be counted, which is what makes conservation checkable in the one case that
+		// matters: a partition bad enough to need rebalancing.
+		const double drainSeconds = static_cast<double>(config.GetInt("--drain-seconds", 5));
+		if (drainSeconds > 0.0) {
+			std::cout << "Draining for " << drainSeconds << "s so in-flight transfers land.\n";
+			NCL::GameTimer drainTimer;
+			double drained = 0.0;
+			while (drained < drainSeconds) {
+				const float dt = drainTimer.GetTimeDeltaSeconds();
+				drained += dt;
+				// Network only. The world is deliberately NOT stepped: an arrival is
+				// installed by the scheduled-handoff flush, which the world update
+				// drives, so that one part is run explicitly below.
+				serverManager->UpdateGameServerManager(dt);
+				if (auto* worldManager = serverManager->GetServerWorldManager()) {
+					worldManager->DrainScheduledArrivals();
+				}
+			}
+		}
+
 		// Locality (I6). Captured before the @@FINAL line rather than read inline,
 		// because GetServerWorldManager can return null on a server that never
 		// received its start packet - which is exactly the failure mode these
@@ -202,6 +238,7 @@ int StartGameServer(int argc, char* argv[]) {
 		int forwardEntries = -1;
 		int haloObjects = -1;
 		int pendingReleases = 0;
+		int scheduledHandoffs = 0;
 		if (auto* worldManager = serverManager->GetServerWorldManager()) {
 			worldManager->FlushMetrics();
 			poolObjects = worldManager->GetPoolObjectCount();
@@ -209,6 +246,7 @@ int StartGameServer(int argc, char* argv[]) {
 			forwardEntries = worldManager->GetForwardEntryCount();
 			haloObjects = worldManager->GetHaloObjectCount();
 			pendingReleases = worldManager->GetPendingReleaseCount();
+			scheduledHandoffs = worldManager->GetScheduledHandoffCount();
 		}
 
 		// Final totals rather than a 2 Hz sample, so the I4 and I5 invariants can be
@@ -243,6 +281,10 @@ int StartGameServer(int argc, char* argv[]) {
 			// hoRecv the completion, so a run ending mid-transfer is short by this
 			// many and the parity check has to allow for it.
 			<< " hoPending=" << pendingReleases
+			// Arrived but not yet installed. Counted separately from hoPending: one is
+			// the sender still holding the object, the other the receiver waiting for
+			// the agreed tick, and handoff parity has to allow for both.
+			<< " hoSched=" << scheduledHandoffs
 			<< " cmdApplied=" << Profiler::GetCommandsApplied()
 			<< " cmdRelayed=" << Profiler::GetCommandsRelayed()
 			<< " cmdDup=" << Profiler::GetCommandsDuplicate()

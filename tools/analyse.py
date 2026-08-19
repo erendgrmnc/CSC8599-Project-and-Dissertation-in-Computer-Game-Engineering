@@ -146,8 +146,11 @@ def summarise_run(run_dir):
         # number still pending. The object is not lost - the sender still owns it,
         # which is what conservation and the per-tick ownership check confirm.
         invariants["ho_pending"] = total(server_finals, "hoPending")
+        # Arrived but not yet installed, the receiver-side mirror of ho_pending.
+        invariants["ho_scheduled"] = total(server_finals, "hoSched")
         invariants["ho_parity_delta"] = (invariants["ho_sent"] - invariants["ho_recv"]
-                                         - invariants["ho_pending"])
+                                         - invariants["ho_pending"]
+                                         - invariants["ho_scheduled"])
         invariants["ho_fail"] = total(server_finals, "hoFail")
         invariants["ho_late"] = total(server_finals, "hoLate")
 

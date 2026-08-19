@@ -71,6 +71,11 @@ param(
     # object, which is what every run before interest management did.
     [double]$InterestRadius = 0,
     [int]$PhysicsThreads = 0,
+    # Dynamic rebalancing. Servers report their cost every N ticks and the
+    # manager may move the borders. 0 disables it, which is the static partition.
+    [int]$RebalanceInterval = 0,
+    [double]$RebalanceAlpha = 0.5,
+    [double]$RebalanceThreshold = 0.1,
     [int]$RepartitionAt = 0,
     # Interior X boundaries of the new partition: N-1 values for N servers. A comma
     # separated STRING, not an array - powershell -File cannot parse array arguments.
@@ -116,6 +121,7 @@ $manifest = [ordered]@{
     haloWidth    = $HaloWidth
     haloLookahead = $HaloLookahead
     physicsThreads = $PhysicsThreads
+    rebalanceInterval = $RebalanceInterval
     repartitionAt = $RepartitionAt
     repartitionX = $RepartitionX
     gitCommit    = (& git -C $repoRoot rev-parse HEAD 2>$null)
@@ -128,12 +134,12 @@ $manifest | ConvertTo-Json | Out-File -FilePath (Join-Path $runDir "manifest.jso
 Write-Host "run=$Tag mode=$mode world=$World servers=$Servers objects=$Objects bound='$bound' seed=$Seed workload=$Workload"
 
 $mgr = Start-Process -PassThru -FilePath (Join-Path $deploy "Manager\EntryPoint.exe") `
-    -ArgumentList "--servers $Servers --clients 1 --objects $Objects --port 1234 --world $World --midwares 1 --autostart --headless $repartitionArgs" `
+    -ArgumentList "--servers $Servers --clients 1 --objects $Objects --port 1234 --world $World --midwares 1 --autostart --headless --rebalance-alpha $RebalanceAlpha --rebalance-threshold $RebalanceThreshold $repartitionArgs" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\mgr.log" -RedirectStandardError "$runDir\mgr.err" -WindowStyle Hidden
 Start-Sleep -Seconds 3
 
 $mid = Start-Process -PassThru -FilePath (Join-Path $deploy "Midware\EntryPoint.exe") `
-    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" --handoff-delay-ticks $HandoffDelayTicks --handoff-lookahead $HandoffLookahead --physics-threads $PhysicsThreads --halo-width $HaloWidth --halo-lookahead $HaloLookahead $haloReliableArg --epoch-align-us $EpochAlignUs $bound" `
+    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" --rebalance-interval $RebalanceInterval --handoff-delay-ticks $HandoffDelayTicks --handoff-lookahead $HandoffLookahead --physics-threads $PhysicsThreads --halo-width $HaloWidth --halo-lookahead $HaloLookahead $haloReliableArg --epoch-align-us $EpochAlignUs $bound" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\mid.log" -RedirectStandardError "$runDir\mid.err" -WindowStyle Hidden
 Start-Sleep -Seconds 4
 
@@ -157,7 +163,11 @@ if ($LateClientAfter -gt 0) {
 # Servers self-terminate; allow slack for startup plus flush. Reproducible runs are
 # not wall-clock paced (no per-tick sleep), so they finish faster than realtime -
 # but how much faster depends on the machine, hence a generous ceiling.
-$waitSeconds = if ($Ticks -gt 0) { [Math]::Max(60, $Ticks / 20) } else { $Seconds + 25 }
+# A badly balanced partition makes the busiest server take far longer in WALL CLOCK
+# than the tick count suggests - that is the whole point of the experiment - and it
+# then drains for a few seconds so in-flight transfers land. The ceiling has to
+# cover both, or the run is reported as failed when it merely took a while.
+$waitSeconds = if ($Ticks -gt 0) { [Math]::Max(120, $Ticks / 8) } else { $Seconds + 45 }
 $deadline = (Get-Date).AddSeconds($waitSeconds)
 while ((Get-Date) -lt $deadline) {
     $csvs = Get-ChildItem "$runDir\ticks-server*.csv" -ErrorAction SilentlyContinue

@@ -91,6 +91,24 @@ namespace NCL {
 			// parity invariant has to subtract these rather than treat the difference
 			// as a lost object. The object is not lost: the sender still owns it, which
 			// is why conservation and the per-tick ownership check both stay exact.
+			// Transfers that have ARRIVED but are waiting for their scheduled tick.
+			//
+			// The mirror of GetPendingReleaseCount on the receiving side. hoSent counts
+			// a transfer when the sender releases it and hoRecv when the receiver
+			// installs it, so a run ending between those two moments is short by
+			// however many are queued at each end. Without this the difference reads as
+			// lost objects: a 4,000-object migration ended with 3,381 received and 620
+			// unaccounted, and the 620 were sitting right here.
+			// Installs any arrival whose scheduled tick has passed, without stepping the
+			// world. Used by the post-run drain: a transfer that lands after this
+			// server's last tick must still be accounted for, or it reads as a lost
+			// object when it is really a harness artefact.
+			void DrainScheduledArrivals();
+
+			int GetScheduledHandoffCount() const {
+				return static_cast<int>(mScheduledHandoffs.size());
+			}
+
 			int GetPendingReleaseCount() const {
 				return static_cast<int>(mScheduledReleases.size());
 			}
@@ -146,6 +164,30 @@ namespace NCL {
 			// the server's own thread, which is how every measurement before this ran.
 			// Negative means "pick a sensible default from the hardware".
 			void SetPhysicsWorkerThreads(int workerCount);
+
+			// --- load reporting ---
+			//
+			// Every this many ticks the server reports its cost to the manager, which
+			// may move the borders. 0 disables reporting, which is how every run before
+			// dynamic rebalancing behaved.
+			//
+			// A TICK schedule, not a wall-clock one: the manager decides using reports
+			// for one specific tick, so the reports themselves have to be emitted on a
+			// tick the servers agree on, or two runs would balance at different points
+			// in the simulation.
+			void SetLoadReportInterval(int ticks) {
+				mLoadReportIntervalTicks = ticks;
+			}
+
+			// True on the tick a report is due; fills the cost accumulated since the
+			// last one and resets it. The caller sends the packet, because the world
+			// manager never touches the network layer.
+			// outBuckets must have room for LOAD_REPORT_BUCKETS entries: WHERE the load
+			// is along X, not just how much. A total alone cannot locate a cluster
+			// inside a region, so a manager working from totals cannot place a border.
+			static constexpr int LOAD_REPORT_BUCKETS = 8;
+			bool TakeLoadReport(long long& outTick, int& outOwned, long long& outContacts,
+				float& outMinX, float& outMaxX, int* outBuckets);
 
 			// The pinned substep length, in seconds. Feeding this to the headless loop
 			// as its dt makes each tick perform exactly one substep, which is what
@@ -565,6 +607,10 @@ namespace NCL {
 			void FlushPendingPartitions();
 			std::vector<PendingPartition> mPendingPartitions;
 			int mRepartitionsLate = 0;
+			int mLoadReportIntervalTicks = 0;
+			// Contacts since the last report. Deterministic, unlike a duration.
+			long long mContactsSinceReport = 0;
+			uint64_t mLastLoadReportTick = 0;
 			int mRepartitionCount = 0;
 
 			// Turns an existing halo shadow into an object this server owns, rather

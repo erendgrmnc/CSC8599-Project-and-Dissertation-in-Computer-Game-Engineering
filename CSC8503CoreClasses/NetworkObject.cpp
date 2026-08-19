@@ -811,6 +811,24 @@ DistributedRepartitionPacket::DistributedRepartitionPacket(long long effectiveTi
 	this->regionCount = 0;
 }
 
+DistributedServerLoadReportPacket::DistributedServerLoadReportPacket(int serverID,
+	int gameInstanceID, long long tick, int ownedObjects, long long contacts,
+	float minX, float maxX, const int* buckets) {
+	type = BasicNetworkMessages::DistributedServerLoadReport;
+	size = sizeof(DistributedServerLoadReportPacket) - sizeof(GamePacket);
+
+	this->serverID = serverID;
+	this->gameInstanceID = gameInstanceID;
+	this->tick = tick;
+	this->ownedObjects = ownedObjects;
+	this->contacts = contacts;
+	this->minX = minX;
+	this->maxX = maxX;
+	for (int i = 0; i < LOAD_BUCKETS; ++i) {
+		this->bucketContacts[i] = (buckets != nullptr) ? buckets[i] : 0;
+	}
+}
+
 DistributedClientInterestPacket::DistributedClientInterestPacket(int playerID,
 	const Vector3& centre, float radius) {
 	type = BasicNetworkMessages::DistributedClientInterest;

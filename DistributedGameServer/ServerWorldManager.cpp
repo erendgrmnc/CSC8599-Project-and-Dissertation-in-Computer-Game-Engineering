@@ -64,6 +64,26 @@ namespace {
 	// actually collided.
 	constexpr float HEADON_LANE_SPACING = 6.0f;
 
+	// "cluster" workload: objects packed into one part of the world, milling about but
+	// not migrating.
+	//
+	// This is the workload a load balancer should actually be judged on, and none of
+	// the others are. "uniform" is already balanced, so there is nothing to correct.
+	// "shuttle" is unbalanced but every object is sweeping across the world, so the
+	// load distribution moves as fast as a border can - a policy measuring the last
+	// interval is always correcting towards where the load WAS. A cluster is unbalanced
+	// and STATIONARY, which separates "can the policy find the right partition" from
+	// "can it track a moving one".
+	//
+	// It is also what a real game world looks like: players gather in places and stay
+	// there, rather than sweeping the map in formation.
+	constexpr float CLUSTER_EXTENT_FRACTION = 0.22f;
+	constexpr float CLUSTER_CENTRE_FRACTION = 0.28f;
+	// Small enough that an object stays inside the cluster for the length of a run,
+	// large enough that the objects interact rather than settling into a static heap -
+	// contacts are the load measure, so a cluster with no contacts would not be a load.
+	constexpr float CLUSTER_SPEED = 4.0f;
+
 	// Where each player's grid is centred, alternating either side of the origin.
 	constexpr float PLAYER_START_OFFSET = 50.0f;
 	constexpr float PLAYER_START_STRIDE = 40.0f;
@@ -976,6 +996,16 @@ void NCL::DistributedGameServer::ServerWorldManager::ApplyWorkloadInitialState(
 		return;
 	}
 
+	if (mWorkload == "cluster") {
+		// Milling, not migrating: direction varies per object but the speed is low
+		// enough that the cluster keeps its shape for the length of a run.
+		const unsigned int h = DeterministicHash(mWorldSeed ^ 0x5EED1234u, playerID, objectIndex);
+		const float angle = (static_cast<float>(h % 3600u) / 3600.0f) * 6.2831853f;
+		physicsComp->SetLinearVelocity(Maths::Vector3(
+			std::cos(angle) * CLUSTER_SPEED, 0.0f, std::sin(angle) * CLUSTER_SPEED));
+		return;
+	}
+
 	if (mWorkload == "headon") {
 		// Direction from the object's own position rather than its grid index: the
 		// index-to-row mapping depends on how SetupWorld shaped the grid, and reading
@@ -1114,6 +1144,7 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 		sample.worldObjects = static_cast<int32_t>(mGameWorld->GetGameObjects().size());
 		sample.forwardEntries = static_cast<int32_t>(mLastKnownOwner.size());
 		sample.contacts = static_cast<int32_t>(Profiler::GetContactsResolved());
+		mContactsSinceReport += Profiler::GetContactsResolved();
 		sample.haloObjects = static_cast<int32_t>(mHaloObjects.size());
 		mMetrics->Record(sample);
 	}
@@ -1175,6 +1206,22 @@ void DistributedGameServer::ServerWorldManager::CreatePlayerObjects(int playerCo
 		// signal: on one server every pair collides, on two servers - one region each
 		// side of x = 0 - no pair collides at all, because neither server holds both
 		// halves of any pair.
+		// Packed into one part of the world, off-centre so the default partition splits
+		// it badly - which is the situation a balancer exists for.
+		if (mWorkload == "cluster") {
+			float worldMinX = 0.0f, worldMaxX = 0.0f, worldMinZ = 0.0f, worldMaxZ = 0.0f;
+			if (GetWorldExtent(worldMinX, worldMaxX, worldMinZ, worldMaxZ)) {
+				const float spanX = (worldMaxX - worldMinX) * CLUSTER_EXTENT_FRACTION;
+				const float spanZ = (worldMaxZ - worldMinZ) * CLUSTER_EXTENT_FRACTION;
+				rowSpacing = (rows > 1) ? (spanX / static_cast<float>(rows - 1)) : 0.0f;
+				colSpacing = (cols > 1) ? (spanZ / static_cast<float>(cols - 1)) : 0.0f;
+				startPos.x = worldMinX + (worldMaxX - worldMinX) * CLUSTER_CENTRE_FRACTION
+					- spanX * 0.5f;
+				startPos.z = worldMinZ + (worldMaxZ - worldMinZ) * 0.5f - spanZ * 0.5f;
+				startPos.y = 10.f;
+			}
+		}
+
 		if (mWorkload == "headon") {
 			rows = 2;
 			cols = std::max(1, (objectsPerPlayer + 1) / 2);
@@ -1289,6 +1336,62 @@ void DistributedGameServer::ServerWorldManager::FlushPendingPartitions() {
 
 		entry = mPendingPartitions.erase(entry);
 	}
+}
+
+bool DistributedGameServer::ServerWorldManager::TakeLoadReport(long long& outTick,
+	int& outOwned, long long& outContacts, float& outMinX, float& outMaxX, int* outBuckets) {
+	if (mLoadReportIntervalTicks <= 0) {
+		return false;
+	}
+	if (mTickCounter < mLastLoadReportTick + static_cast<uint64_t>(mLoadReportIntervalTicks)) {
+		return false;
+	}
+
+	outTick = static_cast<long long>(mTickCounter);
+	outOwned = GetPoolObjectCount();
+	outContacts = mContactsSinceReport;
+	outMinX = (mServerBorderData != nullptr) ? mServerBorderData->minXVal : 0.0f;
+	outMaxX = (mServerBorderData != nullptr) ? mServerBorderData->maxXVal : 0.0f;
+
+	// This server's own border struct is NOT the one the repartition path updates -
+	// that one lives in the border map - so read the map where it has an entry for us.
+	if (mServerBorderMap != nullptr) {
+		const auto mine = mServerBorderMap->find(mServerID);
+		if (mine != mServerBorderMap->end() && mine->second != nullptr) {
+			outMinX = mine->second->minXVal;
+			outMaxX = mine->second->maxXVal;
+		}
+	}
+
+	// Where the load sits along X inside this region.
+	//
+	// Approximated by OBJECT COUNT per bucket rather than by contacts per bucket: a
+	// contact belongs to two objects that may be in different buckets, so attributing
+	// it to one of them would be arbitrary. Object count within a bucket is a good
+	// proxy because contact cost scales with local density - which is precisely what
+	// a bucketed count measures - and it costs nothing to compute.
+	if (outBuckets != nullptr) {
+		for (int i = 0; i < LOAD_REPORT_BUCKETS; ++i) {
+			outBuckets[i] = 0;
+		}
+		const float width = outMaxX - outMinX;
+		if (width > 0.0f) {
+			for (const auto& entry : mCreatedObjectPool) {
+				if (entry.second == nullptr || entry.second->IsHaloShadow()) {
+					continue;
+				}
+				const float x = entry.second->GetTransform().GetPosition().x;
+				int bucket = static_cast<int>(((x - outMinX) / width)
+					* static_cast<float>(LOAD_REPORT_BUCKETS));
+				bucket = std::max(0, std::min(LOAD_REPORT_BUCKETS - 1, bucket));
+				++outBuckets[bucket];
+			}
+		}
+	}
+
+	mContactsSinceReport = 0;
+	mLastLoadReportTick = mTickCounter;
+	return true;
 }
 
 void DistributedGameServer::ServerWorldManager::ScheduleOutgoingObject(int networkObjectID,
@@ -1417,6 +1520,17 @@ bool DistributedGameServer::ServerWorldManager::StartHandlingObject(StartSimulat
 	scheduled.applyAtTick = applyAt;
 	mScheduledHandoffs.push_back(std::move(scheduled));
 	return true;
+}
+
+void DistributedGameServer::ServerWorldManager::DrainScheduledArrivals() {
+	// The tick counter is frozen once the run has ended, so anything still queued was
+	// scheduled for a tick that will never arrive. Applied unconditionally: the point
+	// is to account for it, not to simulate it.
+	for (auto& entry : mScheduledHandoffs) {
+		ApplyIncomingObject(entry.packet.get());
+	}
+	mScheduledHandoffs.clear();
+	FlushPendingDeletions();
 }
 
 void DistributedGameServer::ServerWorldManager::FlushScheduledHandoffs() {

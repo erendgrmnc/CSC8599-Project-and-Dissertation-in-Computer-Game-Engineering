@@ -76,7 +76,10 @@ enum BasicNetworkMessages {
 	DistributedServerRegistry,       // Manager -> Game Servers
 	// Client -> game server: the area of the world this client actually needs
 	// snapshots for. APPEND ONLY.
-	DistributedClientInterest        // Client -> Game Server
+	DistributedClientInterest,       // Client -> Game Server
+	// Game server -> manager: how much work this server did over the last reporting
+	// interval, so the manager can move the borders. APPEND ONLY.
+	DistributedServerLoadReport      // Game Server -> Manager
 };
 
 enum DistributedSystemClientType {

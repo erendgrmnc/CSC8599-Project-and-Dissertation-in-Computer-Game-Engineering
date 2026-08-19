@@ -24,6 +24,15 @@ namespace NCL {
 	namespace DistributedManager {
 		class SystemManager : public PacketReceiver {
 		public:
+			// Rebalancing tuning. Public because the host sets it from flags.
+			// alpha damps each correction so the partition converges rather than
+			// oscillating; threshold is a dead band, since a border that moves every
+			// round costs more in bulk handoff than the imbalance it removes.
+			void SetRebalance(float alpha, float threshold) {
+				mRebalanceAlpha = alpha;
+				mRebalanceThreshold = threshold;
+			}
+
 			SystemManager(int maxPhysicsServerCount, int maxClientCount);
 			~SystemManager();
 
@@ -63,6 +72,18 @@ namespace NCL {
 			// run-server packets have a recipient.
 			int GetConnectedMidwareCount() const;
 		protected:
+			// One report from a game server. Held until every server has reported for
+			// the same tick, then the policy runs once on the complete set.
+			struct ServerLoadReport {
+				int serverID = -1;
+				long long contacts = 0;
+				int ownedObjects = 0;
+				float minX = 0.0f;
+				float maxX = 0.0f;
+				// WHERE the load is inside this server's region. A total alone cannot
+				// locate a cluster, and a border cannot be placed without knowing.
+				int buckets[NCL::CSC8503::DistributedServerLoadReportPacket::LOAD_BUCKETS] = {};
+			};
 			bool mIsGameStarted = false;
 			int mMaxPhysicsServerCount = 0;
 			int mMaxClientCount = 0;
@@ -76,6 +97,24 @@ namespace NCL {
 			std::map<int, int> mPhysicsServerMiddlewareRunningInstanceMap;
 
 			// Forced repartition, for testing the mechanism without a policy.
+			// Reports keyed by the tick they describe, then by server id. The manager
+			// decides from reports that all describe the SAME simulated moment, so a
+			// round is only acted on when it is complete.
+			std::map<long long, std::map<int, ServerLoadReport>> mLoadReports;
+			// How far a boundary moves per round, as a fraction of the ideal
+			// correction. Below 1 so the partition converges rather than oscillating
+			// around the balance point.
+			float mRebalanceAlpha = 0.5f;
+			// Minimum relative imbalance worth moving a border for. Hysteresis: a
+			// border that moves every round costs more in bulk handoff than the
+			// imbalance it removes.
+			float mRebalanceThreshold = 0.1f;
+			long long mLastRebalanceTick = -1;
+			// Effective tick of the last partition sent. Nothing is decided again until
+			// this has passed and its bulk handoff has settled - deciding sooner means
+			// measuring a partition that does not exist yet.
+			long long mLastRepartitionEffectiveTick = -1;
+
 			long long mForcedRepartitionTick = 0;
 			std::vector<double> mForcedRepartitionX;
 
@@ -84,6 +123,17 @@ namespace NCL {
 			// The instance's server registry, in pages. Removes the 20-server cap the
 			// fixed arrays in the bootstrap packet imposed.
 			void SendServerRegistry(int gameInstanceID) const;
+
+			// --- dynamic rebalancing (C3) ---
+			//
+			void HandleServerLoadReport(NCL::CSC8503::DistributedServerLoadReportPacket* packet);
+
+			// Moves the interior boundaries towards the heavier side, proportionally to
+			// the imbalance. Deliberately the simplest policy that converges: the risky
+			// and interesting part of this increment was the MECHANISM, and a crude
+			// policy on a safe mechanism is a result where the reverse is not.
+			void RunRebalancePolicy(int gameInstanceID, long long tick);
+
 			void SendPhysicsServerMiddlewareDataPacket(int peerID, int midwareID);
 
 			void HandleDistributedClientConnectedPacketReceived(int peerID, NCL::CSC8503::DistributedClientConnectedToSystemPacket* packet);
