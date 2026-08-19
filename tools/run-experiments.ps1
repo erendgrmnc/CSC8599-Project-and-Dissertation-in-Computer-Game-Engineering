@@ -4,24 +4,41 @@
 # parameter, N repeats per point, one directory per repeat, and a manifest per
 # experiment recording exactly what was swept.
 #
-# Repeats are not optional. Section 17 of the interactions design records that
-# per-server object counts and handoff event counts vary by +/-1 between runs at the
-# same seed, and that closing that gap needs a global tick barrier. Performance
-# numbers must therefore come from repeated runs with a spread, not from single runs.
+# Repeats are not optional. Per-server object counts and handoff event counts vary
+# between runs at the same seed, and several things measured later - halo lateness,
+# snapshot volume, wall clock - vary a great deal more. Performance numbers must come
+# from repeated runs with a spread, not from single runs.
 #
 # Examples:
-#   # Scaling: 1,2,4 servers at 400 objects, 5 repeats each
-#   .\tools\run-experiments.ps1 -Name scaling -Sweep servers -Values 1,2,4 -Repeats 5
+#   # Locality (I6): per-server state as the world grows. -World must grow with it,
+#   # or adding servers only subdivides a fixed world, which measures something else.
+#   .\tools\run-experiments.ps1 -Name locality -Sweep servers -Values 1,2,4 -Repeats 3 `
+#       -Workload uniform -Objects 400
 #
-#   # Load: object-count sweep on 2 servers
-#   .\tools\run-experiments.ps1 -Name load -Sweep objects -Values 100,400,1600 -Repeats 5
+#   # Interest management: snapshot volume against the radius a client asks for.
+#   .\tools\run-experiments.ps1 -Name interest -Sweep interestRadius -Values 0,25,50,100 `
+#       -Repeats 3 -Objects 4000 -Workload uniform -Seconds 30
+#
+#   # Load balancing: static (0) against dynamic (a reporting interval).
+#   .\tools\run-experiments.ps1 -Name balance -Sweep rebalanceInterval -Values 0,400 `
+#       -Repeats 3 -Workload cluster -Objects 4000 -Ticks 7200
+#
+#   # Parallel physics.
+#   .\tools\run-experiments.ps1 -Name threads -Sweep physicsThreads -Values 0,2,4 `
+#       -Repeats 3 -Objects 8000 -Servers 1 -Workload uniform
 param(
     [Parameter(Mandatory = $true)][string]$Name,
     # Which parameter to sweep.
-    [Parameter(Mandatory = $true)][ValidateSet("servers", "objects", "ticks")][string]$Sweep,
-    # Comma-separated, e.g. -Values 1,2,4. A string rather than int[] because
+    [Parameter(Mandatory = $true)]
+    [ValidateSet("servers", "objects", "ticks", "seconds", "haloWidth", "interestRadius",
+                 "physicsThreads", "rebalanceInterval")]
+    [string]$Sweep,
+    # Comma-separated, e.g. -Values 1,2,4. A string rather than an array because
     # `powershell -File` does not parse array arguments: -Values 1,2 arrives as the
     # single value 12, which silently runs a 12-server experiment instead of two.
+    #
+    # Parsed as DOUBLE, since halo width and interest radius are distances, then cast
+    # back where the underlying flag is an integer.
     [Parameter(Mandatory = $true)][string]$Values,
     [int]$Repeats = 5,
 
@@ -29,8 +46,13 @@ param(
     [int]$Servers = 2,
     [int]$Objects = 400,
     [int]$Ticks = 7200,
+    # Only used when -Ticks is 0. Paced tick runs are for correctness and
+    # reproducibility; wall-clock runs are for performance claims that need the loop
+    # to be fed real deltas.
+    [int]$Seconds = 30,
     [int]$Seed = 42,
     [string]$Workload = "shuttle",
+    [string]$World = "-150,150,-150,150",
 
     # Interaction drivers. All default to off so a baseline measures the physics and
     # handoff path alone.
@@ -42,11 +64,32 @@ param(
     [int]$DriveEvery = 0,
 
     [int]$HandoffLookahead = 0,
+    [int]$EpochAlignUs = 0,
+
+    # Cross-border collision. 0 disables the halo, which is how everything before that
+    # increment behaved.
+    [double]$HaloWidth = 0,
+    [int]$HaloLookahead = 4,
+    # Reliable halo updates. Needed for a bit-reproducible run, because which
+    # unreliable updates drop is not the same from run to run.
+    [switch]$HaloReliable,
+
+    # Client area of interest. 0 asks for every object.
+    [double]$InterestRadius = 0,
+
+    # Parallel physics workers per server. 0 keeps everything on the server's thread.
+    [int]$PhysicsThreads = 0,
+
+    # Dynamic rebalancing. 0 is a static partition.
+    [int]$RebalanceInterval = 0,
+    [double]$RebalanceAlpha = 0.5,
+    [double]$RebalanceThreshold = 0.1,
+
     [string]$OutDir = ""
 )
 $ErrorActionPreference = "Continue"
 
-$valueList = @($Values -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ } | ForEach-Object { [int]$_ })
+$valueList = @($Values -split '[,;]' | ForEach-Object { $_.Trim() } | Where-Object { $_ } | ForEach-Object { [double]$_ })
 if ($valueList.Count -eq 0) {
     Write-Host "No sweep values parsed from '$Values'" -ForegroundColor Red
     exit 1
@@ -61,26 +104,38 @@ $experimentDir = Join-Path $OutDir "exp-$Name"
 Remove-Item $experimentDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $experimentDir | Out-Null
 
-# One manifest per experiment. Determinism is per-configuration, so a dataset
-# without its build metadata cannot be reproduced or even interpreted.
+# One manifest per experiment. Determinism is per-configuration, so a dataset without
+# its build metadata cannot be reproduced or even interpreted - and since several of
+# these knobs change whether a run is reproducible at all, the manifest has to record
+# every one of them, not just the swept parameter.
 $manifest = [ordered]@{
     name       = $Name
     sweep      = $Sweep
     values     = $valueList
     repeats    = $Repeats
     fixed      = [ordered]@{
-        servers = $Servers; objects = $Objects; ticks = $Ticks
-        seed = $Seed; workload = $Workload
+        servers = $Servers; objects = $Objects; ticks = $Ticks; seconds = $Seconds
+        seed = $Seed; workload = $Workload; world = $World
         impulseTest = $ImpulseTest; misrouteEvery = $MisrouteEvery
         blastEvery = $BlastEvery; spawnEvery = $SpawnEvery
         destroyEvery = $DestroyEvery; driveEvery = $DriveEvery
-        handoffLookahead = $HandoffLookahead
+        handoffLookahead = $HandoffLookahead; epochAlignUs = $EpochAlignUs
+        haloWidth = $HaloWidth; haloLookahead = $HaloLookahead
+        haloReliable = [bool]$HaloReliable
+        interestRadius = $InterestRadius
+        physicsThreads = $PhysicsThreads
+        rebalanceInterval = $RebalanceInterval
+        rebalanceAlpha = $RebalanceAlpha; rebalanceThreshold = $RebalanceThreshold
     }
     gitCommit  = (& git -C $repoRoot rev-parse HEAD 2>$null)
     gitDirty   = [bool](& git -C $repoRoot status --porcelain 2>$null)
     machine    = $env:COMPUTERNAME
     os         = (Get-CimInstance Win32_OperatingSystem).Caption
     cpu        = (Get-CimInstance Win32_Processor | Select-Object -First 1).Name
+    cores      = (Get-CimInstance Win32_Processor | Select-Object -First 1).NumberOfCores
+    # Every server, the manager, the midware and the client run on THIS machine, so a
+    # multi-server run shares these cores. Recorded because it is the reason a
+    # wall-clock comparison across server counts measures contention, not distribution.
     startedUtc = (Get-Date).ToUniversalTime().ToString("o")
 }
 $manifest | ConvertTo-Json -Depth 5 | Out-File -FilePath (Join-Path $experimentDir "experiment.json") -Encoding utf8
@@ -94,25 +149,40 @@ $total = $valueList.Count * $Repeats
 $done = 0
 
 foreach ($value in $valueList) {
-    $runServers = $Servers; $runObjects = $Objects; $runTicks = $Ticks
+    $runServers = $Servers; $runObjects = $Objects; $runTicks = $Ticks; $runSeconds = $Seconds
+    $runHaloWidth = $HaloWidth; $runInterest = $InterestRadius
+    $runThreads = $PhysicsThreads; $runRebalance = $RebalanceInterval
+
     switch ($Sweep) {
-        "servers" { $runServers = $value }
-        "objects" { $runObjects = $value }
-        "ticks"   { $runTicks = $value }
+        "servers"           { $runServers = [int]$value }
+        "objects"           { $runObjects = [int]$value }
+        "ticks"             { $runTicks = [int]$value }
+        "seconds"           { $runSeconds = [int]$value; $runTicks = 0 }
+        "haloWidth"         { $runHaloWidth = $value }
+        "interestRadius"    { $runInterest = $value }
+        "physicsThreads"    { $runThreads = [int]$value }
+        "rebalanceInterval" { $runRebalance = [int]$value }
     }
 
     for ($repeat = 1; $repeat -le $Repeats; $repeat++) {
-        $tag = "$Sweep$value-r$repeat"
+        # The value can be fractional, and a '.' in a directory name is legal but
+        # awkward to match with a glob, so it is replaced.
+        $valueTag = ([string]$value) -replace '\.', 'p' -replace '-', 'm'
+        $tag = "$Sweep$valueTag-r$repeat"
         $done++
         Write-Host ""
-        Write-Host "--- [$done/$total] $tag (servers=$runServers objects=$runObjects ticks=$runTicks) ---"
+        Write-Host "--- [$done/$total] $tag (servers=$runServers objects=$runObjects ticks=$runTicks halo=$runHaloWidth interest=$runInterest threads=$runThreads rebalance=$runRebalance) ---"
 
         & (Join-Path $PSScriptRoot "measure.ps1") `
-            -Servers $runServers -Objects $runObjects -Ticks $runTicks `
-            -Seed $Seed -Workload $Workload `
+            -Servers $runServers -Objects $runObjects -Ticks $runTicks -Seconds $runSeconds `
+            -Seed $Seed -Workload $Workload -World $World `
             -ImpulseTest $ImpulseTest -MisrouteEvery $MisrouteEvery -BlastEvery $BlastEvery `
             -SpawnEvery $SpawnEvery -DestroyEvery $DestroyEvery -DriveEvery $DriveEvery `
-            -HandoffLookahead $HandoffLookahead `
+            -HandoffLookahead $HandoffLookahead -EpochAlignUs $EpochAlignUs `
+            -HaloWidth $runHaloWidth -HaloLookahead $HaloLookahead -HaloReliable:$HaloReliable `
+            -InterestRadius $runInterest -PhysicsThreads $runThreads `
+            -RebalanceInterval $runRebalance -RebalanceAlpha $RebalanceAlpha `
+            -RebalanceThreshold $RebalanceThreshold `
             -Tag $tag -OutDir $experimentDir | Out-Null
 
         # A run that produced no CSV is a failed run, not a slow one. Say so loudly:

@@ -165,6 +165,19 @@ def summarise_run(run_dir):
         invariants["cmd_delta"] = sent - (applied + rejected + duplicate - fanout)
         invariants["resurrections"] = total(client_finals, "resurrectAttempts")
 
+        # Reported, not asserted. These are the quantities the increments are
+        # ABOUT - how much snapshot traffic interest removed, how much work each
+        # server did - so a summary without them cannot answer the question the
+        # experiment was run to answer.
+        invariants["snap_sent"] = total(server_finals, "snapSent")
+        invariants["snap_suppressed"] = total(server_finals, "snapSupp")
+        invariants["contacts"] = total(server_finals, "contacts")
+        # Non-zero means a server could not hold pace with its peers, so halo
+        # updates missed their tick. Not a failure on its own - it is the
+        # symptom a balanced partition is supposed to remove - but a run with
+        # any is not bit-reproducible.
+        invariants["halo_late"] = total(server_finals, "haloLate")
+
     invariants["ownership_gap_ticks"] = ownership_gap_ticks
     invariants["ownership_double_ticks"] = ownership_double_ticks
 
@@ -200,10 +213,15 @@ def main():
     failures = []
     for run_dir in run_dirs:
         tag = os.path.basename(run_dir)
-        match = re.match(r"([a-z]+)(\d+)-r(\d+)$", tag)
+        # Sweep names are camelCase now (interestRadius, physicsThreads), and values
+        # can be fractional or negative - a halo width or an interest radius is a
+        # distance. run-experiments encodes '.' as 'p' and '-' as 'm', because a dot in
+        # a directory name is awkward to glob and a leading dash reads as a flag.
+        match = re.match(r"([A-Za-z]+)([0-9pm]+)-r(\d+)$", tag)
         if not match:
             continue
-        point, repeat = int(match.group(2)), int(match.group(3))
+        point = float(match.group(2).replace("p", ".").replace("m", "-"))
+        repeat = int(match.group(3))
 
         servers, invariants = summarise_run(run_dir)
         if not servers:
@@ -239,12 +257,38 @@ def main():
             group = [r for r in rows if r["point"] == point and r["server"] == server_id]
             # Median across repeats, not mean: with a handful of repeats one slow
             # run should not drag the reported figure.
-            print(f"{point:>8} {server_id:>4} {len(group):>4} "
+            point_label = f"{point:g}"
+            print(f"{point_label:>8} {server_id:>4} {len(group):>4} "
                   f"{statistics.median(r['phys_p50'] for r in group):>9.4f} "
                   f"{statistics.median(r['phys_p95'] for r in group):>9.4f} "
                   f"{statistics.median(r['phys_p99'] for r in group):>9.4f} "
                   f"{statistics.median(r['owned_final'] for r in group):>7.0f} "
                   f"{sum(r['integ_mismatch'] for r in group):>9}")
+
+    # Busiest server per point. The headline for anything about load: an average over
+    # servers hides exactly the imbalance the partitioning exists to fix, and the
+    # simulation runs no faster than its slowest participant.
+    print()
+    print(f"{'point':>8} {'busiest p95 ms':>15} {'lightest p95 ms':>16} {'ratio':>7} {'owned max':>10} {'owned min':>10}")
+    print("-" * 72)
+    for point in sorted({r["point"] for r in rows}):
+        at_point = [r for r in rows if r["point"] == point]
+        by_server = {}
+        for r in at_point:
+            by_server.setdefault(r["server"], []).append(r)
+        medians = {
+            sid: statistics.median(x["phys_p95"] for x in group)
+            for sid, group in by_server.items()
+        }
+        owned = {
+            sid: statistics.median(x["owned_final"] for x in group)
+            for sid, group in by_server.items()
+        }
+        busiest = max(medians.values())
+        lightest = min(medians.values())
+        ratio = (busiest / lightest) if lightest > 0 else float("inf")
+        print(f"{point:>8g} {busiest:>15.4f} {lightest:>16.4f} {ratio:>7.2f} "
+              f"{max(owned.values()):>10.0f} {min(owned.values()):>10.0f}")
 
     print()
     if failures:
