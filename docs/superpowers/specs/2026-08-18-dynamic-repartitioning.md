@@ -222,21 +222,93 @@ unbalanced — which is §3.5 of the halo spec restated: once servers exchange s
 partition that lets one fall behind loses reproducibility. A rebalancing move should therefore
 *improve* reproducibility rather than cost it, and confirming that is part of C4.
 
-### C2 — Servers report load
+### C2, C3, C4 — Reporting, policy and evaluation *(done)*
 
-`(tick, ownedObjects)` to the manager, at a fixed tick interval rather than a wall-clock one, so the
-reports are themselves deterministic.
+Servers report on a **tick** schedule, so the manager can decide from reports that all describe the
+same simulated moment. The cost measure is **contacts**: not object count, because the best
+hand-picked partition in C1 held 100 objects against 300 and still balanced; and not milliseconds,
+because a measured duration is not reproducible and every determinism claim would become conditional
+on machine timing.
 
-### C3 — A policy
+The policy moves each interior boundary towards the point that splits the pair's load in half,
+damped by `--rebalance-alpha`, with a dead band (`--rebalance-threshold`) and a hard clamp of 15% of
+the pair's width per round.
 
-The simplest defensible one: equalise object counts along the axis the partition already splits, with
-hysteresis so a border does not oscillate around a threshold. Deliberately crude; the mechanism is
-what matters.
+#### Result
 
-### C4 — Evaluate
+4,000-object `cluster`, 2 servers, 7,200 paced ticks:
 
-Busiest-server tick cost and wall clock, static vs dynamic, on `shuttle` — the workload the static
-partition is worst on. Plus the cost of the moves themselves.
+| | static | dynamic |
+|---|---|---|
+| objects | 4,000 / 0 | **2,023 / 1,977** |
+| contacts | 25,406,848 / 0 | 14,249,411 / 8,138,786 |
+| wall clock | **115.24 s** / 60.24 s | 80.41 s / **80.67 s** |
+| busiest server | 115.24 s | **80.67 s**, 30% faster |
+| slowest : fastest | 1.91 : 1 | **1.003 : 1** |
+
+Conservation exact (2,023 + 1,977 = 4,000), handoff parity exact (4,399 sent = 4,399 received),
+`hoFail` 0.
+
+#### Four things the first version got wrong
+
+Every one was found by measuring, and each is worth more than the result above.
+
+**1. Deciding faster than the previous move can land.** A 300-tick interval against a 300-tick
+handoff lookahead meant the next decision was made while the last migration was still in flight, so
+the policy measured a partition that did not exist yet. The boundary swung —75, —67, —135, —10 over
+four rounds and **396 of 400 objects were lost** in the churn. Nothing is decided now until the
+previous move has taken effect and settled.
+
+**2. A blind diffusive step oscillates.** Moving the border by a fraction of the imbalance overshoots
+whenever the load is not uniform. The target is now computed, not stepped towards.
+
+**3. Totals cannot locate a cluster.** This is the one that matters. A cluster sitting entirely
+inside one region looks *identical* whether it is at that region's left edge or its right — the
+server reports one number either way. A policy working from totals can only guess which way to move,
+and guessing wrong walks the border straight past the cluster: it drove until one server held all
+4,000 objects and the other held none, having merely swapped which server was overloaded. Reports now
+carry an **8-bucket load profile along X**, and the target is the point that halves it.
+
+**4. A border move is not one handoff, it is thousands.** Ordinary border traffic is a handful of
+objects a tick. A repartition put 4,000 outside their owner's region at once, every one a reliable
+packet, and the flood overwhelmed the link. Handoffs are now capped per tick, so a move is a
+**migration spread over several ticks**. A large repartition therefore takes
+`ceil(objects / 64)` ticks to complete, and that is the honest cost of moving a border.
+
+#### Two bugs it exposed elsewhere
+
+**`SendReliablePacket` ignored `enet_peer_send`'s result** and returned `void`, so `SendPacketToServer`
+reported success for packets ENet had refused. Fine for a snapshot, fatal for a handoff: the sender
+released the object anyway and it was lost. It also leaked the refused packet. It now returns whether
+ENet accepted it, and handoff retries next tick instead.
+
+**A fixed tick count does not make servers finish together.** An overloaded server takes far longer
+in wall clock for the same ticks, so its lighter peer reaches its last tick first and exits —
+everything handed over afterwards goes to a dead peer. Measured: the light server finished 17 s
+early and 1,008 objects vanished, with no error anywhere. Servers now drain the network for a few
+seconds after their run ends, installing any arrival still queued. The world is not stepped, so the
+measured run is unchanged.
+
+#### A new workload, and why the old ones could not test this
+
+`--workload cluster`: objects packed into one part of the world, milling about but not migrating.
+
+None of the existing workloads can judge a load balancer. `uniform` is already balanced, so there is
+nothing to correct. `shuttle` is unbalanced but every object is sweeping across the world, so the
+load distribution moves as fast as a border can — a policy measuring the last interval is always
+correcting towards where the load *was*, and it visibly chased: —45, —89, —44, +1, +45, 0, —45, —89.
+A cluster is unbalanced and **stationary**, which separates "can the policy find the right partition"
+from "can it track a moving one". It is also what a real game world looks like: players gather in
+places and stay there.
+
+#### Known limitation
+
+The load profile buckets **object counts**, not contacts — a contact belongs to two objects that may
+be in different buckets, so attributing it to one would be arbitrary. The policy therefore equalises
+objects, and a residual contact imbalance survives: 14.2 M against 8.1 M above, even with object
+counts at 2,023 against 1,977. Closing that needs a per-bucket contact attribution rule, and the
+honest note is that the 30% figure above is what *object* balancing buys, not what perfect work
+balancing would.
 
 ---
 
