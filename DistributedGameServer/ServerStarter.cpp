@@ -217,6 +217,11 @@ int StartGameServer(int argc, char* argv[]) {
 			NCL::GameTimer drainTimer;
 			double drained = 0.0;
 			while (drained < drainSeconds) {
+				// Tick() FIRST. GetTimeDeltaSeconds only reads the last measured delta;
+				// without a Tick it returns the same value forever, which for a fresh
+				// timer is zero - so this loop never advanced and the server hung
+				// instead of draining.
+				drainTimer.Tick();
 				const float dt = drainTimer.GetTimeDeltaSeconds();
 				drained += dt;
 				// Network only. The world is deliberately NOT stepped: an arrival is
