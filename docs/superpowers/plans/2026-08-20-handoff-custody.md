@@ -225,7 +225,7 @@ git commit -m "feat(handoff): pure custody decision for unacked transfers"
 
 ### Task 2: Hold custody in ServerWorldManager
 
-Mechanical wiring. The decision logic is Task 1's, already tested; this task's correctness is verified by Task 8's re-measurement.
+Mechanical wiring. The decision logic is Task 1's, already tested; this task's correctness is verified by Task 6's re-measurement.
 
 **Files:**
 - Modify: `DistributedGameServer/ServerWorldManager.h` (near `ScheduledHandoff`, `:488-493`)
