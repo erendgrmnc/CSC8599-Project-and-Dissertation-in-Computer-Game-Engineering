@@ -351,17 +351,31 @@ and their contact counts are not.**
 
 ## 6. Known conditional guarantees
 
-**Ownership atomicity holds only while both servers keep pace.** The B6 mechanism makes ownership
-transfer atomic by having the sender release at the same `senderTick + lookahead` tick the receiver
-installs on — but only when both servers reach that tick at comparable real times. A rebalancing
-migration violates this by definition, because the partition is, by construction, still imbalanced
-during the move: E4 measured ~2,538 median ownership-gap ticks per dynamic run, tracking `hoLate`
-almost exactly, with conservation exact and nothing lost. E7 found the same mechanism under sustained
-overload rather than a transient migration, and there the consequence is worse: past the ~3,384
-objects/server correctness budget, gaps become near-permanent (1,795-1,798 of 1,800 ticks) and objects
-are actually lost (`conservation_delta` -4 to -8 at 8,000 objects). The guarantee is real but
-conditional, not unconditional, and both experiments independently expose the same underlying failure
-mode.
+**Ownership atomicity holds only while both servers keep pace, and only above `--handoff-lookahead
+0`.** The B6 mechanism makes ownership transfer atomic by having the sender release at the same
+`senderTick + lookahead` tick the receiver installs on — but only when both servers reach that tick
+at comparable real times, and only when a non-zero lookahead is configured at all. The default is 0,
+where the sender releases on send and the gap is unconditional, not an edge case (§7 item 2). A
+rebalancing migration violates the keep-pace condition by definition, because the partition is, by
+construction, still imbalanced during the move: E4 measured ~2,538 median ownership-gap ticks per
+dynamic run, tracking `hoLate` almost exactly, with conservation exact and nothing lost — that
+measurement predates the custody work below. E7 found the same mechanism under sustained overload
+rather than a transient migration, and there the consequence was worse: past the ~3,384 objects/server
+correctness budget, gaps become near-permanent (1,795-1,798 of 1,800 ticks) and, before custody,
+objects were actually lost (`conservation_delta` -4 to -8 at 8,000 objects).
+
+**Custody closes the loss half of that consequence, not the gap itself.** The handoff-custody work
+(§7 item 1) makes a sender hold the transfer packet until the receiver acks it, so a dropped ack no
+longer costs an object outright: at 8,000 objects `conservation_delta` moved from -4/-8/-8 (silent
+loss, no custody) to -15/0/-4 (`runs/exp-fix4-E7`), and the residual is traceable rather than
+unaccounted — `ho_parity_delta` matches it exactly on every repeat, and it reads as end-of-run
+truncation of transfers still in flight, not disappearance. That is not a general "gaps stopped
+mattering" result, though: the rebalancing case regressed rather than improved over the same window.
+`runs/exp-fix4-E4` loses 84 to 703 objects where the pre-custody baseline (`runs/exp-balance`, commit
+`93e6f21`) was exact, and that regression has not been isolated from the other changes made across the
+same period — see §7 item 12. The ownership guarantee is real but conditional, never unconditional,
+and the experiments above independently expose the same underlying failure mode from three different
+angles: a transient migration, sustained overload, and now custody's own interaction with rebalancing.
 
 **The load balancer equalises objects, not contacts.** E4's dynamic case ends with near-perfect object
 balance (2,007 / 1,993, the 3-repeat median from `runs/exp-balance`) but residual contact imbalance
@@ -383,14 +397,28 @@ The server directories were frozen while E1-E8 were measured, specifically to ke
 against a fixed binary. That freeze is over. Items 3, 4, 5, 8 and 9 were fixed afterwards as **Batch
 A**, chosen because none of them could alter a simulation result — the one that turned out to (item 4)
 was caught by re-measuring E2 and E5's L=24 knee against the new binary before anything was claimed
-(§4.1). Items 1, 2, 6 and 7 remain, are all simulation-affecting, and belong to a single **Batch B**
-followed by one full re-measurement.
+(§4.1). Items 1, 2, 6 and 7 were addressed together as **Batch B**, followed by one full
+re-measurement (`docs/superpowers/results/2026-08-20-B-custody.md`). Item 1 is fixed, item 6 is
+withdrawn as a mis-filed defect, and items 2 and 7 stay open — narrowed and confirmed-reachable
+respectively, not closed. Batch B's own measurement also surfaced a new item, 12.
 
-1. **Handoff ack is stubbed.** `ServerWorldManager::HandleTransitionHandshakeReceived` has an empty
-   body; `NetworkObject::OnTransitionHandshakeReceived` is never called. A dropped transfer packet
-   still loses the object with no retry path.
-2. **Ownership atomicity fails above the tick budget.** E7 (§3 above), and E4's rebalancing case (§6
-   above). The guarantee is conditional on both servers keeping pace, not unconditional.
+1. ~~**Handoff ack is stubbed.**~~ **Fixed.** The receiver acks on acceptance and the sender holds the
+   transfer packet in custody until the ack arrives (`CSC8503CoreClasses/DistributedSystemCommonFiles/HandoffCustody.h`,
+   `ServerWorldManager::FlushPendingTransfers`), resending on a wall-clock deadline and reclaiming the
+   object only once the peer link itself is gone — never on a bare timeout, which the batch found could
+   not distinguish "never arrived" from "slow to arrive" (below). At 8,000 objects, 2 servers, `uniform`,
+   halo on, `--handoff-lookahead 0`, `runs/exp-fix4-E7` measured `conservation_delta` of -15, 0, -4
+   against a -4, -8, -8 baseline with no custody — an object can no longer vanish outright because a
+   receiver refused or died. The residual is addressed under item 2, not claimed as zero here.
+2. **Ownership atomicity fails above the tick budget — narrowed, not closed.** Custody (item 1) makes a
+   transfer lossless in the sense that nothing disappears silently: an outstanding transfer stays
+   visible as `hoCustody` and is reported by `analyse.py`, and the residual E7 loss (-15/0/-4) is
+   end-of-run truncation of transfers still in flight, not an unaccounted loss — `ho_parity_delta`
+   matches it exactly on every repeat, `hoPending`/`hoSched` read 0, and `hoCustody` is at least the
+   loss on each one. What custody does not touch is the ownership *gap* itself: at `--handoff-lookahead
+   0` — the default, and what most experiments in this document ran at — `ScheduleOutgoingObject`
+   releases on send exactly as before, so nobody owns the object for one network round trip. The
+   atomicity guarantee stays conditional on `--handoff-lookahead > 0`, the non-default case (§6).
 3. ~~**No guard on halo lookahead.**~~ **Withdrawn — this was a mis-diagnosis, not a defect.**
    Re-analysis of E5 round 1's own CSVs shows `haloLate = 0` and shadows present on 98.2% of ticks at
    lookahead 32, so nothing was retiring and `HALO_STALE_TICKS` was never involved. There is no
@@ -408,11 +436,24 @@ followed by one full re-measurement.
 5. ~~**`--drain-seconds` is never forwarded by the midware.**~~ **Fixed.** Forwarded like the dozen
    other game-server flags. Note item 4 was the actual E8 blocker; this one now only gives control over
    the drain, rather than being needed to escape it.
-6. **Load profile buckets objects, not contacts.** E4's residual contact imbalance (14.2M vs 8.1M, §6
-   above, sourced from a different run than the object split it is quoted alongside — see §6) despite
-   near-perfect object balance.
-7. **`CalculateIncomingObjectOffsetPosition` is never called.** `ServerWorldManager.cpp:440`. Incoming
-   handoffs get no positional nudge into the receiving region.
+6. ~~**Load profile buckets objects, not contacts.**~~ **Withdrawn — this is a deliberate design
+   decision, not a defect.** `TakeLoadReport` states the reason in place: a contact belongs to two
+   objects that may fall in different buckets, so charging it to either one is arbitrary, while
+   object count within a bucket is a sound proxy because contact cost scales with local density.
+   What remains true is the *consequence*, and it stays recorded as a limitation in §6: the balancer
+   equalises objects, so E4 ends with near-perfect object balance and a residual contact imbalance
+   (14.2M vs 8.1M). That is a stated property of object-count balancing, not an unfixed bug.
+7. **`CalculateIncomingObjectOffsetPosition` is never called — confirmed reachable, stays open.**
+   `ServerWorldManager.cpp:440`. Incoming handoffs still get no positional nudge into the receiving
+   region. Batch B added `hoClamp`, a counter that computes the clamp this function would apply and
+   discards it without changing behaviour, purely to observe whether the gap is real. It fired 25,434
+   times across 10 of 52 server-lines on the E7 runs, and roughly 2,600 times per run under
+   rebalancing, while never firing on any healthy-path (correctness-budget) run — and it fires with
+   `hoReclaimed = 0`, so it is not an artefact of custody's own reclaim churn. That refutes the
+   expectation, held when this item was filed, that the gap was practically unreachable: it is real
+   and load-dependent. The fix (wiring the function into the handoff path) stays deferred for the same
+   reason as before — it changes measured handoff behaviour, so it belongs with a dedicated change,
+   not a drive-by.
 10. **Bytes are counted as packets, not datagrams.** E8's verdict at one client flips depending on
    whether per-datagram headers are charged, and ENet coalesces commands into MTU-sized datagrams, so
    neither bound is known to be the true one. Surfacing the ENet host's `totalSentData` would replace
@@ -420,6 +461,16 @@ followed by one full re-measurement.
 11. **The harness starts one client.** E8's client-count scaling — the argument that makes the
    composition claim robust to item 10 — is analytical, derived from `mSnapshotsSent` incrementing per
    peer, not measured. `measure.ps1` supports a single client plus an optional mid-run late joiner.
+12. **Rebalancing conservation regression, not attributed to Batch B.** `runs/exp-fix4-E4` (`cluster`,
+   4,000 objects, 7,200 ticks, `--handoff-lookahead 300`, rebalancing on) loses 84 to 703 objects across
+   3 repeats (-198, -703, -84), where the pre-Batch-A baseline `runs/exp-balance` (commit `93e6f21`) was
+   exact. `ho_parity_delta` matches the loss exactly on each repeat and transfers are still held in
+   custody at exit, so this is not the silent-loss mechanism items 1/2 describe closing — something else
+   is going on. **This regression is explicitly not attributed to Batch B**: the baseline predates Batch
+   A too, so the comparison spans the halo-publish rate gate (item 4), the `--drain-seconds` fix (item
+   5), and every custody change (items 1/2) at once — any of them, alone or in combination, could be the
+   cause. Isolating it needs a bisect of this same configuration at `776115b`, `02e306b`, and HEAD. That
+   bisect is the next step, not yet done.
 8. ~~**Stale comments in frozen source.**~~ **Fixed.** `NetworkObject.h` now states 60 bytes per halo
    entry (as `PacketSizeTests` measures) and the snapshot gate comment states 60 Hz.
 9. ~~**`run-experiments.ps1`'s `-OutDir` is not anchored to the repo root.**~~ **Fixed.** Both scripts
@@ -427,8 +478,9 @@ followed by one full re-measurement.
    `Path.IsPathRooted` reports as absolute. Shared rather than copied precisely because this bug
    existed only because the earlier fix was applied to one script and not the other.
 
-**Items 3, 4, 5, 8 and 9 are now closed** (Batch A). Items 1, 2, 6 and 7 remain, and all four are
-simulation-affecting, so they belong to a single batch followed by one full re-measurement.
+**Items 3, 4, 5, 8 and 9 are now closed** (Batch A). Item 1 is now also closed and item 6 withdrawn
+(Batch B). Items 2 and 7 remain open — narrowed and confirmed-reachable respectively, not fixed — and
+Batch B's own measurement opened item 12, the rebalancing regression, which still needs a bisect.
 
 **E8 has since been re-run** (`runs/exp-bytes-clean`) and is reported in §3. It leaves two small items
-behind, both listed below as items 10 and 11.
+behind, listed below as items 10 and 11.
