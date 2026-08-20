@@ -105,6 +105,11 @@ across radii would cancel out of a percentage reduction the way it cannot cancel
 bytes/second figure — but that has not been verified, and the absolute counts should not be quoted as
 clean until it is.
 
+Note the halo publish gate (§4.1) does **not** fix this one: snapshot broadcast was already rate-gated,
+so the tail here is 5 s of genuine 60 Hz snapshots on a 20 s run, not a spin-rate flood. What clears it
+is backlog item 5 — `--drain-seconds` is now forwarded, so E3 can be re-run with the drain set to 0 and
+the absolute counts made quotable.
+
 ### E4 — Dynamic load balancing
 
 **Claim.** Moving borders at runtime reduces the cost borne by the busiest server.
@@ -355,10 +360,14 @@ build-independent — but the object split quoted above is E4's own median, not 
 
 ## 7. The build-phase backlog
 
-Every item below was found by measurement during this evaluation pass, not by code review. None were
-fixed here — `DistributedGameServer/`, `DistributedPhysicsManager/`, `PhysicsServerMidware/`,
-`CSC8503CoreClasses/` and `CSC8503/` are frozen for this evidence pass, specifically to keep E5's 120
-runs valid against a fixed binary.
+Every item below was found by measurement during this evaluation pass, not by code review.
+
+The server directories were frozen while E1-E8 were measured, specifically to keep E5's 120 runs valid
+against a fixed binary. That freeze is over. Items 3, 4, 5, 8 and 9 were fixed afterwards as **Batch
+A**, chosen because none of them could alter a simulation result — the one that turned out to (item 4)
+was caught by re-measuring E2 and E5's L=24 knee against the new binary before anything was claimed
+(§4.1). Items 1, 2, 6 and 7 remain, are all simulation-affecting, and belong to a single **Batch B**
+followed by one full re-measurement.
 
 1. **Handoff ack is stubbed.** `ServerWorldManager::HandleTransitionHandshakeReceived` has an empty
    body; `NetworkObject::OnTransitionHandshakeReceived` is never called. A dropped transfer packet
