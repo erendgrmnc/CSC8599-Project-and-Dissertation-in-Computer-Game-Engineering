@@ -119,10 +119,20 @@ namespace NCL::Distributed {
 	//   - min(configuredMicros * batchSize, capMicros): the batch-scaled budget,
 	//     capped so a very large migration cannot defer detecting a genuinely dead
 	//     peer indefinitely.
+	//
+	// EXCEPT when configuredMicros is 0. CustodyConfig::retryTicks documents 0 as
+	// "disables retry entirely - restores the original (pre-custody) behaviour, so
+	// an experiment can compare the two" - a load-bearing escape hatch, not a small
+	// timeout. The floor and the cap both exist to stop a deadline from firing
+	// PREMATURELY; "disabled" is not a premature timeout, it is no timeout, and
+	// DecideCustody's own `config.retryTicks <= 0` check (above) is what implements
+	// that. Folding a non-zero floor into the max here would make a configured 0
+	// silently become the floor value and never reach that check, so 0 is handled
+	// first and short-circuits past every other term.
 	inline int64_t ScaleCustodyRetryMicros(int64_t configuredMicros, int batchSize,
 		int64_t capMicros, int64_t coldConnectionFloorMicros) {
-		if (configuredMicros < 0) {
-			configuredMicros = 0;
+		if (configuredMicros <= 0) {
+			return 0;
 		}
 		if (batchSize < 1) {
 			batchSize = 1;

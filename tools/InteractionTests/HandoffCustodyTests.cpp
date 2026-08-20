@@ -147,6 +147,24 @@ TEST(ScaledRetryTreatsANonPositiveBatchSizeAsOne) {
 	CHECK_EQ(ScaleCustodyRetryMicros(250000, -3, 10000000, 1000000), 1000000);
 }
 
-TEST(ScaledRetryClampsNegativeInputsRatherThanMisbehaving) {
-	CHECK_EQ(ScaleCustodyRetryMicros(-5, 4, 10000000, 1000000), 1000000);
+TEST(ScaledRetryTreatsANegativeConfiguredBudgetAsDisabledLikeZero) {
+	// Same reasoning as ScaledRetryOfZeroStaysZeroDespiteTheFloorAndBatchSize below:
+	// <= 0 is DecideCustody's own "disabled" boundary, so a negative input must not
+	// be resurrected into the cold-connection floor either.
+	CHECK_EQ(ScaleCustodyRetryMicros(-5, 4, 10000000, 1000000), 0);
+}
+
+TEST(ScaledRetryOfZeroStaysZeroDespiteTheFloorAndBatchSize) {
+	// Regression test: CustodyConfig::retryTicks documents 0 as "disables retry
+	// entirely - restores the original (pre-custody) behaviour" (HandoffCustody.h),
+	// which --handoff-retry-ticks 0 relies on to let a measurement run compare
+	// custody-on against custody-off on one binary. The floor and cap both exist to
+	// stop a PREMATURE timeout; disabled is not a timeout at all, so neither may
+	// resurrect a configured 0 into a non-zero deadline - that would stop
+	// DecideCustody's `config.retryTicks <= 0` check from ever seeing zero and
+	// silently re-enable custody an operator explicitly turned off. Must hold
+	// regardless of batch size, cap, or floor.
+	CHECK_EQ(ScaleCustodyRetryMicros(0, 1, 10000000, 1000000), 0);
+	CHECK_EQ(ScaleCustodyRetryMicros(0, 64, 10000000, 1000000), 0);
+	CHECK_EQ(ScaleCustodyRetryMicros(0, 1, 0, 1000000), 0);
 }
