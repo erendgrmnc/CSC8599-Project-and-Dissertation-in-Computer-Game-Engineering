@@ -89,6 +89,11 @@ int StartMidware(int argc, char* argv[]) {
 	if (config.Has("--run-ticks")) {
 		serverExtraArgs += " --run-ticks " + std::to_string(config.GetInt("--run-ticks", 0));
 	}
+	// The game server has parsed this since the drain phase was added, but nothing ever
+	// forwarded it, so every run drained for the default 5 s whatever was asked for.
+	if (config.Has("--drain-seconds")) {
+		serverExtraArgs += " --drain-seconds " + std::to_string(config.GetInt("--drain-seconds", 5));
+	}
 	if (!serverExtraArgs.empty()) {
 		serverExtraArgs.erase(0, 1);
 		std::cout << "Forwarding to spawned game servers: " << serverExtraArgs << "\n";
