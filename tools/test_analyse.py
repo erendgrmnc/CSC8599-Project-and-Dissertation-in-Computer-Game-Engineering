@@ -109,5 +109,36 @@ class PrintKneeReportTests(unittest.TestCase):
         self.assertTrue(result["sound"])
 
 
+class CustodyReproducibilityNoteTests(unittest.TestCase):
+    """custody_reproducibility_note - Task 6a Finding 3: a wall-clock-gated custody
+    action must be reported as a reproducibility hazard, not just a raw counter."""
+
+    def test_neither_counter_firing_returns_none(self):
+        self.assertIsNone(analyse.custody_reproducibility_note(0, 0))
+
+    def test_resend_alone_is_flagged(self):
+        note = analyse.custody_reproducibility_note(3, 0)
+        self.assertIsNotNone(note)
+        self.assertIn("NOT", note)
+        self.assertIn("bit-reproducible", note)
+
+    def test_reclaim_alone_is_flagged(self):
+        note = analyse.custody_reproducibility_note(0, 1)
+        self.assertIsNotNone(note)
+        self.assertIn("bit-reproducible", note)
+
+    def test_message_reports_both_counts(self):
+        note = analyse.custody_reproducibility_note(5, 2)
+        self.assertIn("hoResent=5", note)
+        self.assertIn("hoReclaimed=2", note)
+
+    def test_string_counters_from_read_final_lines_are_accepted(self):
+        # summarise_run's totals come from regex-captured strings ("0", "3", ...),
+        # exactly like check_custody's hoCustody field - this must not misbehave
+        # the same way an un-cast truthiness check would.
+        self.assertIsNone(analyse.custody_reproducibility_note("0", "0"))
+        self.assertIsNotNone(analyse.custody_reproducibility_note("0", "1"))
+
+
 if __name__ == "__main__":
     unittest.main()

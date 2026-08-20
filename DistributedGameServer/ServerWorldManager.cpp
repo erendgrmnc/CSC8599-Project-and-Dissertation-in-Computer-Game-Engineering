@@ -1472,25 +1472,45 @@ void DistributedGameServer::ServerWorldManager::FlushPendingTransfers() {
 	if (mPendingTransfers.empty()) {
 		return;
 	}
-	// std::map, so object-id order - two reclaims on the same tick always happen in
-	// the same order, which is what keeps a run reproducible.
+	// std::map, so object-id order - if TWO OR MORE entries both decide to resend or
+	// reclaim on the SAME call to this function, they do so in a fixed relative order
+	// (lowest object id first). That is the only thing this ordering guarantees. It
+	// does NOT make a run reproducible: WHETHER and WHEN any entry decides to resend
+	// or reclaim at all is now a function of wall-clock time (see the REPRODUCIBILITY
+	// HAZARD comment below), which is not the same between two runs of the same seed.
 	for (auto entry = mPendingTransfers.begin(); entry != mPendingTransfers.end(); ) {
 		// Wall-clock, not mTickCounter - see SetCustodyConfig. mTickCounter is this
 		// server's OWN simulation tick count; comparing it against another server's
 		// progress is comparing two clocks that can run two orders of magnitude apart.
 		//
-		// Scaled by how many handoffs the receiver was sent in the SAME tick as this
-		// one (PendingTransfer::batchSizeAtSend): applying and acknowledging N handoffs
-		// takes a receiver roughly N times as long as one, and a deadline sized for a
-		// lone transfer fires while a receiver is still legitimately working through a
-		// large, simultaneous batch. Capped so a very large migration cannot defer
-		// detecting a genuinely dead peer indefinitely.
+		// REPRODUCIBILITY HAZARD: a wall-clock deadline gates an action (Resend,
+		// Reclaim) that changes simulation state, so the instant it decides Wait was
+		// possible under real conditions but is never guaranteed. On a HEALTHY run
+		// custody never fires and this is moot; the first time it fires under
+		// --run-ticks --fixed-step, THIS run stops being bit-reproducible - which tick
+		// a resend or reclaim lands on (and therefore contact order, broadphase pair
+		// order, and everything downstream of them) depends on real elapsed time,
+		// machine load and network jitter, not on anything replayed identically
+		// between two runs of the same seed. tools/analyse.py reports this explicitly
+		// (a REPRODUCIBILITY WARNING, separate from an invariant failure) whenever
+		// hoResent or hoReclaimed is non-zero - see custody_reproducibility_note().
+		//
+		// The retry budget itself is scaled by how many handoffs the receiver was
+		// sent in the SAME tick as this one (PendingTransfer::batchSizeAtSend) and
+		// floored against a cold, never-before-used peer connection - see
+		// NCL::Distributed::ScaleCustodyRetryMicros for the full reasoning; the
+		// scaling can only ever WIDEN mCustodyConfig's configured budget, never
+		// narrow it.
+		constexpr int64_t kMaxRetryMicros = 10'000'000; // 10s cap on the BATCH scaling
+		// 1s: comfortably above the ~571ms measured (Task 6a) for the first reliable
+		// traffic on a freshly-connected peer link, with margin for slower hardware.
+		// Applies even to a lone (batchSize 1) transfer - the normal case on
+		// `uniform`/`shuttle` - since batch scaling alone does not help there.
+		constexpr int64_t kColdConnectionFloorMicros = 1'000'000;
 		NCL::Distributed::CustodyConfig scaledConfig = mCustodyConfig;
-		constexpr int64_t kMaxRetryMicros = 10'000'000; // 10s, regardless of batch size
-		const int64_t scaledRetryMicros = static_cast<int64_t>(mCustodyConfig.retryTicks) *
-			static_cast<int64_t>(entry->second.batchSizeAtSend);
-		scaledConfig.retryTicks = static_cast<int>(
-			scaledRetryMicros < kMaxRetryMicros ? scaledRetryMicros : kMaxRetryMicros);
+		scaledConfig.retryTicks = static_cast<int>(NCL::Distributed::ScaleCustodyRetryMicros(
+			mCustodyConfig.retryTicks, entry->second.batchSizeAtSend,
+			kMaxRetryMicros, kColdConnectionFloorMicros));
 
 		const NCL::Distributed::CustodyAction action = NCL::Distributed::DecideCustody(
 			NCL::MonotonicMicros(), entry->second.lastSentTick, entry->second.attempts,

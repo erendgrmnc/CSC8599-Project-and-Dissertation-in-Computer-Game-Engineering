@@ -360,29 +360,19 @@ namespace NCL {
 				int targetServerID, int batchSize = 1);
 			bool PopHandoffResend(CSC8503::StartSimulatingObjectPacket& out);
 			// retryTicks is a COUNT OF TICKS on the CLI and in the config struct's name,
-			// but it is converted to real elapsed microseconds here and that is what is
-			// actually compared (see PendingTransfer::lastSentTick / FlushPendingTransfers).
-			// A raw tick count is not a valid proxy for elapsed real time: this server's
-			// own mTickCounter races ahead whenever it is lightly loaded (documented
-			// elsewhere as expected - servers tick at different rates), and a burst of
-			// simultaneous incoming handoffs can legitimately take the RECEIVER several
-			// hundred milliseconds of real wall-clock time to apply and acknowledge while
-			// this server, having already released its own objects, has almost nothing
-			// left to do and can tick in tens of microseconds. Measured: a 50-object
-			// burst took a receiver ~571ms wall-clock to fully apply while the sender
-			// burned through a tick-counted 30-tick retry budget in under 3ms once it
-			// started racing - reclaiming every one of the 50 objects the receiver had, in
-			// fact, already accepted. Converting the budget to wall-clock time (kept at
-			// the SAME nominal "N ticks at the nominal rate" value the flag advertises)
-			// removes that false trigger without touching the numeric default.
+			// but mCustodyConfig.retryTicks below actually holds MICROSECONDS: the
+			// conversion is NCL::Distributed::CustodyTicksToMicros (HandoffCustody.h),
+			// pulled out to a pure, unit-tested function rather than left inline here -
+			// see that function's comment for why a raw tick count is not safe to
+			// compare across two servers, and Task 6a's report for the measurement that
+			// caught it. FlushPendingTransfers is what actually compares this value,
+			// against NCL::MonotonicMicros(), further adjusted per-transfer by
+			// NCL::Distributed::ScaleCustodyRetryMicros.
 			void SetCustodyConfig(int retryTicks, int maxAttempts) {
 				const float dt = GetFixedTimestepDt();
-				const float nominalDt = (dt > 0.0f) ? dt : (1.0f / 120.0f);
-				double retryMicros = static_cast<double>(retryTicks) * static_cast<double>(nominalDt) * 1e6;
-				if (retryMicros > 2000000000.0) {
-					retryMicros = 2000000000.0;
-				}
-				mCustodyConfig.retryTicks = static_cast<int>(retryMicros);
+				const double nominalDt = (dt > 0.0f) ? static_cast<double>(dt) : (1.0 / 120.0);
+				mCustodyConfig.retryTicks = static_cast<int>(
+					NCL::Distributed::CustodyTicksToMicros(retryTicks, nominalDt, 2000000000));
 				mCustodyConfig.maxAttempts = maxAttempts;
 			}
 			int GetHandoffsResent() const {

@@ -158,6 +158,40 @@ def read_final_lines(run_dir):
     return finals
 
 
+def custody_reproducibility_note(ho_resent, ho_reclaimed):
+    """Custody firing means this run is NOT bit-reproducible, even under
+    --run-ticks --fixed-step.
+
+    The retry deadline (DistributedGameServer/ServerWorldManager.cpp,
+    FlushPendingTransfers) is measured against real wall-clock time
+    (NCL::MonotonicMicros), not the paced simulation tick counter, precisely because
+    a tick count is not a valid proxy for elapsed real time (Task 6a). That fix
+    makes custody correct, but it does not make custody's ACTIVATION deterministic:
+    whether a resend or reclaim fires at all, and on which tick, depends on real
+    elapsed time, machine load and network jitter - none of which replay identically
+    between two runs of the same seed. A conservation delta of 0 on a run where
+    custody fired does not mean the run reproduces bit-for-bit; it means custody's
+    compensation worked THIS time.
+
+    This is deliberately separate from check_custody() below: hoReclaimed > 0 is not
+    an invariant FAILURE (the mechanism is working as designed), so it must not be
+    reported as one - but it is not merely a counter either, and reporting only the
+    number invites reading a clean end-of-run total as proof the run is reproducible
+    when it is not.
+
+    Returns None when neither counter fired, otherwise a human-readable message.
+    """
+    ho_resent = int(ho_resent)
+    ho_reclaimed = int(ho_reclaimed)
+    if not ho_resent and not ho_reclaimed:
+        return None
+    return (
+        "custody fired (hoResent=%d, hoReclaimed=%d) - this run is NOT "
+        "bit-reproducible, even under --run-ticks --fixed-step"
+        % (ho_resent, ho_reclaimed)
+    )
+
+
 def check_custody(finals):
     """Custody invariant: reclaimed transfers must not lose objects.
 
@@ -282,6 +316,11 @@ def summarise_run(run_dir):
                                          - invariants["ho_scheduled"])
         invariants["ho_fail"] = total(server_finals, "hoFail")
         invariants["ho_late"] = total(server_finals, "hoLate")
+        # Not asserted here - see custody_reproducibility_note(). A non-zero value is
+        # reported as an explicit REPRODUCIBILITY WARNING, not folded into
+        # INVARIANT FAILURES: the mechanism firing is by design, not a bug.
+        invariants["ho_resent"] = total(server_finals, "hoResent")
+        invariants["ho_reclaimed"] = total(server_finals, "hoReclaimed")
 
         applied = total(server_finals, "cmdApplied")
         rejected = total(server_finals, "cmdRejected")
@@ -387,6 +426,7 @@ def analyse_experiment(experiment_dir):
 
     rows = []
     failures = []
+    reproducibility_warnings = []
     for run_dir in run_dirs:
         tag = os.path.basename(run_dir)
         # Sweep names are camelCase now (interestRadius, physicsThreads), and values
@@ -416,6 +456,12 @@ def analyse_experiment(experiment_dir):
 
         for problem in custody_problems:
             failures.append(f"{tag}: {problem}")
+
+        # Explicit, not just a counter in summary.csv - see custody_reproducibility_note().
+        note = custody_reproducibility_note(
+            invariants.get("ho_resent", 0), invariants.get("ho_reclaimed", 0))
+        if note is not None:
+            reproducibility_warnings.append(f"{tag}: {note}")
 
     if not rows:
         print("No usable runs.")
@@ -477,6 +523,16 @@ def analyse_experiment(experiment_dir):
     else:
         print("All invariants hold on every run (conservation, handoff parity, "
               "command accounting, no failures, no resurrections).")
+
+    # Separate from failures on purpose: custody firing is the mechanism working as
+    # designed (check_custody / custody_reproducibility_note), not a bug. But a clean
+    # invariant report must not read as "this run reproduces bit-for-bit" when it does
+    # not, so this is always printed on its own, explicitly, whenever it applies.
+    if reproducibility_warnings:
+        print()
+        print(f"REPRODUCIBILITY WARNING ({len(reproducibility_warnings)}):")
+        for warning in reproducibility_warnings:
+            print(f"  {warning}")
 
     knee = print_knee_report(manifest, rows)
 
