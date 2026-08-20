@@ -242,3 +242,61 @@ TEST(ScaledRetryOfZeroStaysZeroDespiteTheFloorAndBatchSize) {
 	CHECK_EQ(ScaleCustodyRetryMicros(0, 64, 10000000, 1000000), 0);
 	CHECK_EQ(ScaleCustodyRetryMicros(0, 1, 0, 1000000), 0);
 }
+
+// --- IsDuplicateHandoffArrival -------------------------------------------------
+//
+// The receiver-side half of custody. A resend is a second copy of a transfer the
+// receiver may already have installed; ServerWorldManager::ApplyIncomingObject was
+// not idempotent below its pool lookup (it re-pushed the object into mTestObjects,
+// which is both the population count behind analyse.py's conservation_delta and the
+// list Update(dt) iterates), so every redundant arrival added a phantom object AND a
+// second application of that object's control forces per tick.
+//
+// ApplyIncomingObject itself needs a live GameWorld, PhysicsSystem and object pool,
+// so it is not unit-testable in this harness. The DECISION it makes is, and that is
+// what is factored out here.
+
+TEST(DuplicateGuardFiresForAnObjectAlreadyOwnedAndSimulatingHere) {
+	CHECK(IsDuplicateHandoffArrival(false, true, true, false));
+}
+
+TEST(DuplicateGuardDoesNotFireForAFirstArrivalTheServerHasNeverSeen) {
+	// Pool miss: the normal construct-on-arrival case. Must run the full path.
+	CHECK(!IsDuplicateHandoffArrival(false, false, false, false));
+}
+
+TEST(DuplicateGuardDoesNotFireForAHaloShadow) {
+	// A shadow is present in the pool but is a READ-ONLY copy of a neighbour's
+	// object. Its handoff is a promotion, not a duplicate - swallowing it would
+	// leave the object permanently unowned and never integrated. Asserted with
+	// networkActive both true and false, since a shadow's activity is irrelevant
+	// to the decision.
+	CHECK(!IsDuplicateHandoffArrival(false, true, true, true));
+	CHECK(!IsDuplicateHandoffArrival(false, true, false, true));
+}
+
+TEST(DuplicateGuardDoesNotFireForAKnownButInactiveEntry) {
+	// Present in the pool but not network-active: known id, not installed. Only a
+	// completed installation makes the arrival redundant, so this must fall through
+	// to the shared registration path that finishes the job.
+	CHECK(!IsDuplicateHandoffArrival(false, true, false, false));
+}
+
+TEST(DuplicateGuardIsSkippedEntirelyForAReclaim) {
+	// A reclaim is the SENDER re-applying its own transfer to itself after the peer
+	// link died. Its entire purpose is to re-install an object, so it is exempt from
+	// every combination of the other inputs - suppressing one would strand the object
+	// nowhere at all, which is the loss custody exists to prevent.
+	CHECK(!IsDuplicateHandoffArrival(true, true, true, false));
+	CHECK(!IsDuplicateHandoffArrival(true, true, true, true));
+	CHECK(!IsDuplicateHandoffArrival(true, false, false, false));
+	CHECK(!IsDuplicateHandoffArrival(true, true, false, false));
+}
+
+TEST(DuplicateGuardTreatsANulledPoolEntryAsAbsent) {
+	// A destroyed object leaves a permanent tombstone with the pool entry NULLED
+	// rather than erased (CLAUDE.md, runtime spawn/destroy). The call site maps that
+	// to objectPresent = false, so the destroy handling above the guard keeps
+	// winning; this pins the predicate's half of that contract.
+	CHECK(!IsDuplicateHandoffArrival(false, false, true, false));
+}

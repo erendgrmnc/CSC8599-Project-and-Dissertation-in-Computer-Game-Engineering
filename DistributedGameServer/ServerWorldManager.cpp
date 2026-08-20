@@ -1719,6 +1719,47 @@ bool DistributedGameServer::ServerWorldManager::ApplyIncomingObject(StartSimulat
 		return true;
 	}
 
+	// IDEMPOTENCE. Checked after the tombstone/pending-destroy branch above (a
+	// destroyed object must still win: the id is nulled there, so it does not look
+	// "present" here anyway) and BEFORE PromoteHaloShadow, because a halo shadow is a
+	// neighbour's object and must still be promoted normally rather than swallowed.
+	//
+	// Custody resends a transfer whose ack was lost, so this function can legitimately
+	// be entered twice for the same object. Everything below the pool lookup was
+	// written for a first arrival and is NOT idempotent - in particular the
+	// `mTestObjects.push_back(testComp)` on the shared path, which is what
+	// ServerWorldManager::Update counts into Profiler::SetObjectsInBorders (the `objs`
+	// field, and therefore analyse.py's conservation_delta) AND what it iterates to
+	// call Update(dt). A second entry for one object both inflates the population and
+	// applies that object's control forces twice per tick. Measured at 8,000 objects /
+	// 2 servers: conservation_delta +793 / +856 / +34 against a -4..-8 baseline.
+	//
+	// The redundant copy is ACCEPTED (return true) so the sender receives its ack and
+	// discharges custody - refusing it would guarantee the resend repeats until
+	// attempts are exhausted - but nothing else is re-run.
+	//
+	// NOT counted into mHandoffsReceived. Handoff parity (I5) compares hoSent against
+	// hoRecv, and hoSent is incremented ONLY at the original send
+	// (DistributedGameServerManager::HandleObjectTransitions calls RecordHandoffSent()
+	// once, inside the `for (auto* networkObj : transitioning)` loop); the resend path
+	// that drains PopHandoffResend just calls SendPacketToServer and increments the
+	// separate mHandoffsResent. So a resend adds nothing to hoSent, and counting its
+	// arrival into hoRecv would push hoRecv above hoSent by exactly the number of
+	// duplicates and break I5. The duplicate is reported on its own axis (hoDup)
+	// instead, which keeps it visible without entering the parity sum.
+	const auto existingEntry = mCreatedObjectPool.find(packet->objectID);
+	CSC8503::GameObject* const existingObject =
+		(existingEntry != mCreatedObjectPool.end()) ? existingEntry->second : nullptr;
+	if (NCL::Distributed::IsDuplicateHandoffArrival(isReclaim,
+		existingObject != nullptr,
+		existingObject != nullptr && existingObject->IsNetworkActive(),
+		existingObject != nullptr && existingObject->IsHaloShadow())) {
+		++mHandoffsDuplicate;
+		std::cout << "Duplicate handoff for object " << packet->objectID
+			<< " - already owned and simulating here; acked without re-registering.\n";
+		return true;
+	}
+
 	// Incoming handoffs that land outside the receiving region, observed but not
 	// corrected: CalculateIncomingObjectOffsetPosition computes what a clamp would
 	// do and the result is DISCARDED below. A reclaim lands outside this server's

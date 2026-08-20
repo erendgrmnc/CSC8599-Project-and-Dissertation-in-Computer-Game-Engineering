@@ -256,6 +256,7 @@ int StartGameServer(int argc, char* argv[]) {
 		int handoffsReclaimed = 0;
 		int pendingCustody = 0;
 		int handoffsClamped = 0;
+		int handoffsDuplicate = 0;
 		if (auto* worldManager = serverManager->GetServerWorldManager()) {
 			worldManager->FlushMetrics();
 			poolObjects = worldManager->GetPoolObjectCount();
@@ -268,6 +269,7 @@ int StartGameServer(int argc, char* argv[]) {
 			handoffsReclaimed = worldManager->GetHandoffsReclaimed();
 			pendingCustody = worldManager->GetPendingCustodyCount();
 			handoffsClamped = worldManager->GetHandoffsClamped();
+			handoffsDuplicate = worldManager->GetHandoffsDuplicate();
 		}
 
 		// Final totals rather than a 2 Hz sample, so the I4 and I5 invariants can be
@@ -302,6 +304,11 @@ int StartGameServer(int argc, char* argv[]) {
 			<< " hoReclaimed=" << handoffsReclaimed
 			<< " hoCustody=" << pendingCustody
 			<< " hoClamp=" << handoffsClamped
+			// Redundant custody resends that arrived after the object was already
+			// installed here, accepted and acked but otherwise ignored. Kept OUT of
+			// hoRecv on purpose - hoSent does not count a resend either, so folding
+			// these in would break handoff parity (I5).
+			<< " hoDup=" << handoffsDuplicate
 			// Transfers started but not yet released. hoSent counts the start and
 			// hoRecv the completion, so a run ending mid-transfer is short by this
 			// many and the parity check has to allow for it.

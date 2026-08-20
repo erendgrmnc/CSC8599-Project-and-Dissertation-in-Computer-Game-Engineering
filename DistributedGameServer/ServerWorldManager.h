@@ -397,6 +397,14 @@ namespace NCL {
 			int GetHandoffsClamped() const {
 				return mHandoffsClamped;
 			}
+			// Redundant arrivals suppressed by the idempotence guard in
+			// ApplyIncomingObject. Deliberately its OWN counter and NOT folded into
+			// mHandoffsReceived: hoSent is only incremented for the original send, so
+			// counting a duplicate arrival into hoRecv would break handoff parity (I5)
+			// by exactly the duplicate count. See the guard's comment.
+			int GetHandoffsDuplicate() const {
+				return mHandoffsDuplicate;
+			}
 
 			// Locality counters (invariant I6). What this server HOLDS, as distinct
 			// from what it simulates. Under the pre-seed model every server
@@ -581,6 +589,7 @@ namespace NCL {
 			NCL::Distributed::CustodyConfig mCustodyConfig;
 			int mHandoffsResent = 0;
 			int mHandoffsReclaimed = 0;
+			int mHandoffsDuplicate = 0;
 
 			// Incoming handoffs that landed OUTSIDE the receiving region.
 			//

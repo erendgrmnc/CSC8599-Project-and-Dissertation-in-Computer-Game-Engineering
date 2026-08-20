@@ -106,6 +106,50 @@ namespace NCL::Distributed {
 		return CustodyAction::Resend;
 	}
 
+	// --- Duplicate-arrival guard ---------------------------------------------------
+	//
+	// A resend (CustodyAction::Resend) puts a SECOND copy of an already-delivered
+	// transfer packet on the wire. That is by design - it is what discharges custody
+	// when an ack was lost - but it means the receiver's apply path can be entered
+	// twice for the same object, and that path was NOT idempotent below the pool
+	// lookup: it re-pushed the object into the simulated-object list every time, so
+	// the world population grew by one per redundant arrival and the object's control
+	// forces were applied once per duplicate entry, every tick. Measured at 8,000
+	// objects / 2 servers, conservation_delta went +793 / +856 / +34 against a -4..-8
+	// baseline.
+	//
+	// This predicate decides whether an arriving transfer is a redundant copy of one
+	// this server has ALREADY installed, in which case the correct response is to
+	// accept and acknowledge it (so the sender's custody discharges) while doing
+	// nothing else at all.
+	//
+	//  - objectPresent: the receiver's pool holds a live (non-null) entry for the id.
+	//    A handoff already passed onward ERASES the pool entry, and a destroyed object
+	//    NULLS it, so neither looks present here - both must keep their existing
+	//    handling.
+	//  - networkActive: the entry is not a deactivated husk mid-installation. Only an
+	//    object that has completed the shared registration path is active, so this is
+	//    what distinguishes "already simulating it" from "known but not installed".
+	//  - isHaloShadow: a shadow is a read-only copy of a NEIGHBOUR's object. It is
+	//    present in the pool but is emphatically not owned here, and its handoff must
+	//    still run the promotion path - so a shadow is never a duplicate.
+	//  - isReclaim: a reclaim is the sender re-applying its own transfer to itself
+	//    after the peer link died. It is exempt because its whole purpose is to
+	//    re-install an object; suppressing it would strand the object nowhere.
+	inline bool IsDuplicateHandoffArrival(bool isReclaim, bool objectPresent,
+		bool networkActive, bool isHaloShadow) {
+		if (isReclaim) {
+			return false;
+		}
+		if (!objectPresent) {
+			return false;
+		}
+		if (isHaloShadow) {
+			return false;
+		}
+		return networkActive;
+	}
+
 	// --- Wall-clock retry budget derivation ---------------------------------------
 	//
 	// DecideCustody above is deliberately unit-agnostic: it just compares two
