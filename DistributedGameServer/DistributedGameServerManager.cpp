@@ -786,7 +786,15 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectTransition
 		// Custody starts here, not at release. The object is released on its normal
 		// tick below; this record is what lets an unacknowledged transfer be resent
 		// and, failing that, reclaimed.
-		mServerWorldManager->RecordPendingTransfer(sentPacket, networkObj->GetNewServerID());
+		//
+		// Deferred handoffs (--handoff-delay-ticks) leave sentPacket untouched, and
+		// deliberately so: that flag is fault injection whose purpose is to widen the
+		// ownership gap and lose objects, so custody must not silently repair it.
+		// Guarding on the id also stops an unackable record under objectID -1, which
+		// would eventually reclaim a default-constructed packet.
+		if (sentPacket.objectID >= 0) {
+			mServerWorldManager->RecordPendingTransfer(sentPacket, networkObj->GetNewServerID());
+		}
 		// Read before the release: HandleOutgoingObject destroys the object that owns
 		// this NetworkObject, so nothing may be read back off it afterwards.
 		const int networkID = networkObj->GetNetworkID();
