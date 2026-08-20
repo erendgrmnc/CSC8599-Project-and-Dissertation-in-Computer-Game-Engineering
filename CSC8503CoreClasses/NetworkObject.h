@@ -646,6 +646,10 @@ namespace NCL::CSC8503 {
 		int mArchetypeID;
 
 		StartSimulatingObjectPacket(int objectID, int newServerID, int senderServerID, NetworkState lastFullState, PhysicsObject& physicsObj);
+
+		// Needed so callers can declare an output parameter to fill. The packet is
+		// POD on the wire, so a zeroed instance is safe.
+		StartSimulatingObjectPacket();
 	};
 
 	struct StartSimulatingObjectReceivedPacket : public GamePacket {

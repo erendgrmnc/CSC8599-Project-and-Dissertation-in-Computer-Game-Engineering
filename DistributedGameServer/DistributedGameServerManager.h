@@ -195,7 +195,7 @@ namespace NCL {
 			// owner. The caller MUST NOT release the object in that case - a directed
 			// send has no broadcast to fall back on, so releasing after a failed send
 			// destroys the object outright.
-			bool SendFinishTransactionPacket(NetworkObject& obj) const;
+			bool SendFinishTransactionPacket(NetworkObject& obj, StartSimulatingObjectPacket& outSent) const;
 
 			// Directed reliable send to one peer server over the existing mesh.
 			// Handoffs and relays both need this; it is deliberately one function so

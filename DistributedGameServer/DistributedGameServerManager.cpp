@@ -173,6 +173,14 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 		HandleObjectTransitions();
 		PublishHaloBand();
 
+		// Resends for transfers that were never acknowledged. Same reliable path as
+		// the original send; the receiver dedupes by object id because an object it
+		// already holds fails IsReleasePending and is ignored.
+		StartSimulatingObjectPacket resend;
+		while (mServerWorldManager->PopHandoffResend(resend)) {
+			SendPacketToServer(resend.newOwnerServerID, resend);
+		}
+
 		mTimeToNextPacket -= dt;
 
 		if (mTimeToNextPacket < 0) {
@@ -577,13 +585,10 @@ void DistributedGameServer::DistributedGameServerManager::SendPacketSenderServer
 
 void DistributedGameServer::DistributedGameServerManager::HandleTransitionHandshakePacketReceived(
 	StartSimulatingObjectReceivedPacket* packet) {
-	for (auto& networkObj : *mNetworkObjects) {
-		if (networkObj->GetNetworkID() == packet->objectID) {
-			//mServerWorldManager->HandleOutgoingObject(networkObj->GetNetworkID());
-		}
-
+	if (packet == nullptr || mServerWorldManager == nullptr) {
+		return;
 	}
-
+	mServerWorldManager->HandleTransitionHandshakeReceived(packet);
 }
 
 std::vector<char> DistributedGameServer::DistributedGameServerManager::IpToCharArray(const std::string& ipAddress) {
@@ -773,10 +778,15 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectTransition
 		// Release the object ONLY once the packet is actually on a link to the new
 		// owner. The transition flag is left set on failure, so the next tick
 		// retries rather than the object being lost to a link that was not up yet.
-		if (!SendFinishTransactionPacket(*networkObj)) {
+		StartSimulatingObjectPacket sentPacket;
+		if (!SendFinishTransactionPacket(*networkObj, sentPacket)) {
 			continue;
 		}
 		mServerWorldManager->RecordHandoffSent();
+		// Custody starts here, not at release. The object is released on its normal
+		// tick below; this record is what lets an unacknowledged transfer be resent
+		// and, failing that, reclaimed.
+		mServerWorldManager->RecordPendingTransfer(sentPacket, networkObj->GetNewServerID());
 		// Read before the release: HandleOutgoingObject destroys the object that owns
 		// this NetworkObject, so nothing may be read back off it afterwards.
 		const int networkID = networkObj->GetNetworkID();
@@ -822,7 +832,8 @@ bool DistributedGameServer::DistributedGameServerManager::SendPacketToServer(int
 	return false;
 }
 
-bool DistributedGameServer::DistributedGameServerManager::SendFinishTransactionPacket(NetworkObject& obj) const {
+bool DistributedGameServer::DistributedGameServerManager::SendFinishTransactionPacket(NetworkObject& obj,
+	StartSimulatingObjectPacket& outSent) const {
 	auto& gameObjectComp = obj.GetGameObject();
 
 	NetworkState lastFullState = gameObjectComp.GetNetworkObject()->GetLatestNetworkState();
@@ -859,6 +870,7 @@ bool DistributedGameServer::DistributedGameServerManager::SendFinishTransactionP
 	// ignored a handoff addressed elsewhere. Once a receiver BUILDS an object it does
 	// not have, a broadcast would make every server construct its own copy - breaking
 	// single ownership (I1) and putting the whole world back on every server (I6).
+	outSent = packet;
 	if (!SendPacketToServer(packet.newOwnerServerID, packet)) {
 		// Loud, and the caller keeps the object. There is no broadcast to fall back
 		// on now, so releasing it here would destroy it outright.

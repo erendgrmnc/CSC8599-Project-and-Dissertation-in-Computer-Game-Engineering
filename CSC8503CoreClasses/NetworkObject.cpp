@@ -397,6 +397,15 @@ StartSimulatingObjectPacket::StartSimulatingObjectPacket(int objectID, int newSe
 	this->mLinearVelocity = physicsObj.GetLinearVelocity();
 }
 
+StartSimulatingObjectPacket::StartSimulatingObjectPacket() {
+	type = BasicNetworkMessages::StartSimulatingObjectInServer;
+	size = sizeof(StartSimulatingObjectPacket);
+	objectID = -1;
+	newOwnerServerID = -1;
+	senderServerID = -1;
+	mControllerPlayerID = -1;
+}
+
 StartSimulatingObjectReceivedPacket::StartSimulatingObjectReceivedPacket(int objectID, int newOwnerServerID) {
 	type = BasicNetworkMessages::StartSimulatingObjectInServerReceived;
 	size = sizeof(StartSimulatingObjectReceivedPacket);
