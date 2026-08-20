@@ -94,6 +94,12 @@ int StartMidware(int argc, char* argv[]) {
 	if (config.Has("--drain-seconds")) {
 		serverExtraArgs += " --drain-seconds " + std::to_string(config.GetInt("--drain-seconds", 5));
 	}
+	if (config.Has("--handoff-retry-ticks")) {
+		serverExtraArgs += " --handoff-retry-ticks " + std::to_string(config.GetInt("--handoff-retry-ticks", 30));
+	}
+	if (config.Has("--handoff-max-attempts")) {
+		serverExtraArgs += " --handoff-max-attempts " + std::to_string(config.GetInt("--handoff-max-attempts", 3));
+	}
 	if (!serverExtraArgs.empty()) {
 		serverExtraArgs.erase(0, 1);
 		std::cout << "Forwarding to spawned game servers: " << serverExtraArgs << "\n";

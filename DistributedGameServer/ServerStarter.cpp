@@ -111,6 +111,11 @@ int StartGameServer(int argc, char* argv[]) {
 		// Deterministic handoff application. Removes the last run-to-run variation
 		// without any inter-server barrier; 0 keeps apply-on-arrival.
 		worldManager->SetHandoffLookaheadTicks(config.GetInt("--handoff-lookahead", 0));
+		// Custody: how long to wait for a handoff ack before resending, and how many
+		// sends to attempt before taking the object back. 0 retry ticks disables the
+		// mechanism and restores the pre-custody behaviour for comparison.
+		worldManager->SetCustodyConfig(config.GetInt("--handoff-retry-ticks", 30),
+			config.GetInt("--handoff-max-attempts", 3));
 		// Separate from the handoff lookahead and much smaller - see the member's
 		// comment. Set BEFORE the width, since the width's safety floor is derived
 		// from it.
