@@ -258,4 +258,5 @@ Read these before re-deriving behaviour from source:
 | `docs/ARCHITECTURE.md` | The four roles and the end-to-end bootstrap sequence. |
 | `docs/NETWORKING.md` | Packet catalogue, snapshot delta/full replication, threading. |
 | `docs/SPATIAL-PARTITIONING.md` | Region borders and the object-handoff handshake. |
+| `docs/EVALUATION.md` | Every experiment and result as one argument. Read this before quoting any figure from a spec. |
 | `docs/superpowers/specs/` | Dated design specs for recent features, each with a post-build "implementation notes" section recording what shipped and what was deliberately deferred. |

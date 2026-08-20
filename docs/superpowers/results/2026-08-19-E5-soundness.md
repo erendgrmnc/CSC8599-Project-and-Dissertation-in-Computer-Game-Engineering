@@ -167,7 +167,7 @@ L=32 staleness ceiling found above:
 | `haloL2b` | 2 | 5.0 | 0, 1, 2, 3 | ~1.5 |
 | `haloL8b` | 8 | 8.0 | 1, 2, 3, 4, 5, 6 | ~3 |
 | `haloL16b` | 16 | 12.0 | 2, 3, 4, 5, 6, 7 | ~5 |
-| `haloL24b` | 24 | 16.0 | 4, 5, 6, 7, 8, 9 | ~9 |
+| `haloL24b` | 24 | 16.0 | 4, 5, 6, 7, 8, 9 | ~7 |
 
 63 runs planned, 66 run (`haloL2b` has 4 widths x 3 repeats = 12; the other three have 6 x 3 = 18
 each — 12+18+18+18 = 66). Every range was checked as it landed and, unlike round 1, each one did
