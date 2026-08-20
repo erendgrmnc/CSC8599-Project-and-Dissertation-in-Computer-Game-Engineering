@@ -793,7 +793,13 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectTransition
 		// Guarding on the id also stops an unackable record under objectID -1, which
 		// would eventually reclaim a default-constructed packet.
 		if (sentPacket.objectID >= 0) {
-			mServerWorldManager->RecordPendingTransfer(sentPacket, networkObj->GetNewServerID());
+			// transitioning.size() - not 1 - so custody's retry deadline (see
+			// SetCustodyConfig / PendingTransfer::batchSizeAtSend) knows this transfer
+			// went out as part of a batch: a receiver handed N handoffs in the same tick
+			// applies and acks them one at a time, so it genuinely needs about N times as
+			// long as a lone transfer would.
+			mServerWorldManager->RecordPendingTransfer(sentPacket, networkObj->GetNewServerID(),
+				static_cast<int>(transitioning.size()));
 		}
 		// Read before the release: HandleOutgoingObject destroys the object that owns
 		// this NetworkObject, so nothing may be read back off it afterwards.

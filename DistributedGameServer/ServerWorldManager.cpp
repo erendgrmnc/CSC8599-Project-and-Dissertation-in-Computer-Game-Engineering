@@ -1441,12 +1441,14 @@ void DistributedGameServer::ServerWorldManager::FlushScheduledReleases() {
 }
 
 void DistributedGameServer::ServerWorldManager::RecordPendingTransfer(
-	const CSC8503::StartSimulatingObjectPacket& packet, int targetServerID) {
+	const CSC8503::StartSimulatingObjectPacket& packet, int targetServerID, int batchSize) {
 	PendingTransfer transfer;
 	transfer.packet = std::make_unique<CSC8503::StartSimulatingObjectPacket>(packet);
 	transfer.targetServerID = targetServerID;
-	transfer.lastSentTick = mTickCounter;
+	// Wall-clock, not mTickCounter - see SetCustodyConfig.
+	transfer.lastSentTick = NCL::MonotonicMicros();
 	transfer.attempts = 1;
+	transfer.batchSizeAtSend = (batchSize > 1) ? batchSize : 1;
 	mPendingTransfers[packet.objectID] = std::move(transfer);
 }
 
@@ -1473,9 +1475,26 @@ void DistributedGameServer::ServerWorldManager::FlushPendingTransfers() {
 	// std::map, so object-id order - two reclaims on the same tick always happen in
 	// the same order, which is what keeps a run reproducible.
 	for (auto entry = mPendingTransfers.begin(); entry != mPendingTransfers.end(); ) {
+		// Wall-clock, not mTickCounter - see SetCustodyConfig. mTickCounter is this
+		// server's OWN simulation tick count; comparing it against another server's
+		// progress is comparing two clocks that can run two orders of magnitude apart.
+		//
+		// Scaled by how many handoffs the receiver was sent in the SAME tick as this
+		// one (PendingTransfer::batchSizeAtSend): applying and acknowledging N handoffs
+		// takes a receiver roughly N times as long as one, and a deadline sized for a
+		// lone transfer fires while a receiver is still legitimately working through a
+		// large, simultaneous batch. Capped so a very large migration cannot defer
+		// detecting a genuinely dead peer indefinitely.
+		NCL::Distributed::CustodyConfig scaledConfig = mCustodyConfig;
+		constexpr int64_t kMaxRetryMicros = 10'000'000; // 10s, regardless of batch size
+		const int64_t scaledRetryMicros = static_cast<int64_t>(mCustodyConfig.retryTicks) *
+			static_cast<int64_t>(entry->second.batchSizeAtSend);
+		scaledConfig.retryTicks = static_cast<int>(
+			scaledRetryMicros < kMaxRetryMicros ? scaledRetryMicros : kMaxRetryMicros);
+
 		const NCL::Distributed::CustodyAction action = NCL::Distributed::DecideCustody(
-			mTickCounter, entry->second.lastSentTick, entry->second.attempts,
-			mCustodyConfig);
+			NCL::MonotonicMicros(), entry->second.lastSentTick, entry->second.attempts,
+			scaledConfig);
 
 		if (action == NCL::Distributed::CustodyAction::Wait) {
 			++entry;
@@ -1484,7 +1503,7 @@ void DistributedGameServer::ServerWorldManager::FlushPendingTransfers() {
 
 		if (action == NCL::Distributed::CustodyAction::Resend) {
 			mHandoffResendQueue.push_back(entry->first);
-			entry->second.lastSentTick = mTickCounter;
+			entry->second.lastSentTick = NCL::MonotonicMicros();
 			++entry->second.attempts;
 			++mHandoffsResent;
 			++entry;

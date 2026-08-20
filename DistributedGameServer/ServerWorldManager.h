@@ -357,10 +357,32 @@ namespace NCL {
 			}
 
 			void RecordPendingTransfer(const CSC8503::StartSimulatingObjectPacket& packet,
-				int targetServerID);
+				int targetServerID, int batchSize = 1);
 			bool PopHandoffResend(CSC8503::StartSimulatingObjectPacket& out);
+			// retryTicks is a COUNT OF TICKS on the CLI and in the config struct's name,
+			// but it is converted to real elapsed microseconds here and that is what is
+			// actually compared (see PendingTransfer::lastSentTick / FlushPendingTransfers).
+			// A raw tick count is not a valid proxy for elapsed real time: this server's
+			// own mTickCounter races ahead whenever it is lightly loaded (documented
+			// elsewhere as expected - servers tick at different rates), and a burst of
+			// simultaneous incoming handoffs can legitimately take the RECEIVER several
+			// hundred milliseconds of real wall-clock time to apply and acknowledge while
+			// this server, having already released its own objects, has almost nothing
+			// left to do and can tick in tens of microseconds. Measured: a 50-object
+			// burst took a receiver ~571ms wall-clock to fully apply while the sender
+			// burned through a tick-counted 30-tick retry budget in under 3ms once it
+			// started racing - reclaiming every one of the 50 objects the receiver had, in
+			// fact, already accepted. Converting the budget to wall-clock time (kept at
+			// the SAME nominal "N ticks at the nominal rate" value the flag advertises)
+			// removes that false trigger without touching the numeric default.
 			void SetCustodyConfig(int retryTicks, int maxAttempts) {
-				mCustodyConfig.retryTicks = retryTicks;
+				const float dt = GetFixedTimestepDt();
+				const float nominalDt = (dt > 0.0f) ? dt : (1.0f / 120.0f);
+				double retryMicros = static_cast<double>(retryTicks) * static_cast<double>(nominalDt) * 1e6;
+				if (retryMicros > 2000000000.0) {
+					retryMicros = 2000000000.0;
+				}
+				mCustodyConfig.retryTicks = static_cast<int>(retryMicros);
 				mCustodyConfig.maxAttempts = maxAttempts;
 			}
 			int GetHandoffsResent() const {
@@ -524,11 +546,24 @@ namespace NCL {
 			//
 			// unique_ptr rather than by value because this header only forward-declares
 			// StartSimulatingObjectPacket, matching ScheduledHandoff above.
+			//
+			// Despite the name, lastSentTick holds a NCL::MonotonicMicros() wall-clock
+			// timestamp, not a value of mTickCounter - see SetCustodyConfig for why a
+			// simulation tick count is not safe to compare across two servers whose tick
+			// rates can differ by two orders of magnitude.
+			// batchSizeAtSend is how many OTHER handoffs were sent to a peer in the same
+			// tick as this one - see RecordPendingTransfer. A receiver asked to accept
+			// several handoffs at once applies and acknowledges them one at a time, so a
+			// transfer sent as part of a 50-object burst genuinely needs on the order of
+			// 50x the grace a lone transfer would; a fixed per-transfer deadline cannot
+			// tell the two apart; a deadline scaled by however many the receiver was
+			// simultaneously handed can.
 			struct PendingTransfer {
 				std::unique_ptr<CSC8503::StartSimulatingObjectPacket> packet;
 				int targetServerID = -1;
 				uint64_t lastSentTick = 0;
 				int attempts = 1;
+				int batchSizeAtSend = 1;
 			};
 			// Keyed by object id: a resend must replace, never duplicate, the record.
 			std::map<int, PendingTransfer> mPendingTransfers;
