@@ -284,9 +284,17 @@ TEST(DuplicateGuardDoesNotFireForAKnownButInactiveEntry) {
 
 TEST(DuplicateGuardIsSkippedEntirelyForAReclaim) {
 	// A reclaim is the SENDER re-applying its own transfer to itself after the peer
-	// link died. Its entire purpose is to re-install an object, so it is exempt from
-	// every combination of the other inputs - suppressing one would strand the object
-	// nowhere at all, which is the loss custody exists to prevent.
+	// link died. IsDuplicateHandoffArrival is not the predicate that guards it: a
+	// reclaim of an object that genuinely left is a re-installation, and suppressing
+	// it would strand the object nowhere at all, which is the loss custody exists to
+	// prevent. So this predicate is exempt for every combination of the other inputs.
+	//
+	// That exemption is NOT the same as "a reclaim always runs the full apply path".
+	// The still-present case is caught by IsRedundantReclaim below instead - see the
+	// tests that follow. Keeping the two predicates separate is deliberate: this one
+	// answers "is this a redundant DELIVERY", that one answers "is this a redundant
+	// RECLAIM", and the correct responses differ (the duplicate is acked and ignored,
+	// the redundant reclaim still has ownership bookkeeping to restore).
 	CHECK(!IsDuplicateHandoffArrival(true, true, true, false));
 	CHECK(!IsDuplicateHandoffArrival(true, true, true, true));
 	CHECK(!IsDuplicateHandoffArrival(true, false, false, false));
@@ -295,8 +303,94 @@ TEST(DuplicateGuardIsSkippedEntirelyForAReclaim) {
 
 TEST(DuplicateGuardTreatsANulledPoolEntryAsAbsent) {
 	// A destroyed object leaves a permanent tombstone with the pool entry NULLED
-	// rather than erased (CLAUDE.md, runtime spawn/destroy). The call site maps that
-	// to objectPresent = false, so the destroy handling above the guard keeps
-	// winning; this pins the predicate's half of that contract.
+	// rather than erased (CLAUDE.md, runtime spawn/destroy). ApplyIncomingObject maps
+	// that to objectPresent = false - it reads `entry->second != nullptr`, so a nulled
+	// entry is absent and, being absent, cannot be network-active either. That is the
+	// half that matters, and the combination the call site can actually produce:
+	// objectPresent = false with networkActive = false.
+	CHECK(!IsDuplicateHandoffArrival(false, false, false, false));
+	// The isHaloShadow flag is derived from the same null check, so it is false too.
+	CHECK(!IsDuplicateHandoffArrival(false, false, false, true));
+	// Defensive: even if a caller ever passed the impossible (absent yet active)
+	// combination, absence must still win, so the destroy handling above the guard
+	// keeps its precedence rather than the arrival being swallowed as a duplicate.
 	CHECK(!IsDuplicateHandoffArrival(false, false, true, false));
+}
+
+// --- IsRedundantReclaim ---------------------------------------------------------
+//
+// THE REGRESSION TESTS FOR THE RECLAIM-BEFORE-RELEASE DEFECT.
+//
+// The release of a handed-off object is scheduled on a SIMULATION tick
+// (ScheduleOutgoingObject: senderTick + --handoff-lookahead, i.e. 2.5s of simulated
+// time at the lookahead 300 that E2 and E4 both use). The reclaim deadline is
+// WALL-CLOCK, and a missing peer link bypasses it entirely, so the earliest possible
+// reclaim is the 1s cold-connection floor. A peer that dies right after a transfer is
+// sent therefore gets reclaimed BEFORE the object it carried has been released.
+//
+// Before this predicate existed, that ran ApplyIncomingObject on a still-present,
+// still-active object with isReclaim = true, which bypasses IsDuplicateHandoffArrival
+// and re-pushed the object into mTestObjects; FlushScheduledReleases then still fired
+// HandleOutgoingObject at releaseAtTick and shipped it to a peer already proven gone.
+// hoSent and hoRecv had both been incremented, so ho_parity_delta and hoCustody both
+// read 0 and the loss was invisible.
+
+TEST(RedundantReclaimFiresForAnObjectStillPresentAndActiveHere) {
+	// The exact defect: reclaimed before its own scheduled release ran, so the object
+	// never left. Nothing to re-install.
+	CHECK(IsRedundantReclaim(true, true, true, false));
+}
+
+TEST(RedundantReclaimDoesNotFireForAnObjectThatGenuinelyLeft) {
+	// The normal reclaim. HandleOutgoingObject ERASED the pool entry, so the object is
+	// absent and must be constructed on arrival - the whole purpose of a reclaim.
+	CHECK(!IsRedundantReclaim(true, false, false, false));
+}
+
+TEST(RedundantReclaimDoesNotFireForAHaloShadow) {
+	// Present in the pool, but as a neighbour's read-only copy rather than our
+	// retained object. Its reclaim must run the full promotion path, exactly as a
+	// normal handoff of a shadow does.
+	CHECK(!IsRedundantReclaim(true, true, true, true));
+	CHECK(!IsRedundantReclaim(true, true, false, true));
+}
+
+TEST(RedundantReclaimDoesNotFireForAKnownButInactiveEntry) {
+	// Present but not network-active: a husk mid-installation, not a completed one.
+	// The shared registration path still has work to do, so this must fall through.
+	CHECK(!IsRedundantReclaim(true, true, false, false));
+}
+
+TEST(RedundantReclaimNeverFiresForAnOrdinaryArrival) {
+	// It is a reclaim-only rule. An ordinary (non-reclaim) arrival is judged by
+	// IsDuplicateHandoffArrival, which counts hoDup and does NOT touch ownership
+	// bookkeeping; routing one through the reclaim short-circuit instead would lose
+	// that counter. Swept across every other input.
+	for (int present = 0; present <= 1; ++present) {
+		for (int active = 0; active <= 1; ++active) {
+			for (int shadow = 0; shadow <= 1; ++shadow) {
+				CHECK(!IsRedundantReclaim(false, present != 0, active != 0, shadow != 0));
+			}
+		}
+	}
+}
+
+TEST(RedundantReclaimAndDuplicateGuardAreNeverBothTrue) {
+	// The two predicates partition the short-circuit space rather than overlapping:
+	// IsDuplicateHandoffArrival is exempt for isReclaim, IsRedundantReclaim requires
+	// it. ApplyIncomingObject tests them in sequence, so an input satisfying both
+	// would make the order of those two branches load-bearing and silent.
+	for (int reclaim = 0; reclaim <= 1; ++reclaim) {
+		for (int present = 0; present <= 1; ++present) {
+			for (int active = 0; active <= 1; ++active) {
+				for (int shadow = 0; shadow <= 1; ++shadow) {
+					const bool dup = IsDuplicateHandoffArrival(
+						reclaim != 0, present != 0, active != 0, shadow != 0);
+					const bool redundant = IsRedundantReclaim(
+						reclaim != 0, present != 0, active != 0, shadow != 0);
+					CHECK(!(dup && redundant));
+				}
+			}
+		}
+	}
 }

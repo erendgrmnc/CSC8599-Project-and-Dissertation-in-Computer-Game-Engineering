@@ -1441,10 +1441,9 @@ void DistributedGameServer::ServerWorldManager::FlushScheduledReleases() {
 }
 
 void DistributedGameServer::ServerWorldManager::RecordPendingTransfer(
-	const CSC8503::StartSimulatingObjectPacket& packet, int targetServerID, int batchSize) {
+	const CSC8503::StartSimulatingObjectPacket& packet, int batchSize) {
 	PendingTransfer transfer;
 	transfer.packet = std::make_unique<CSC8503::StartSimulatingObjectPacket>(packet);
-	transfer.targetServerID = targetServerID;
 	// Wall-clock, not mTickCounter - see SetCustodyConfig.
 	transfer.lastSentTick = NCL::MonotonicMicros();
 	transfer.attempts = 1;
@@ -1454,9 +1453,12 @@ void DistributedGameServer::ServerWorldManager::RecordPendingTransfer(
 
 bool DistributedGameServer::ServerWorldManager::PopHandoffResend(
 	CSC8503::StartSimulatingObjectPacket& out) {
-	while (!mHandoffResendQueue.empty()) {
-		const int objectID = mHandoffResendQueue.front();
-		mHandoffResendQueue.erase(mHandoffResendQueue.begin());
+	// Drained by advancing a read cursor rather than erase(begin()), which shuffles
+	// every remaining element down one slot per pop - O(n^2) over a full drain. The
+	// consumed prefix is dropped in one go once the queue is empty.
+	while (mHandoffResendCursor < mHandoffResendQueue.size()) {
+		const int objectID = mHandoffResendQueue[mHandoffResendCursor];
+		++mHandoffResendCursor;
 		const auto entry = mPendingTransfers.find(objectID);
 		// Acked between being queued and being drained - nothing to resend.
 		if (entry == mPendingTransfers.end() || entry->second.packet == nullptr) {
@@ -1465,6 +1467,10 @@ bool DistributedGameServer::ServerWorldManager::PopHandoffResend(
 		out = *entry->second.packet;
 		return true;
 	}
+	// Exhausted. The caller loops until false (DistributedGameServerManager), so this
+	// is reached on every drain and the consumed prefix never accumulates.
+	mHandoffResendQueue.clear();
+	mHandoffResendCursor = 0;
 	return false;
 }
 
@@ -1562,6 +1568,24 @@ void DistributedGameServer::ServerWorldManager::FlushPendingTransfers() {
 		CSC8503::StartSimulatingObjectPacket reclaimed = *entry->second.packet;
 		reclaimed.newOwnerServerID = mServerID;
 		entry = mPendingTransfers.erase(entry);
+
+		// ORDERING HAZARD - a reclaim can precede its own scheduled release.
+		//
+		// The release is scheduled on a SIMULATION tick (ScheduleOutgoingObject:
+		// mTickCounter + mHandoffLookaheadTicks; at --handoff-lookahead 300 that is
+		// 2.5s of simulated time at 120 Hz, the setting E2 and E4 both run). The
+		// reclaim deadline is WALL-CLOCK, and a missing peer link short-circuits
+		// straight past it, with the cold-connection floor putting the earliest
+		// possible reclaim at ~1s. So a peer that dies right after the transfer is
+		// sent gets detected while the release is still pending.
+		//
+		// Left standing, FlushScheduledReleases would then fire HandleOutgoingObject
+		// at releaseAtTick - tearing down the object that was just reclaimed and
+		// sending it to a peer already proven gone. hoSent and hoRecv would both have
+		// been incremented, so ho_parity_delta and hoCustody would both read 0 and the
+		// loss would be invisible. Erasing the schedule is what stops that; the
+		// still-present half is handled by IsRedundantReclaim in ApplyIncomingObject.
+		mScheduledReleases.erase(objectID);
 
 		// Cleared BEFORE the apply: while this entry stands, a command for the object
 		// would be forwarded to a server that does not have it.
@@ -1757,6 +1781,31 @@ bool DistributedGameServer::ServerWorldManager::ApplyIncomingObject(StartSimulat
 		++mHandoffsDuplicate;
 		std::cout << "Duplicate handoff for object " << packet->objectID
 			<< " - already owned and simulating here; acked without re-registering.\n";
+		return true;
+	}
+
+	// A reclaim of an object we never actually let go of. See IsRedundantReclaim: the
+	// scheduled release runs on a simulation tick while the reclaim deadline is
+	// wall-clock, so at a large --handoff-lookahead the reclaim can land first. The
+	// object is present, active and still ours, so re-running the shared path would
+	// push it into mTestObjects a second time - the very non-idempotence the duplicate
+	// guard above exists to prevent, sneaking back in through the isReclaim exemption.
+	//
+	// Nothing needs doing TO the object. Custody is already discharged (the caller
+	// erased mPendingTransfers and mScheduledReleases before calling); all that is left
+	// is to restore the ownership bookkeeping that the reclaim branch cleared. Counted
+	// into mHandoffsReceived like any other reclaim, since the original send did
+	// increment mHandoffsSent and handoff parity (I5) sums the two.
+	if (NCL::Distributed::IsRedundantReclaim(isReclaim,
+		existingObject != nullptr,
+		existingObject != nullptr && existingObject->IsNetworkActive(),
+		existingObject != nullptr && existingObject->IsHaloShadow())) {
+		existingObject->SetServerID(mServerID);
+		RecordObjectOwner(packet->objectID, mServerID);
+		++mHandoffsReceived;
+		std::cout << "Reclaim of object " << packet->objectID
+			<< " arrived before its own scheduled release - still held here, "
+			<< "ownership restored without re-registering.\n";
 		return true;
 	}
 
@@ -2078,9 +2127,15 @@ int DistributedGameServer::ServerWorldManager::GetObjectServer(const Maths::Vect
 // closed on Z (>= min, <= max) - so a position this returns always satisfies it.
 // When the incoming position is already inside, every clamp is a no-op.
 //
-// NOTE: still unreferenced. Wiring it into StartHandlingObject moves incoming
-// objects and so changes measured handoff behaviour; that belongs with the
-// ownership unification (increment 2 of the interactions design), not here.
+// NOTE: called, but for OBSERVATION only. ApplyIncomingObject computes this clamp on
+// every non-reclaim arrival and DISCARDS the result, counting the cases where it would
+// have moved the object into mHandoffsClamped (hoClamp). So incoming handoffs still get
+// no positional nudge - what changed is that the codebase now measures how often one
+// would be needed, and that measurement shows the case is reachable under load: hoClamp
+// fires on the 8,000-object and rebalancing runs and never on the healthy-path runs.
+// Actually APPLYING the clamp moves incoming objects and so changes measured handoff
+// behaviour; that belongs with the ownership unification (increment 2 of the
+// interactions design), not here.
 Maths::Vector3 DistributedGameServer::ServerWorldManager::CalculateIncomingObjectOffsetPosition(const Maths::Vector3& position) const {
 	// One centimetre in world units - large enough to survive the float rounding
 	// that put the object on the edge, far below the 2-unit object spacing.

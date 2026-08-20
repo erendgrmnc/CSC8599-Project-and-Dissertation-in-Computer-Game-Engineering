@@ -150,6 +150,44 @@ namespace NCL::Distributed {
 		return networkActive;
 	}
 
+	// --- Redundant-reclaim guard ---------------------------------------------------
+	//
+	// A reclaim is exempt from IsDuplicateHandoffArrival above because its purpose is
+	// to re-install an object that exists nowhere. But a reclaim can fire while the
+	// object is STILL HERE, because the release and the reclaim are on two different
+	// clocks:
+	//
+	//   - the release is scheduled on a SIMULATION tick (senderTick + handoffLookahead;
+	//     at --handoff-lookahead 300 that is 2.5s of simulated time at 120 Hz), and
+	//   - the reclaim deadline is WALL-CLOCK (a resend with no peer link, floored at
+	//     the 1s cold-connection floor).
+	//
+	// So a peer that dies immediately after a transfer is sent can be detected, and the
+	// object reclaimed, BEFORE FlushScheduledReleases has released it at all. The
+	// sender then re-applies its own packet to an object it never let go of, and the
+	// non-idempotent shared path below the pool lookup runs a second time - exactly the
+	// duplication IsDuplicateHandoffArrival exists to prevent, reintroduced through the
+	// isReclaim exemption.
+	//
+	// Reclaiming something never actually released is a no-op ON THE OBJECT: it is
+	// present, network-active and already ours. The caller still has work to do -
+	// discharge custody and restore the ownership bookkeeping the reclaim branch
+	// cleared - but it must not re-register the object.
+	//
+	// A halo shadow is excluded for the same reason as in the duplicate guard: a shadow
+	// is a neighbour's read-only copy, not our retained object, so its reclaim must run
+	// the full promotion path.
+	inline bool IsRedundantReclaim(bool isReclaim, bool objectPresent,
+		bool networkActive, bool isHaloShadow) {
+		if (!isReclaim) {
+			return false;
+		}
+		if (!objectPresent || isHaloShadow) {
+			return false;
+		}
+		return networkActive;
+	}
+
 	// --- Wall-clock retry budget derivation ---------------------------------------
 	//
 	// DecideCustody above is deliberately unit-agnostic: it just compares two

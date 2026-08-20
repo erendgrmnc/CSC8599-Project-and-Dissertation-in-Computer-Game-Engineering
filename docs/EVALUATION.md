@@ -415,7 +415,21 @@ respectively, not closed. Batch B's own measurement also surfaced a new item, 12
    visible as `hoCustody` and is reported by `analyse.py`, and the residual E7 loss (-15/0/-4) is
    end-of-run truncation of transfers still in flight, not an unaccounted loss — `ho_parity_delta`
    matches it exactly on every repeat, `hoPending`/`hoSched` read 0, and `hoCustody` is at least the
-   loss on each one. What custody does not touch is the ownership *gap* itself: at `--handoff-lookahead
+   loss on each one.
+
+   **Note the deliberate tension here: the same non-zero `hoCustody` that is cited as evidence above
+   is reported as an INVARIANT FAILURE by `tools/analyse.py` (`check_custody`).** That is intended,
+   and the check is not weakened. `hoCustody > 0` at exit means a transfer was still outstanding when
+   the server stopped, and an outstanding transfer *is* an unaccounted object — the gate takes the
+   conservative reading and refuses to call such a run clean. What custody bought is not a passing
+   gate but a *visible* one: before custody the same objects vanished with every counter reading 0,
+   so the run passed. The two statements are therefore consistent — `hoCustody` explains *where the
+   loss went* (still in the sender's hands, recoverable, not gone), which is exactly why it is
+   admissible as evidence; it does not certify the run as loss-free, and the analyser is right to say
+   so. A run intended to *pass* the gate must be drained (`--drain-seconds`) until `hoCustody` reads
+   0; the E7 runs quoted here were not, and are reported as failures by the shipped analyser.
+
+   What custody does not touch is the ownership *gap* itself: at `--handoff-lookahead
    0` — the default, and what most experiments in this document ran at — `ScheduleOutgoingObject`
    releases on send exactly as before, so nobody owns the object for one network round trip. The
    atomicity guarantee stays conditional on `--handoff-lookahead > 0`, the non-default case (§6).

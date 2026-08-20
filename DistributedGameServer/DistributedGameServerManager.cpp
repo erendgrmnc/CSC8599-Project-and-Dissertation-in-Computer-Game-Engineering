@@ -810,7 +810,7 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectTransition
 			// went out as part of a batch: a receiver handed N handoffs in the same tick
 			// applies and acks them one at a time, so it genuinely needs about N times as
 			// long as a lone transfer would.
-			mServerWorldManager->RecordPendingTransfer(sentPacket, networkObj->GetNewServerID(),
+			mServerWorldManager->RecordPendingTransfer(sentPacket,
 				static_cast<int>(transitioning.size()));
 		}
 		// Read before the release: HandleOutgoingObject destroys the object that owns

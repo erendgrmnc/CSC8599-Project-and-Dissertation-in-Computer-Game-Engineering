@@ -647,8 +647,18 @@ namespace NCL::CSC8503 {
 
 		StartSimulatingObjectPacket(int objectID, int newServerID, int senderServerID, NetworkState lastFullState, PhysicsObject& physicsObj);
 
-		// Needed so callers can declare an output parameter to fill. The packet is
-		// POD on the wire, so a zeroed instance is safe.
+		// Needed so callers can declare an output parameter to fill.
+		//
+		// It does NOT zero the struct: it sets type, size, objectID (-1),
+		// newOwnerServerID (-1), senderServerID (-1) and mControllerPlayerID (-1), and
+		// leaves lastFullState, mLinearVelocity/mAngularVelocity/mForce/mTorque,
+		// mMoveAxis, mSenderTick and mArchetypeID INDETERMINATE. That is safe only
+		// because the one caller that reads an unfilled instance
+		// (DistributedGameServerManager::HandleObjectTransitions, guarding custody on
+		// `sentPacket.objectID >= 0`) relies on objectID alone; every other path fills
+		// the whole struct via SendFinishTransactionPacket before reading it. Anything
+		// that starts reading another field off a default-constructed packet must
+		// initialise it here first.
 		StartSimulatingObjectPacket();
 	};
 

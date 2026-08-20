@@ -356,8 +356,10 @@ namespace NCL {
 				++mHandoffsSent;
 			}
 
+			// The destination is read off packet.newOwnerServerID - the same value the
+			// resend path sends to - so it is deliberately not passed separately.
 			void RecordPendingTransfer(const CSC8503::StartSimulatingObjectPacket& packet,
-				int targetServerID, int batchSize = 1);
+				int batchSize = 1);
 			bool PopHandoffResend(CSC8503::StartSimulatingObjectPacket& out);
 			// Feeds the network layer's verdict back into custody. Called by
 			// DistributedGameServerManager for every packet it drains from
@@ -572,9 +574,11 @@ namespace NCL {
 			// RecordHandoffResendResult: a resend that failed with no peer link to that
 			// server is evidence the peer is gone, as opposed to a deadline expiring,
 			// which only ever meant "slow".
+			// No targetServerID member: the destination is already carried by
+			// packet->newOwnerServerID, which is what the resend path actually sends
+			// to, and a second copy of it here was only ever written, never read.
 			struct PendingTransfer {
 				std::unique_ptr<CSC8503::StartSimulatingObjectPacket> packet;
-				int targetServerID = -1;
 				uint64_t lastSentTick = 0;
 				int attempts = 1;
 				int batchSizeAtSend = 1;
@@ -585,7 +589,11 @@ namespace NCL {
 			void FlushPendingTransfers();
 			// Object ids whose transfer needs re-sending. Drained by
 			// DistributedGameServerManager, which owns the network layer.
+			// mHandoffResendCursor is the read position: PopHandoffResend advances it
+			// instead of erasing the front, and the vector is cleared once the drain
+			// runs dry. Erasing the front per pop is O(n^2) across a batch drain.
 			std::vector<int> mHandoffResendQueue;
+			size_t mHandoffResendCursor = 0;
 			NCL::Distributed::CustodyConfig mCustodyConfig;
 			int mHandoffsResent = 0;
 			int mHandoffsReclaimed = 0;
@@ -594,7 +602,9 @@ namespace NCL {
 			// Incoming handoffs that landed OUTSIDE the receiving region.
 			//
 			// CalculateIncomingObjectOffsetPosition exists to nudge such an object
-			// back inside but has never been called. Since ownership was unified
+			// back inside; it is called on every non-reclaim arrival, but only to
+			// compute this counter - the nudge itself is never applied. Since
+			// ownership was unified
 			// behind OwningServerFor(), a handoff target is computed from the
 			// transmitted position, so an arrival should be in-region by
 			// construction and the function should be dead code for a good reason
