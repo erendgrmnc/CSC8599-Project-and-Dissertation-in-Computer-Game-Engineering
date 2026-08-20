@@ -89,12 +89,14 @@ identical across all three repeats in both configurations. The higher contact co
 
 **Configuration.** 4,000 objects, 2 servers, 20 s realtime, 3 repeats (`runs/exp-interest`).
 
-| interest radius | object-snapshots sent (median) | reduction |
+| interest radius | object-snapshots sent (median)¹ | reduction |
 |---|---|---|
 | 0 (everything) | 1,317,106 | — |
 | 100 | 589,128 | 55.3% |
 | 50 | 374,819 | 71.5% |
 | 25 | 277,500 | 78.9% |
+
+¹ See caveat below — contains an unverified drain-phase artefact; absolute counts not yet clean to quote.
 
 **Verdict.** Monotone in radius, as it must be. **Caveat, not yet checked:** these runs contain the
 drain-phase artefact identified under E8 (an unthrottled ~5-second tail that dominates several
@@ -289,9 +291,14 @@ conditional, not unconditional, and both experiments independently expose the sa
 mode.
 
 **The load balancer equalises objects, not contacts.** E4's dynamic case ends with near-perfect object
-balance (2,007 / 1,993) but residual contact imbalance (14.2M vs 8.1M) — object count is an imperfect
-proxy for the physics work a server actually performs, since a cluster of overlapping objects costs far
-more per object than a sparse one.
+balance (2,007 / 1,993, the 3-repeat median from `runs/exp-balance`) but residual contact imbalance
+(14.2M vs 8.1M) — object count is an imperfect proxy for the physics work a server actually performs,
+since a cluster of overlapping objects costs far more per object than a sparse one. The two figures are
+from different runs: the contact counts are a single run recorded at
+`docs/superpowers/specs/2026-08-18-dynamic-repartitioning.md:258` (object split 2,023/1,977 there, not
+2,007/1,993), whose table carries a "Debug build — not quotable (duration rows only)" annotation. That
+annotation does not disqualify the contact figures — contact *counts*, unlike durations, are
+build-independent — but the object split quoted above is E4's own median, not that run's.
 
 ---
 
@@ -319,10 +326,11 @@ runs valid against a fixed binary.
    re-measurement. The fix is mechanical — one more `if` block, matching the pattern already used for
    over a dozen other game-server flags.
 6. **Load profile buckets objects, not contacts.** E4's residual contact imbalance (14.2M vs 8.1M, §6
-   above) despite near-perfect object balance.
+   above, sourced from a different run than the object split it is quoted alongside — see §6) despite
+   near-perfect object balance.
 7. **`CalculateIncomingObjectOffsetPosition` is never called.** `ServerWorldManager.cpp:440`. Incoming
    handoffs get no positional nudge into the receiving region.
-8. **Stale comments in frozen source.** `NetworkObject.h:166` says halo entries are 64 bytes (measured
+8. **Stale comments in frozen source.** `NetworkObject.h:167` says halo entries are 64 bytes (measured
    60); `DistributedGameServerManager.cpp:195` says "20hz server/client update" where the code runs at
    60 Hz.
 9. **`run-experiments.ps1`'s `-OutDir` is not anchored to the repo root** the way `measure.ps1`'s now

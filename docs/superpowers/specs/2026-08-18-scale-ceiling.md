@@ -113,12 +113,21 @@ single-machine harness can produce.
 At ~6,000 objects per server, a million objects needs ~167 servers. Three things stand in the way,
 in the order they will bite.
 
+> **Superseded.** The ~6,000/server figure here is halo-off and stale; see the note in §5.3 and
+> `docs/superpowers/results/2026-08-19-E7-capacity.md` (E7), which puts the halo-on figure — the
+> configuration this work advocates — at ~3,384 objects/server (~296 servers for a million objects)
+> and the halo-off figure at ~4,447 objects/server (~225 servers).
+
 ### 3.1 A hard cap of 20 servers
 
 `StartDistributedGameServerPacket` carries `int serverIDs[20]`, `char borders[20][256]`,
 `connectedServerIDs[20]`; `DistributedRepartitionPacket` carries `MAX_REGIONS = 20`. Twenty servers
 is a wire-format limit, so the current protocol tops out near **120,000 objects** however much
 hardware is available.
+
+> **Superseded.** The 6,000/server figure behind this 120,000-object estimate is halo-off and stale;
+> see §5.3 and `docs/superpowers/results/2026-08-19-E7-capacity.md` (E7) for the corrected per-server
+> figures. (The 20-server wire cap itself is separately removed — see §5.1 below.)
 
 Raising it is not just a bigger array: `borders[20][256]` is 5 KB of a single packet already, and a
 fixed array sized for 200 servers would be 51 KB in every bootstrap message. The partition needs to
@@ -156,8 +165,10 @@ argument the halo retirement uses.
 1. **Multi-machine.** Even two physical machines would separate distribution overhead from CPU
    contention and make a speedup claim defensible. Everything needed is already in the deployment
    tooling; only the run configuration changes.
-2. **Per-server capacity curve in Release**, with the halo on, to find the real object budget per
-   server rather than the ~6,000 measured with it off.
+2. ~~**Per-server capacity curve in Release**, with the halo on, to find the real object budget per
+   server rather than the ~6,000 measured with it off.~~ **Done.** See
+   `docs/superpowers/results/2026-08-19-E7-capacity.md` (E7): ~3,384 objects/server halo-on
+   (interpolated), ~4,447 objects/server halo-off (extrapolated).
 3. **Density rather than count.** The grid broadphase is linear in objects but its constant depends
    on objects *per cell*. A million objects spread thinly is cheap; a hundred thousand in one heap is
    not. The workloads should sweep density explicitly, since that is what a real game world varies.
@@ -233,6 +244,14 @@ Per server, at 120 Hz on this hardware: ~6,000 objects serial, and the 1.65x giv
 objects per server** with workers. The remaining obstacle to a genuinely large world is unchanged
 and is now clearly the largest: **snapshot traffic is O(world) per client** (§3.2). Interest
 management is the next increment that matters.
+
+> **Superseded.** These figures were measured at `--halo-width 0` (cross-border collision disabled),
+> not the configuration this work advocates. E7 (`docs/superpowers/results/2026-08-19-E7-capacity.md`)
+> revises them: ~4,447 objects/server halo-off (extrapolated past the swept range) and ~3,384
+> objects/server halo-on (interpolated, the configuration actually recommended). The halo itself
+> costs about a quarter of the tick budget at its own crossing point, and above the halo-on figure
+> the ownership-atomicity guarantee fails and objects are lost outright — the number is a correctness
+> ceiling, not only a performance one.
 
 ---
 

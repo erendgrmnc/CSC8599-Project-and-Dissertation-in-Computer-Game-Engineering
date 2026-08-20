@@ -14,9 +14,10 @@ static partition begins badly loaded and stays that way.
 
 400 objects, 3,600 paced ticks, seed 42, `--halo-width 8 --halo-reliable`:
 
-> **Debug build — not quotable.** See `2026-08-18-scale-ceiling.md` §0. Relative
-> comparisons within this table hold; absolute values are pessimistic by an
-> unknown factor.
+> **Debug build — not quotable (duration rows only).** See `2026-08-18-scale-ceiling.md` §0.
+> Relative comparisons within this table hold. The count rows (`objects per server`, `haloLate`,
+> `hoLate`) are build-independent; only the duration rows (`wall clock`) and figures derived from
+> them (`slowdown of the busiest server`) are pessimistic by an unknown factor.
 
 | | 2 servers | 4 servers |
 |---|---|---|
@@ -246,9 +247,10 @@ the pair's width per round.
 
 4,000-object `cluster`, 2 servers, 7,200 paced ticks:
 
-> **Debug build — not quotable.** See `2026-08-18-scale-ceiling.md` §0. Relative
-> comparisons within this table hold; absolute values are pessimistic by an
-> unknown factor.
+> **Debug build — not quotable (duration rows only).** See `2026-08-18-scale-ceiling.md` §0.
+> Relative comparisons within this table hold. The count rows (`objects`, `contacts`) are
+> build-independent; only the duration rows (`wall clock`, `busiest server`) and figures derived
+> from them (`slowest : fastest`) are pessimistic by an unknown factor.
 
 | | static | dynamic |
 |---|---|---|
