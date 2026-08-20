@@ -47,6 +47,10 @@ param(
     [int]$HandoffLookahead = 0,
     # Aligns every server's tick 0 to a shared monotonic-clock boundary (us).
     [int]$EpochAlignUs = 0,
+    # Seconds the server drains in-flight handoffs after the timed loop. 5 is the
+    # server's own default; 0 is what a bandwidth measurement wants, because the
+    # drain runs outside the measured duration.
+    [int]$DrainSeconds = -1,
     # World bounds, minX,maxX,minZ,maxZ. Needed for the locality experiment (I6),
     # which holds objects-per-region fixed and grows the WORLD as servers are added
     # - with a fixed world, adding servers only subdivides it, which measures
@@ -105,6 +109,7 @@ $metricsDir = $runDir -replace '\\','/'
 # without its build metadata is not reproducible.
 $mode = if ($Ticks -gt 0) { "reproducible" } else { "realtime" }
 $haloReliableArg = if ($HaloReliable) { "--halo-reliable" } else { "" }
+$drainArg = if ($DrainSeconds -ge 0) { "--drain-seconds $DrainSeconds" } else { "" }
 $repartitionArgs = if ($RepartitionAt -gt 0 -and $RepartitionX -ne "") { "--repartition-at $RepartitionAt --repartition-x $RepartitionX" } else { "" }
 $bound = if ($Ticks -gt 0) { "--run-ticks $Ticks" } else { "--run-seconds $Seconds" }
 
@@ -139,7 +144,7 @@ $mgr = Start-Process -PassThru -FilePath (Join-Path $deploy "Manager\EntryPoint.
 Start-Sleep -Seconds 3
 
 $mid = Start-Process -PassThru -FilePath (Join-Path $deploy "Midware\EntryPoint.exe") `
-    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" --rebalance-interval $RebalanceInterval --handoff-delay-ticks $HandoffDelayTicks --handoff-lookahead $HandoffLookahead --physics-threads $PhysicsThreads --halo-width $HaloWidth --halo-lookahead $HaloLookahead $haloReliableArg --epoch-align-us $EpochAlignUs $bound" `
+    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" --rebalance-interval $RebalanceInterval --handoff-delay-ticks $HandoffDelayTicks --handoff-lookahead $HandoffLookahead --physics-threads $PhysicsThreads --halo-width $HaloWidth --halo-lookahead $HaloLookahead $haloReliableArg --epoch-align-us $EpochAlignUs $drainArg $bound" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\mid.log" -RedirectStandardError "$runDir\mid.err" -WindowStyle Hidden
 Start-Sleep -Seconds 4
 

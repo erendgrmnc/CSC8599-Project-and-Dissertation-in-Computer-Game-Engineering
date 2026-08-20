@@ -65,6 +65,7 @@ param(
 
     [int]$HandoffLookahead = 0,
     [int]$EpochAlignUs = 0,
+    [int]$DrainSeconds = -1,
 
     # Cross-border collision. 0 disables the halo, which is how everything before that
     # increment behaved.
@@ -133,6 +134,7 @@ $manifest = [ordered]@{
         blastEvery = $BlastEvery; spawnEvery = $SpawnEvery
         destroyEvery = $DestroyEvery; driveEvery = $DriveEvery
         handoffLookahead = $HandoffLookahead; epochAlignUs = $EpochAlignUs
+        drainSeconds = $DrainSeconds
         haloWidth = $HaloWidth; haloLookahead = $HaloLookahead
         haloReliable = [bool]$HaloReliable
         interestRadius = $InterestRadius
@@ -207,7 +209,7 @@ foreach ($value in $valueList) {
             -Seed $Seed -Workload $Workload -World $runWorld `
             -ImpulseTest $ImpulseTest -MisrouteEvery $MisrouteEvery -BlastEvery $BlastEvery `
             -SpawnEvery $SpawnEvery -DestroyEvery $DestroyEvery -DriveEvery $DriveEvery `
-            -HandoffLookahead $HandoffLookahead -EpochAlignUs $EpochAlignUs `
+            -HandoffLookahead $HandoffLookahead -EpochAlignUs $EpochAlignUs -DrainSeconds $DrainSeconds `
             -HaloWidth $runHaloWidth -HaloLookahead $HaloLookahead -HaloReliable:$HaloReliable `
             -InterestRadius $runInterest -PhysicsThreads $runThreads `
             -RebalanceInterval $runRebalance -RebalanceAlpha $RebalanceAlpha `
