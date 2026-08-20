@@ -130,6 +130,14 @@ knee's window. All 18 of those runs additionally failed `analyse.py`'s per-tick
 `ownership_gap_ticks` invariant (8-12 unowned-object ticks per run), a failure mode that appeared
 in **none** of the other 90 runs across both rounds.
 
+> **Superseded (Batch A, 2026-08-20).** The `HALO_STALE_TICKS` explanation below is **refuted** by
+> re-analysis of these same runs: on the L=32 sweep `haloLate = 0` and `halo_objects` averages 18.2
+> with shadows present on 98.2% of ticks, so nothing was being retired. The conclusion that L=32 is
+> outside the envelope stands; the mechanism does not. See `docs/EVALUATION.md` §4 for the replacement
+> account (an upper bound on lookahead, attributed to extrapolation error by elimination) and §4.1 for
+> a second defect these runs carried — an unthrottled halo publish that broke invariant I8 on this
+> sweep.
+
 **Root cause, confirmed:** `DistributedGameServer/ServerWorldManager.cpp:944` hardcodes
 `HALO_STALE_TICKS = 30` — the number of ticks after which `RetireStaleHaloShadows` discards a halo
 shadow that has not been refreshed. `--halo-lookahead 32` defers a shadow's application to
@@ -338,6 +346,9 @@ directly observed (a failing width immediately below a passing one), not inferre
 placement. The functional form is not determined by four 1-unit-resolution points; a
 mid-experiment prediction (`0.25*L + 1`, derived from a single point) was stated in advance and
 refuted twice, at L=16 and again at L=24, and is reported as refuted rather than re-fitted.
+
+> **Superseded (Batch A, 2026-08-20).** The mechanism named in this paragraph is refuted; see the
+> note above and `docs/EVALUATION.md` §4. The envelope conclusion itself stands.
 
 Separately, lookahead 32 sits outside the implementation's tested envelope: a hardcoded
 30-tick shadow-retirement timeout (`HALO_STALE_TICKS`, `ServerWorldManager.cpp:944`) silently
