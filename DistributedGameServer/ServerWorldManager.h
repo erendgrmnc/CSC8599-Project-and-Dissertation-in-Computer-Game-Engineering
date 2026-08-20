@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -9,6 +10,7 @@
 #include "DistributedSystemCommonFiles/InteractionCommand.h"
 #include "DistributedSystemCommonFiles/RegionOwnership.h"
 #include "DistributedSystemCommonFiles/NetworkIdSpace.h"
+#include "DistributedSystemCommonFiles/HandoffCustody.h"
 
 namespace NCL::CSC8503 {
 	struct StartSimulatingObjectReceivedPacket;
@@ -354,6 +356,23 @@ namespace NCL {
 				++mHandoffsSent;
 			}
 
+			void RecordPendingTransfer(const CSC8503::StartSimulatingObjectPacket& packet,
+				int targetServerID);
+			bool PopHandoffResend(CSC8503::StartSimulatingObjectPacket& out);
+			void SetCustodyConfig(int retryTicks, int maxAttempts) {
+				mCustodyConfig.retryTicks = retryTicks;
+				mCustodyConfig.maxAttempts = maxAttempts;
+			}
+			int GetHandoffsResent() const {
+				return mHandoffsResent;
+			}
+			int GetHandoffsReclaimed() const {
+				return mHandoffsReclaimed;
+			}
+			int GetPendingCustodyCount() const {
+				return static_cast<int>(mPendingTransfers.size());
+			}
+
 			// Locality counters (invariant I6). What this server HOLDS, as distinct
 			// from what it simulates. Under the pre-seed model every server
 			// instantiates the whole world and deactivates what it does not own, so
@@ -492,8 +511,34 @@ namespace NCL {
 			std::vector<ScheduledHandoff> mScheduledHandoffs;
 			void FlushScheduledHandoffs();
 
+			// A transfer that has been SENT but not yet acknowledged.
+			//
+			// Simulation ownership is unaffected: HandleOutgoingObject still tears the
+			// object down on exactly the tick it always did. What this adds is that the
+			// sender does not FORGET the transfer. HandleOutgoingObject erases the pool
+			// entry, so without this record an object the receiver never installed
+			// exists nowhere - which is how E7 lost objects past the tick budget.
+			//
+			// unique_ptr rather than by value because this header only forward-declares
+			// StartSimulatingObjectPacket, matching ScheduledHandoff above.
+			struct PendingTransfer {
+				std::unique_ptr<CSC8503::StartSimulatingObjectPacket> packet;
+				int targetServerID = -1;
+				uint64_t lastSentTick = 0;
+				int attempts = 1;
+			};
+			// Keyed by object id: a resend must replace, never duplicate, the record.
+			std::map<int, PendingTransfer> mPendingTransfers;
+			void FlushPendingTransfers();
+			// Object ids whose transfer needs re-sending. Drained by
+			// DistributedGameServerManager, which owns the network layer.
+			std::vector<int> mHandoffResendQueue;
+			NCL::Distributed::CustodyConfig mCustodyConfig;
+			int mHandoffsResent = 0;
+			int mHandoffsReclaimed = 0;
+
 			// The part of StartHandlingObject that actually installs the object.
-			bool ApplyIncomingObject(CSC8503::StartSimulatingObjectPacket* packet);
+			bool ApplyIncomingObject(CSC8503::StartSimulatingObjectPacket* packet, bool isReclaim = false);
 			double mPhysicsTime = 0;
 			float mObjDebugTimer = 5.f;
 

@@ -1093,6 +1093,10 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	// atomically rather than leaving a gap the width of the lookahead.
 	FlushScheduledReleases();
 
+	// After the releases, so a transfer scheduled and released this tick is recorded
+	// before its retry window is ever evaluated.
+	FlushPendingTransfers();
+
 	FlushScheduledHaloUpdates();
 	RetireStaleHaloShadows();
 	ReimposeHaloState();
@@ -1436,6 +1440,77 @@ void DistributedGameServer::ServerWorldManager::FlushScheduledReleases() {
 	}
 }
 
+void DistributedGameServer::ServerWorldManager::RecordPendingTransfer(
+	const CSC8503::StartSimulatingObjectPacket& packet, int targetServerID) {
+	PendingTransfer transfer;
+	transfer.packet = std::make_unique<CSC8503::StartSimulatingObjectPacket>(packet);
+	transfer.targetServerID = targetServerID;
+	transfer.lastSentTick = mTickCounter;
+	transfer.attempts = 1;
+	mPendingTransfers[packet.objectID] = std::move(transfer);
+}
+
+bool DistributedGameServer::ServerWorldManager::PopHandoffResend(
+	CSC8503::StartSimulatingObjectPacket& out) {
+	while (!mHandoffResendQueue.empty()) {
+		const int objectID = mHandoffResendQueue.front();
+		mHandoffResendQueue.erase(mHandoffResendQueue.begin());
+		const auto entry = mPendingTransfers.find(objectID);
+		// Acked between being queued and being drained - nothing to resend.
+		if (entry == mPendingTransfers.end() || entry->second.packet == nullptr) {
+			continue;
+		}
+		out = *entry->second.packet;
+		return true;
+	}
+	return false;
+}
+
+void DistributedGameServer::ServerWorldManager::FlushPendingTransfers() {
+	if (mPendingTransfers.empty()) {
+		return;
+	}
+	// std::map, so object-id order - two reclaims on the same tick always happen in
+	// the same order, which is what keeps a run reproducible.
+	for (auto entry = mPendingTransfers.begin(); entry != mPendingTransfers.end(); ) {
+		const NCL::Distributed::CustodyAction action = NCL::Distributed::DecideCustody(
+			mTickCounter, entry->second.lastSentTick, entry->second.attempts,
+			mCustodyConfig);
+
+		if (action == NCL::Distributed::CustodyAction::Wait) {
+			++entry;
+			continue;
+		}
+
+		if (action == NCL::Distributed::CustodyAction::Resend) {
+			mHandoffResendQueue.push_back(entry->first);
+			entry->second.lastSentTick = mTickCounter;
+			++entry->second.attempts;
+			++mHandoffsResent;
+			++entry;
+			continue;
+		}
+
+		// Reclaim. The sender applies its OWN transfer packet back to itself, which is
+		// the same path an incoming handoff takes - correct precisely because
+		// HandleOutgoingObject erased the pool entry rather than nulling it, so a
+		// fresh construct is the normal arrival case and not a tombstone conflict.
+		const int objectID = entry->first;
+		CSC8503::StartSimulatingObjectPacket reclaimed = *entry->second.packet;
+		reclaimed.newOwnerServerID = mServerID;
+		entry = mPendingTransfers.erase(entry);
+
+		// Cleared BEFORE the apply: while this entry stands, a command for the object
+		// would be forwarded to a server that does not have it.
+		mLastKnownOwner.erase(objectID);
+		mLastKnownOwnerTick.erase(objectID);
+
+		ApplyIncomingObject(&reclaimed, true);
+		++mHandoffsReclaimed;
+		std::cout << "Reclaimed unacknowledged handoff of object " << objectID << "\n";
+	}
+}
+
 CSC8503::GameObject* DistributedGameServer::ServerWorldManager::PromoteHaloShadow(int networkID) {
 	const auto entry = mHaloObjects.find(networkID);
 	if (entry == mHaloObjects.end() || entry->second == nullptr) {
@@ -1559,7 +1634,7 @@ void DistributedGameServer::ServerWorldManager::FlushScheduledHandoffs() {
 	}
 }
 
-bool DistributedGameServer::ServerWorldManager::ApplyIncomingObject(StartSimulatingObjectPacket* packet) {
+bool DistributedGameServer::ServerWorldManager::ApplyIncomingObject(StartSimulatingObjectPacket* packet, bool isReclaim) {
 	// Checked BEFORE any construction. The object was destroyed while in flight
 	// (races W3/W4); building it here and tearing it down again would resurrect it
 	// for the length of this function, and on the construct-on-arrival path it would
@@ -1672,7 +1747,30 @@ bool DistributedGameServer::ServerWorldManager::ApplyIncomingObject(StartSimulat
 
 void DistributedGameServer::ServerWorldManager::HandleTransitionHandshakeReceived(
 	CSC8503::StartSimulatingObjectReceivedPacket* packet) {
+	if (packet == nullptr) {
+		return;
+	}
+	// The ack discharges custody: the receiver has accepted the object and will
+	// install it on the agreed tick, so this server is no longer responsible for it.
+	mPendingTransfers.erase(packet->objectID);
 
+	// Clearing mIsWaitingHandshake is only possible while the NetworkObject still
+	// exists, and whether it does depends on the handoff lookahead:
+	//
+	//  - lookahead 0: the object was released - and TORN DOWN - on the tick it was
+	//    sent, so by the time this ack arrives there is nothing left to call. Calling
+	//    NetworkObject::OnTransitionHandshakeReceived() unguarded here would be a
+	//    use-after-free.
+	//  - lookahead > 0: release happens at senderTick + lookahead, far later than one
+	//    round trip, so the object is still here and the flag can be cleared.
+	//
+	// Looking it up rather than assuming either case is what makes this safe in both.
+	const auto poolEntry = mCreatedObjectPool.find(packet->objectID);
+	if (poolEntry != mCreatedObjectPool.end() && poolEntry->second != nullptr) {
+		if (auto* networkObject = poolEntry->second->GetNetworkObject()) {
+			networkObject->OnTransitionHandshakeReceived();
+		}
+	}
 }
 
 void DistributedGameServer::ServerWorldManager::HandleOutgoingObject(int networkObjectID,
