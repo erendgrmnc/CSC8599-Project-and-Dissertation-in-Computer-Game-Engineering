@@ -249,6 +249,10 @@ int StartGameServer(int argc, char* argv[]) {
 		int haloObjects = -1;
 		int pendingReleases = 0;
 		int scheduledHandoffs = 0;
+		int handoffsResent = 0;
+		int handoffsReclaimed = 0;
+		int pendingCustody = 0;
+		int handoffsClamped = 0;
 		if (auto* worldManager = serverManager->GetServerWorldManager()) {
 			worldManager->FlushMetrics();
 			poolObjects = worldManager->GetPoolObjectCount();
@@ -257,6 +261,10 @@ int StartGameServer(int argc, char* argv[]) {
 			haloObjects = worldManager->GetHaloObjectCount();
 			pendingReleases = worldManager->GetPendingReleaseCount();
 			scheduledHandoffs = worldManager->GetScheduledHandoffCount();
+			handoffsResent = worldManager->GetHandoffsResent();
+			handoffsReclaimed = worldManager->GetHandoffsReclaimed();
+			pendingCustody = worldManager->GetPendingCustodyCount();
+			handoffsClamped = worldManager->GetHandoffsClamped();
 		}
 
 		// Final totals rather than a 2 Hz sample, so the I4 and I5 invariants can be
@@ -287,6 +295,10 @@ int StartGameServer(int argc, char* argv[]) {
 			<< " hoRecv=" << Profiler::GetHandoffsReceived()
 			<< " hoFail=" << Profiler::GetHandoffsFailed()
 			<< " hoLate=" << Profiler::GetHandoffsLate()
+			<< " hoResent=" << handoffsResent
+			<< " hoReclaimed=" << handoffsReclaimed
+			<< " hoCustody=" << pendingCustody
+			<< " hoClamp=" << handoffsClamped
 			// Transfers started but not yet released. hoSent counts the start and
 			// hoRecv the completion, so a run ending mid-transfer is short by this
 			// many and the parity check has to allow for it.

@@ -158,6 +158,28 @@ def read_final_lines(run_dir):
     return finals
 
 
+def check_custody(finals):
+    """Custody invariant: reclaimed transfers must not lose objects.
+
+    hoReclaimed > 0 is NOT a failure - it is the mechanism working. The failure is a
+    non-zero conservation delta, which is checked separately. What is checked here is
+    that nothing is left permanently in custody at the end of a run: a non-zero
+    hoCustody means a transfer was still outstanding when the server exited, and that
+    object is unaccounted for.
+    """
+    problems = []
+    for row in finals:
+        # read_final_lines regex-captures every field as a string, so hoCustody
+        # arrives as e.g. "0" - truthy in Python regardless of its digits. Cast to
+        # int before testing, or every run with the field present would "fail".
+        stranded = int(row.get("hoCustody", 0))
+        if stranded:
+            problems.append(
+                "server %s ended with %d transfer(s) still in custody"
+                % (row.get("id", "?"), stranded))
+    return problems
+
+
 def summarise_run(run_dir):
     """One row per server, plus the run-level invariant checks."""
     servers = []
@@ -288,7 +310,9 @@ def summarise_run(run_dir):
     invariants["ownership_gap_ticks"] = ownership_gap_ticks
     invariants["ownership_double_ticks"] = ownership_double_ticks
 
-    return servers, invariants
+    custody_problems = check_custody(server_finals)
+
+    return servers, invariants, custody_problems
 
 
 def main():
@@ -375,7 +399,7 @@ def analyse_experiment(experiment_dir):
         point = float(match.group(2).replace("p", ".").replace("m", "-"))
         repeat = int(match.group(3))
 
-        servers, invariants = summarise_run(run_dir)
+        servers, invariants, custody_problems = summarise_run(run_dir)
         if not servers:
             failures.append(f"{tag}: no per-tick metrics (run failed)")
             continue
@@ -389,6 +413,9 @@ def analyse_experiment(experiment_dir):
             if name in ("ho_fail", "resurrections",
                         "ownership_gap_ticks", "ownership_double_ticks") and value != 0:
                 failures.append(f"{tag}: {name} = {value} (expected 0)")
+
+        for problem in custody_problems:
+            failures.append(f"{tag}: {problem}")
 
     if not rows:
         print("No usable runs.")

@@ -1656,6 +1656,20 @@ bool DistributedGameServer::ServerWorldManager::ApplyIncomingObject(StartSimulat
 		return true;
 	}
 
+	// Incoming handoffs that land outside the receiving region, observed but not
+	// corrected: CalculateIncomingObjectOffsetPosition computes what a clamp would
+	// do and the result is DISCARDED below. A reclaim lands outside this server's
+	// region by construction (that is the whole point of a reclaim), so isReclaim
+	// is excluded here or every reclaim would fire this and the counter would lose
+	// its evidential value as a check on genuine handoff targeting.
+	if (!isReclaim && mServerBorderData != nullptr) {
+		const Maths::Vector3 incoming = packet->lastFullState.position;
+		const Maths::Vector3 clamped = CalculateIncomingObjectOffsetPosition(incoming);
+		if (clamped.x != incoming.x || clamped.z != incoming.z) {
+			++mHandoffsClamped;
+		}
+	}
+
 	// This server has been shadowing the object right up to the moment it became ours,
 	// so the handoff is a PROMOTION rather than a construction: the shadow already
 	// exists, is already in the physics system, and already has the object's contact

@@ -372,6 +372,9 @@ namespace NCL {
 			int GetPendingCustodyCount() const {
 				return static_cast<int>(mPendingTransfers.size());
 			}
+			int GetHandoffsClamped() const {
+				return mHandoffsClamped;
+			}
 
 			// Locality counters (invariant I6). What this server HOLDS, as distinct
 			// from what it simulates. Under the pre-seed model every server
@@ -536,6 +539,18 @@ namespace NCL {
 			NCL::Distributed::CustodyConfig mCustodyConfig;
 			int mHandoffsResent = 0;
 			int mHandoffsReclaimed = 0;
+
+			// Incoming handoffs that landed OUTSIDE the receiving region.
+			//
+			// CalculateIncomingObjectOffsetPosition exists to nudge such an object
+			// back inside but has never been called. Since ownership was unified
+			// behind OwningServerFor(), a handoff target is computed from the
+			// transmitted position, so an arrival should be in-region by
+			// construction and the function should be dead code for a good reason
+			// rather than by accident. This counts how often that is untrue. The
+			// clamp is computed and DISCARDED - never applied - so this observes
+			// without changing behaviour.
+			int mHandoffsClamped = 0;
 
 			// The part of StartHandlingObject that actually installs the object.
 			bool ApplyIncomingObject(CSC8503::StartSimulatingObjectPacket* packet, bool isReclaim = false);
