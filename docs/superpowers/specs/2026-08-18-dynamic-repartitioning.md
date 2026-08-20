@@ -14,6 +14,10 @@ static partition begins badly loaded and stays that way.
 
 400 objects, 3,600 paced ticks, seed 42, `--halo-width 8 --halo-reliable`:
 
+> **Debug build — not quotable.** See `2026-08-18-scale-ceiling.md` §0. Relative
+> comparisons within this table hold; absolute values are pessimistic by an
+> unknown factor.
+
 | | 2 servers | 4 servers |
 |---|---|---|
 | objects per server | 359 / 41 | 33 / 3 / **326** / 38 |
@@ -178,6 +182,10 @@ objects, and the new split (25% of the world) holds 24% of the objects, as it sh
 400 objects, `shuttle` — the workload the static partition is worst on — 1,800 paced ticks, with the
 border moved once at tick 300 from `x = 0` to a hand-picked `x = -40`:
 
+> **Debug build — not quotable.** See `2026-08-18-scale-ceiling.md` §0. Relative
+> comparisons within this table hold; absolute values are pessimistic by an
+> unknown factor.
+
 | | static | repartitioned |
 |---|---|---|
 | objects | 359 / 41 | 100 / 300 |
@@ -237,6 +245,10 @@ the pair's width per round.
 #### Result
 
 4,000-object `cluster`, 2 servers, 7,200 paced ticks:
+
+> **Debug build — not quotable.** See `2026-08-18-scale-ceiling.md` §0. Relative
+> comparisons within this table hold; absolute values are pessimistic by an
+> unknown factor.
 
 | | static | dynamic |
 |---|---|---|

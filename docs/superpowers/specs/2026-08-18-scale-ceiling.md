@@ -145,6 +145,10 @@ handoff traffic and is never pruned. At 32,000 objects it was ~700 entries per s
 over hours it would grow without bound. It needs an eviction policy keyed on the same staleness
 argument the halo retirement uses.
 
+> **Closed.** `PruneForwardingTable()` (`ServerWorldManager.cpp:258`, called each tick
+> from `:1088`) evicts entries after 1200 ticks, on exactly the staleness argument
+> this section asked for. The bound is no longer monotonic.
+
 ---
 
 ## 4. What to measure next, and how
@@ -297,8 +301,7 @@ Remaining, in order:
 
 1. **Multi-machine measurement.** Still the thing that would turn a locality claim into a speedup
    claim (§2).
-2. **`mLastKnownOwner` never prunes** (§3.3), unchanged.
-3. **Interest is a circle about a fixed point** for the headless client. A moving viewpoint, and a
+2. **Interest is a circle about a fixed point** for the headless client. A moving viewpoint, and a
    spatial query rather than a linear scan over owned objects, are both straightforward now that the
    broadphase grid exists — the scan is O(objects × peers) per snapshot, which is cheap today but is
    the next thing to bite at very large object counts.

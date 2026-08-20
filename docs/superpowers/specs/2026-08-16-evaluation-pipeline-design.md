@@ -1186,6 +1186,10 @@ machine that produces the data.
 
 ### First results — 1 and 2 servers, 3 repeats, 3600 ticks, shuttle
 
+> **Debug build — not quotable.** See `2026-08-18-scale-ceiling.md` §0. Relative
+> comparisons within this table hold; absolute values are pessimistic by an
+> unknown factor.
+
 | servers | server | p50 (ms) | p95 (ms) | p99 (ms) | owned |
 |---|---|---|---|---|---|
 | 1 | 0 | 1.5511 | 1.9480 | 2.3622 | 400 |
@@ -1230,6 +1234,10 @@ exact, analyser exit code 0.
 
 Clean-tree dataset, commit `7a48341`, medians across 3 repeats:
 
+> **Debug build — not quotable.** See `2026-08-18-scale-ceiling.md` §0. Relative
+> comparisons within this table hold; absolute values are pessimistic by an
+> unknown factor.
+
 | servers | server | p50 (ms) | p95 (ms) | p99 (ms) | owned |
 |---|---|---|---|---|---|
 | 1 | 0 | 1.548 | 1.820 | 1.977 | 400 |
@@ -1273,6 +1281,10 @@ against.
 
 Clean-tree dataset, commit `fddfbf3`, 3 repeats, 3600 ticks, 400 objects, medians:
 
+> **Debug build — not quotable.** See `2026-08-18-scale-ceiling.md` §0. Relative
+> comparisons within this table hold; absolute values are pessimistic by an
+> unknown factor.
+
 | servers | server | p50 (ms) | p95 (ms) | p99 (ms) | owned |
 |---|---|---|---|---|---|
 | 1 | 0 | 1.645 | 1.990 | 2.332 | 400 |
@@ -1288,6 +1300,10 @@ All invariants exact on all 9 runs; `integrated == owned` on every post-warmup t
 ### The two workloads bracket the contribution
 
 Busiest-server p50, and the reduction relative to one server:
+
+> **Debug build — not quotable.** See `2026-08-18-scale-ceiling.md` §0. Relative
+> comparisons within this table hold; absolute values are pessimistic by an
+> unknown factor.
 
 | servers | uniform | | shuttle | |
 |---|---|---|---|---|
@@ -1320,6 +1336,10 @@ count. This sweep measures it instead of asserting it.
 
 Clean-tree dataset, commit `5ab6880`, 2 servers, uniform workload, 3 repeats, 3600 ticks:
 
+> **Debug build — not quotable.** See `2026-08-18-scale-ceiling.md` §0. Relative
+> comparisons within this table hold; absolute values are pessimistic by an
+> unknown factor.
+
 | objects (total) | server | owned | p50 (ms) | p95 (ms) | p99 (ms) |
 |---|---|---|---|---|---|
 | 100 | 0 / 1 | 53 / 47 | 0.101 / 0.092 | 0.135 / 0.122 | 0.212 / 0.207 |
@@ -1331,6 +1351,10 @@ All invariants exact on all 9 runs.
 ### The cost model
 
 Taking the busiest server at each point and fitting `t ~ n^k`:
+
+> **Debug build — not quotable.** See `2026-08-18-scale-ceiling.md` §0. Relative
+> comparisons within this table hold; absolute values are pessimistic by an
+> unknown factor.
 
 | objects owned | p50 (ms) | µs per object | n growth | cost growth |
 |---|---|---|---|---|
