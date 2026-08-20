@@ -1,6 +1,6 @@
 # E8 — bytes, and the Dyconits composition claim
 
-Date: 2026-08-19
+Date: 2026-08-19 / 2026-08-20
 Runs: `runs/exp-bytes` (`interestRadius` x {0, 50}, 3 repeats each, 6 runs, all `ok: 2/2 servers`)
 Commit at which the packet sizes were measured: `abf5c37` (`tools/InteractionTests/PacketSizeTests.cpp`,
 same toolchain that built the servers this experiment ran). Repo was clean at the start and end of
@@ -15,6 +15,14 @@ claim against Dyconits (Donkervliet et al., ICDCS 2021) is: **the halo is paid f
 management's saving** — i.e. halo bytes/s < the snapshot bytes/s saved by turning interest
 management on. This was previously argued qualitatively (packet counts, no byte conversion). This
 experiment converts it to bytes/s and checks the inequality at the least favourable reading.
+
+**Two distinct savings, not one.** "Interest management" in this codebase is actually two separate
+mechanisms that both suppress snapshot sends: peer servers declaring negative interest in each
+other's objects (unrelated to any client, predates the client-facing interest radius), and the
+client's own declared interest radius. `snapSupp` counts every suppressed send-decision without
+distinguishing which mechanism suppressed it, so this run's own data — not an older run — is used to
+separate them (see "Three levels", below). Both are reported and verdicted separately; neither is
+picked over the other.
 
 ## Method
 
@@ -36,7 +44,7 @@ tools\run-experiments.ps1 -Name bytes -Sweep interestRadius -Values "0,50" -Repe
   and only the snapshot side should move with `interestRadius`.
 - Actual measured run length (`"Headless run complete after Ns"` from `mid.log`, both servers
   averaged per run) was used for the bytes/s conversion, not the nominal 20 s. Measured durations
-  ranged 20.0011–20.0083 s, i.e. within 0.04% of nominal — using the actual figure changes nothing
+  ranged 20.0011-20.0083 s, i.e. within 0.04% of nominal — using the actual figure changes nothing
   materially, but it's what was used.
 
 ## The four packet sizes (given, Task 4, commit `abf5c37`)
@@ -48,161 +56,178 @@ tools\run-experiments.ps1 -Name bytes -Sweep interestRadius -Values "0,50" -Repe
 | `HaloObjectState` (one halo entry) | 60 |
 | `HaloUpdatePacket` header | 16 |
 
-`TRANSPORT_OVERHEAD = 36` bytes/packet (~8 ENet header + 28 UDP/IP), added to **every** packet,
+`TRANSPORT_OVERHEAD = 36` bytes/packet (~8 ENet header + 28 UDP/IP), added to every packet,
 snapshot and halo alike, per the brief.
 
 ## Raw counters
 
 Summed across both servers, from `@@FINAL role=server` lines in each run's `mid.log`
-(`.superpowers/sdd/2026-08-19-evidence-completion/logs/` holds the sweep log and analysis script
-used below; raw per-server lines are quoted in the task report).
+(`.superpowers/sdd/2026-08-19-evidence-completion/logs/` holds the sweep log and the two computation
+scripts used below; raw per-server lines are quoted in the task report).
 
-| run | duration (s, measured) | snapSent | haloSent | haloObjSent | entries/pkt |
-|---|---:|---:|---:|---:|---:|
-| radius0-r1 | 20.0012 | 1,369,126 | 488,065 | 8,394,573 | 17.20 |
-| radius0-r2 | 20.0025 | 1,404,764 | 489,160 | 8,512,530 | 17.40 |
-| radius0-r3 | 20.0074 | 1,384,465 | 452,042 | 8,137,015 | 18.00 |
-| radius50-r1 | 20.0052 | 515,726 | 443,281 | 8,196,467 | 18.49 |
-| radius50-r2 | 20.0060 | 558,301 | 456,861 | 8,028,974 | 17.57 |
-| radius50-r3 | 20.0057 | 523,748 | 416,694 | 8,095,940 | 19.43 |
+| run | duration (s, measured) | snapSent | snapSupp | haloSent | haloObjSent | entries/pkt |
+|---|---:|---:|---:|---:|---:|---:|
+| radius0-r1 | 20.0012 | 1,369,126 | 5,805,725 | 488,065 | 8,394,573 | 17.20 |
+| radius0-r2 | 20.0025 | 1,404,764 | 5,772,212 | 489,160 | 8,512,530 | 17.40 |
+| radius0-r3 | 20.0074 | 1,384,465 | 5,793,700 | 452,042 | 8,137,015 | 18.00 |
+| radius50-r1 | 20.0052 | 515,726 | 6,665,539 | 443,281 | 8,196,467 | 18.49 |
+| radius50-r2 | 20.0060 | 558,301 | 6,623,113 | 456,861 | 8,028,974 | 17.57 |
+| radius50-r3 | 20.0057 | 523,748 | 6,657,669 | 416,694 | 8,095,940 | 19.43 |
 
-`snapSent` is confirmed the same value `analyse.py`'s `summary.csv` reports per run (it sums
-`snapSent` across servers before writing it into every server row, so the two per-server rows in
-`summary.csv` for a given run carry an identical, already-summed figure — read once per run, not
-per server-row, or the totals below would double).
-
-**Medians across repeats** (the quantities used for the bytes/s figures):
-
-| point | median snapSent | median haloSent | median haloObjSent |
-|---|---:|---:|---:|
-| radius 0 | 1,384,465 | 488,065 | 8,394,573 |
-| radius 50 | 523,748 | 443,281 | 8,096,940* |
-
-(*8,095,940, the true median of {8,196,467, 8,028,974, 8,095,940}.)
-
-Halo is constant across the sweep by design (width 8 at both points); the small run-to-run spread
-in `haloSent`/`haloObjSent` (≈416k–489k packets, ≈8.03M–8.51M entries) is repeat variance around
+These match `analyse.py`'s `summary.csv` (`snap_sent`, `snap_suppressed` columns) exactly. Halo is
+constant across the sweep by design (width 8 at both points); the small run-to-run spread in
+`haloSent`/`haloObjSent` (roughly 416k-489k packets, 8.03M-8.51M entries) is repeat variance around
 that constant, not a trend. Median halo counters across all 6 runs: `haloSent` = 454,452,
 `haloObjSent` = 8,166,741, entries/packet = 17.97 (halo packets run consistently near the
 `HaloUpdatePacket` 20-entry batch cap).
 
-**`snap_sent` saving, radius 0 -> 50:** median 1,384,465 -> 523,748, a drop of 860,717 packets
-(62.2%).
+## Three levels of filtering, derived from this run's own data
 
-**Caveat on what that saving represents.** At radius 0 the run already carries a large
-`snapSupp` count (~2.9M suppressions per server) that has nothing to do with the client's declared
-interest radius: peer servers already decline snapshots for objects outside their own area of
-responsibility, independent of any client-side filtering. That server-to-server suppression is
-present, and identical in kind, at **both** ends of this sweep — it is baked into both the radius-0
-and radius-50 measurements equally. The 62.2% figure above is therefore the **marginal saving from
-the client's declared interest radius alone**, on top of whatever suppression already existed at
-radius 0. It is not a comparison against a fully unfiltered baseline, and should not be read as one.
+`snapSupp` counts snapshots that *would* have been sent and were suppressed — so `snapSent +
+snapSupp` at a given interest radius is the total number of send *decisions*, i.e. exactly what an
+unfiltered system would have put on the wire. Sanity check: this total should not depend on the
+client's declared interest radius at all, since it's the pre-filter decision count — and it doesn't:
+7,176,976 (median, radius 0) vs 7,181,414 (median, radius 50), a 0.06% difference, confirming
+`snapSent + snapSupp` is a stable, radius-independent baseline in this dataset. That gives three
+self-consistent levels, all from `runs/exp-bytes`, medians across the 3 repeats, summed across
+servers:
 
-## Bytes/s, bounded
+| level | what it represents | median count | median UB bytes/s | median LB bytes/s |
+|---|---|---:|---:|---:|
+| unfiltered | `snapSent + snapSupp` at radius 0 — every send decision, before either suppression mechanism | 7,176,976 | 38,747,657.5 | 21,526,476.4 |
+| peer opt-out only | `snapSent` at radius 0 — client interest disabled, only inter-server negative interest active | 1,384,465 | 7,473,327.2 | 4,151,848.4 |
+| peer opt-out + client interest | `snapSent` at radius 50 — both mechanisms active | 523,748 | 2,827,440.4 | 1,570,800.2 |
+
+(UB = `count * (72+36) / duration`, LB = `count * (24+36) / duration`, both per the arithmetic
+below, medians of the per-run bytes/s figures.)
+
+Context, clearly not part of this dataset: an earlier build (`docs/superpowers/specs/2026-08-18-scale-ceiling.md`,
+before several later changes, 30 s runs) measured "original" 10,758,254 object-snapshots, then peer
+opt-out 3,687,198 (-66%), then + client interest radius 50, 686,740 (-94%). The shape (large
+baseline, big first-mechanism drop, further second-mechanism drop) is consistent with this run's own
+numbers, but the absolute figures are from a different build and are not mixed into the table above.
+
+## Bytes/s arithmetic
 
 ```
-snapshot bytes, UPPER = snapSent * (72 + 36) = snapSent * 108
-snapshot bytes, LOWER = snapSent * (24 + 36) = snapSent * 60
-halo bytes            = haloSent * 16 + haloObjSent * 60 + haloSent * 36
-                       = haloSent * 52 + haloObjSent * 60
+FULL = 72, DELTA = 24, HALO_ENTRY = 60, HALO_HDR = 16, OVERHEAD = 36
+
+snapshot bytes, UPPER = count * (72 + 36) = count * 108
+snapshot bytes, LOWER = count * (24 + 36) = count * 60
+halo bytes             = haloSent * 16 + haloObjSent * 60 + haloSent * 36
+                        = haloSent * 52 + haloObjSent * 60
+bytes/s = bytes / measured_duration_s (per run, then medianed across repeats)
 ```
-(equivalent to `haloSent * (16 + 60*entries_per_packet + 36)`, computed exactly rather than through
-the rounded entries/packet ratio.)
 
-Converted to bytes/second using each run's own measured duration, then medianed across the 3
-repeats per point:
+Halo cost (server-to-server, constant across the sweep): median 25,656,034 B/s (~25.66 MB/s) across
+all 6 runs (25.36-26.81 MB/s per individual run; no trend with radius, as expected since halo width
+was held at 8 throughout).
 
-| point | snapshot UPPER (B/s) | snapshot LOWER (B/s) | halo (B/s) |
-|---|---:|---:|---:|
-| radius 0 | 7,473,327 | 4,151,848 | 26,451,167 |
-| radius 50 | 2,827,440 | 1,570,800 | 25,364,059 |
-| **median across all 6 runs (halo only, since halo is constant)** | – | – | **25,656,034** |
+## Two savings, verdicted separately
 
-Per-run figures (all 6, medians above are computed from this table):
+The halo is a server-to-server cost. There are two different, legitimate arguments for what it
+should be weighed against, and they answer different questions:
 
-| run | snapshot UPPER B/s | snapshot LOWER B/s | halo B/s |
-|---|---:|---:|---:|
-| radius0-r1 | 7,392,855 | 4,107,142 | 26,451,167 |
-| radius0-r2 | 7,584,778 | 4,213,765 | 26,806,055 |
-| radius0-r3 | 7,473,327 | 4,151,848 | 25,576,827 |
-| radius50-r1 | 2,784,197 | 1,546,776 | 25,735,240 |
-| radius50-r2 | 3,013,921 | 1,674,401 | 25,267,180 |
-| radius50-r3 | 2,827,440 | 1,570,800 | 25,364,059 |
+- **Client-interest-only saving** (peer opt-out only -> peer opt-out + client interest, i.e. radius
+  0 -> radius 50 `snapSent`). This isolates the saving attributable to the client's declared
+  interest radius by itself — the harder, more conservative test, since it holds the peer-opt-out
+  mechanism fixed on both sides.
+- **All-filtering saving** (unfiltered -> peer opt-out + client interest, i.e. `snapSent+snapSupp`
+  at radius 0 -> `snapSent` at radius 50). This is the saving from every suppression mechanism
+  combined, including the peer-server opt-out that predates and is independent of the client
+  interest radius.
 
-**Snapshot saving (interest management's benefit), radius 0 -> 50:**
+Per the brief, the composition claim is asserted only if halo bytes/s is below the saving's LOWER
+(least favourable) bound.
 
-- Upper bound: 7,473,327 - 2,827,440 = **4,645,887 B/s**
-- Lower bound (least favourable): 4,151,848 - 1,570,800 = **2,581,048 B/s**
+```
+halo cost B/s (median, all 6 runs) = 25,656,033.6
 
-**Halo cost (server<->server, constant across the sweep):** median **25,656,034 B/s** (~25.66 MB/s),
-consistent across both sweep points (25.36–26.81 MB/s per individual run; no trend with radius, as
-expected since halo width was held at 8 throughout).
+client-interest-only saving:
+  UPPER = 7,473,327.2 - 2,827,440.4 =  4,645,886.7
+  LOWER = 4,151,848.4 - 1,570,800.2 =  2,581,048.2
+
+all-filtering saving:
+  UPPER = 38,747,657.5 - 2,827,440.4 = 35,920,217.0
+  LOWER = 21,526,476.4 - 1,570,800.2 = 19,955,676.1
+```
+
+| saving tested | LOWER bound (least favourable) | claim holds on LOWER? | halo/saving ratio (LOWER) | UPPER bound | halo/saving ratio (UPPER) |
+|---|---:|---|---:|---:|---:|
+| client-interest-only | 2,581,048.2 B/s | NO | 9.94x | 4,645,886.7 B/s | 5.52x |
+| all-filtering | 19,955,676.1 B/s | NO | 1.29x | 35,920,217.0 B/s | 0.71x (holds) |
 
 ## Verdict on the composition claim
 
-The composition claim requires halo bytes/s < snapshot saving bytes/s, checked at the **least
-favourable reading**: halo cost as computed above, against the saving computed with the **lower**
-snapshot bound.
+**Client interest alone (the strong, conservative test): the claim fails, decisively.** Halo cost
+(~25.66 MB/s) exceeds the client-interest-only saving by ~9.9x on the least favourable (lower)
+snapshot bound and ~5.5x on the upper bound. Client interest management, evaluated on its own, does
+not come close to paying for the halo at this operating point.
 
-```
-halo cost         : ~25,656,034 B/s
-saving (LOWER)     : ~2,581,048 B/s
-saving (UPPER)     : ~4,645,887 B/s
-```
+**All filtering combined, including the pre-existing peer-server opt-out: the claim still fails on
+the required (lower) bound, but only narrowly — 1.29x, not an order of magnitude — and it flips to
+holding on the upper bound** (0.71x: the saving would exceed the halo cost by roughly 40% if the
+snapshot stream were mostly full packets rather than mostly delta packets). Since the brief requires
+the LOWER bound for the claim to be asserted, and the LOWER bound fails here too, the composition
+claim is not established under either saving, at the least favourable reading required. But the
+margin is materially different: client-interest-only misses by an order of magnitude, while
+all-filtering misses by 29% and would pass on the upper bound — i.e. the all-filtering case sits
+right at the boundary the full/delta ambiguity in `snapSent` could plausibly resolve either way,
+whereas the client-interest-only case does not.
 
-Halo cost exceeds the snapshot saving at **both** bounds, by roughly 5.5x on the upper bound and
-roughly **9.9x** on the lower, least-favourable bound.
-
-**The composition claim is not established. It is refuted at this operating point.** The halo does
-not merely fail to be "paid for" by interest management's saving — under this workload
-(`--workload uniform`, 4000 objects, 2 servers, `--halo-width 8 --halo-lookahead 4`) it costs an
-order of magnitude more than interest management saves, at either snapshot bound. This is the least
-favourable reading requested by the brief, and it is decisive in that direction: the gap (5.5x-9.9x)
-is far larger than the spread between the upper and lower snapshot bounds themselves, so the
-ambiguity in `snapSent`'s full/delta mix does not affect which way this verdict comes out.
-
-The likely structural reason, stated for context rather than as a new claim needing its own
-experiment: the measured run has exactly **one client**, so interest management's saving is bounded
-by what a single declared view can remove from a 4000-object world. The halo cost, by contrast, is
-driven by every object within 8 units of the shared border being republished by each server to its
-neighbour on **every tick** (60 Hz), independent of how many clients exist or what any of them
-declared interest in. Server-to-server cost scales with world density and border geometry; the
-measured saving here scales with client count and view size. A workload with more concurrent clients
-each declaring a narrow interest radius could shift this balance; this experiment did not test that
-axis and does not claim to.
+**Attribution matters here.** Of the 6,653,228 counted-decision reduction from unfiltered to radius
+50 (unfiltered 7,176,976 -> peer-opt-out-only 1,384,465 -> radius-50 523,748), the peer-server
+opt-out step accounts for 5,792,511 of that drop (about 87%), and the client's interest radius
+accounts for the remaining 860,717 (about 13%). The peer-server opt-out is a separate mechanism from
+client-side interest management, existed before the interest radius was added, and is not what the
+Dyconits comparison is about — Dyconits is a client-facing consistency/interest technique. Crediting
+the halo against the combined saving therefore mixes in a saving that has nothing to do with the
+mechanism being compared to Dyconits. The client-interest-only verdict is the one that actually
+answers the stated claim; the all-filtering verdict is reported alongside it, plainly labelled, so
+neither is hidden.
 
 ## Stated caveat (per brief)
 
-`snapSent` does not separate full packets from delta packets — the server increments one counter
-for both. The snapshot figures above are therefore genuinely a **bound**, not a point estimate:
-the true bytes/s lies somewhere between the LOWER and UPPER columns depending on the actual,
-unmeasured full:delta mix in each run (nominally 1:5, but not verified by this counter).
-Removing that ambiguity needs a second counter (e.g. `snapFullSent` / `snapDeltaSent`) on the
-server side; that is a server code change and is held for the build phase, since server sources are
-frozen for this evidence pass. It does not change the verdict here, because the halo cost clears
-both bounds by a wide margin.
+`snapSent` does not separate full packets from delta packets — the server increments one counter for
+both. The snapshot figures above are therefore genuinely a bound, not a point estimate: the true
+bytes/s lies somewhere between the LOWER and UPPER columns depending on the actual, unmeasured
+full:delta mix in each run (nominally 1:5, but not verified by this counter). This ambiguity is
+exactly wide enough to flip the all-filtering verdict (fails on LOWER at 1.29x, holds on UPPER at
+0.71x) but not wide enough to touch the client-interest-only verdict (fails at 9.94x on LOWER and
+5.52x even on UPPER). Removing the ambiguity needs a second counter (e.g. `snapFullSent` /
+`snapDeltaSent`) on the server side; that is a server code change and is held for the build phase,
+since server sources are frozen for this evidence pass.
 
 ## Limitations
 
 - **Single client, single workload.** `--workload uniform`, 4000 objects, 2 servers, one client.
-  The saving side of the comparison is bounded by one client's declared view; a multi-client
-  deployment was not measured.
+  Both savings are bounded by what one client's declared view can remove from a 4000-object world;
+  a multi-client deployment was not measured, and the peer-opt-out saving does not depend on client
+  count at all (it is server-to-server), so a multi-client run would move only the client-interest
+  component.
 - **One halo configuration.** `--halo-width 8 --halo-lookahead 4` was held fixed (per the brief, to
   isolate the interest-radius axis). The halo cost figure is specific to that width/lookahead pair
   and to this workload's object density near the border; it is not a general halo-cost figure.
-- **Realtime run, not paced.** Correct for a bandwidth measurement (see Method), but it means
-  exact tick counts and handoff timing are not bit-reproducible run to run, consistent with every
-  other realtime run in this evidence set.
+- **Realtime run, not paced.** Correct for a bandwidth measurement (see Method), but it means exact
+  tick counts and handoff timing are not bit-reproducible run to run, consistent with every other
+  realtime run in this evidence set.
 
 ## Bottom line
 
 At the tested operating point (2 servers, 4000 objects, `uniform` workload, one client,
-`--halo-width 8 --halo-lookahead 4`), the halo's server-to-server cost (~25.7 MB/s) is roughly
-5.5x to 9.9x larger than interest management's server-to-client saving (~4.65 MB/s upper bound,
-~2.58 MB/s lower/least-favourable bound), both figures computed with the required 36-byte
-transport overhead included. **The composition claim — that the halo is paid for out of interest
-management's saving — does not hold at the least favourable reading, and does not hold at the
-favourable one either.** This refutes the qualitative version of the claim rather than confirming
-it; the likely reason is that this run measured one client (bounding the saving) against a
-per-tick, per-border-object halo republish cost (unbounded by client count), and a workload with
-substantially more concurrent clients was not tested.
+`--halo-width 8 --halo-lookahead 4`), the halo's server-to-server cost (~25.66 MB/s) exceeds both
+candidate savings at the required least-favourable (lower) bound: client-interest-only by ~9.9x
+(~2.58 MB/s saving) and all-filtering combined by ~1.29x (~19.96 MB/s saving). The composition claim
+— that the halo is paid for out of interest management's saving — is not established under either
+framing, at the bound the brief requires.
+
+The two verdicts are not equally strong evidence, though. The client-interest-only test — the one
+that actually isolates the mechanism being compared to Dyconits — fails by an order of magnitude and
+is robust to the full/delta ambiguity in `snapSent` either way. The all-filtering test fails much
+more narrowly (29% over on the lower bound, and would pass on the upper bound), and roughly 87% of
+that combined saving comes from the pre-existing peer-server opt-out rather than from client-facing
+interest management, so crediting the halo against it overstates what interest management itself
+buys. Read together: the composition claim as stated (interest management pays for the halo) is
+refuted for interest management proper; it is unresolved-but-close for "everything the codebase
+calls filtering, combined," and resolving that close case needs the full/delta split this pass
+deliberately deferred.
