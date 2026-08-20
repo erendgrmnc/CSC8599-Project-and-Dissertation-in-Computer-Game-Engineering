@@ -183,9 +183,10 @@ objects, and the new split (25% of the world) holds 24% of the objects, as it sh
 400 objects, `shuttle` — the workload the static partition is worst on — 1,800 paced ticks, with the
 border moved once at tick 300 from `x = 0` to a hand-picked `x = -40`:
 
-> **Debug build — not quotable.** See `2026-08-18-scale-ceiling.md` §0. Relative
-> comparisons within this table hold; absolute values are pessimistic by an
-> unknown factor.
+> **Debug build — not quotable (duration rows only).** See `2026-08-18-scale-ceiling.md` §0.
+> Relative comparisons within this table hold. The count rows (`objects`, `contacts`) are
+> build-independent; only the duration rows (`wall clock`, `busiest server`) and figures derived
+> from them (`slowest : fastest`) are pessimistic by an unknown factor.
 
 | | static | repartitioned |
 |---|---|---|
