@@ -186,24 +186,37 @@ correct, not merely where it gets slow.
 **Claim under test.** The halo's server-to-server cost is paid for out of interest management's
 server-to-client saving.
 
-**Status: UNTESTED, not refuted.** Two measurement-harness defects contaminate the byte counters this
-claim would be built from (`runs/exp-bytes`, `runs/exp-bytes-paced`; full detail in
-`docs/superpowers/results/2026-08-19-E8-bandwidth.md`):
+**Status: measured.** The two harness defects that blocked this (backlog items 4 and 5) are fixed, and
+`runs/exp-bytes-clean` re-runs it with `--drain-seconds 0`. 2 servers, 4,000 objects, `uniform`,
+1 client, 20 s realtime, 3 repeats, `--halo-width 8`, halo unreliable (deployment-realistic). Full
+detail in `docs/superpowers/results/2026-08-19-E8-bandwidth.md`.
 
-- `PublishHaloBand()` has no rate gate, unlike the 60 Hz-gated snapshot broadcast.
-- `--drain-seconds` is parsed by the game server but never forwarded by the midware, so the
-  unthrottled ~5-second drain phase that follows every timed run cannot be disabled through any
-  supported tooling path. A diagnostic sweep (`runs/exp-halo-diag`) showed combined `haloObjSent`
-  varying under 3% across a 20x range of main-loop duration — proof the drain phase, not the timed
-  loop, dominates the counter.
+| interest radius | snapshot B/s | halo B/s | saving vs radius 0 | halo / saving |
+|---|---|---|---|---|
+| 0 (everything) | 4,630,270 | 1,615,376 | — | — |
+| 25 | 1,477,392 | 1,672,717 | 3,152,878 | **0.531** |
+| 50 | 1,638,533 | 1,607,167 | 2,991,737 | **0.537** |
+| 100 | 3,039,035 | 1,634,495 | 1,591,235 | **1.027** |
 
-**Two previously reported figures (25.7 MB/s realtime, 33.9 MB/s paced) are retracted** — they measure
-the drain-phase artefact, not the halo's real cost. A geometric estimate (~1.6 MB/s, explicitly not a
-measurement) suggests the claim would plausibly hold if cleanly measured, but this is not evidence and
-must not be cited as such. E8 is blocked on the frozen build (`PhysicsServerMidware/` is frozen for
-this evidence pass to protect E5's 120 runs, which depend on the current drain-phase behaviour) and is
-left untested rather than force-completed. **E8 must be re-run once the rate gate (build-phase item 4)
-and the `--drain-seconds` forwarding (item 5) land** — see §6 of the backlog below.
+Datagrams costed at payload + 36 B (IPv4 + UDP + ENet). Halo cost is flat within 4% across radius, as
+server-to-server traffic must be; snapshot volume is monotone in radius. The radius-0 figure implies
+~1.36 M object-snapshots, against 1,317,106 recorded independently by E3 — agreement within 3%.
+
+**Verdict: the claim holds at radii 25 and 50, and the mechanism is batching.** A delta snapshot is
+24 B of payload, so per-datagram overhead nearly triples it; a halo packet carries ~18 entries (~1,100 B)
+and is barely affected. Interest management removes precisely the packets that overhead punishes most.
+
+**The one honest caveat is the overhead model**, and it changes the verdict: costed payload-only the
+ratios are 1.09 / 1.11 / 2.12 and the claim fails at one client. ENet coalesces outgoing commands into
+MTU-sized datagrams, so the truth lies between the two rows and settling it means counting datagrams
+rather than packets (ENet's `totalSentData`, a small code change). **Client count removes the
+ambiguity**: snapshots are counted per object *per client* while the halo is not, so the saving scales
+with clients and the halo cost does not — at 2+ clients the claim holds under either model at radii 25
+and 50. That scaling is an analytical extrapolation from how the counters increment, not a
+measurement, because the harness starts one client.
+
+The retracted 25.7 / 33.9 MB/s figures were wrong by a factor of ~16. The "explicitly not a
+measurement" geometric estimate recorded alongside them, ~1.6 MB/s, matches the measured 1.615 MB/s.
 
 ---
 
@@ -328,7 +341,11 @@ and their contact counts are not.**
   fixed lanes, one speed, meeting the border perpendicular — which is the configuration in which the
   halo's knee is sharpest and easiest to locate. Oblique approaches, mixed speeds, and denser traffic
   would stress the bound harder and are untested.
-- **E8 is untested**, not refuted (§3 above) — the bandwidth composition claim remains genuinely open.
+- **E8's overhead model is unresolved.** The bandwidth comparison (§3) is now measured, but whether the
+  composition claim holds at a *single* client depends on whether datagrams are costed at payload or
+  payload-plus-headers, and ENet's command coalescing sits between the two. Counting real datagrams
+  (`totalSentData` on the ENet host) would settle it. The claim is not sensitive to this at two or more
+  clients.
 
 ---
 
@@ -396,6 +413,13 @@ followed by one full re-measurement.
    near-perfect object balance.
 7. **`CalculateIncomingObjectOffsetPosition` is never called.** `ServerWorldManager.cpp:440`. Incoming
    handoffs get no positional nudge into the receiving region.
+10. **Bytes are counted as packets, not datagrams.** E8's verdict at one client flips depending on
+   whether per-datagram headers are charged, and ENet coalesces commands into MTU-sized datagrams, so
+   neither bound is known to be the true one. Surfacing the ENet host's `totalSentData` would replace
+   the whole derivation with a direct measurement.
+11. **The harness starts one client.** E8's client-count scaling — the argument that makes the
+   composition claim robust to item 10 — is analytical, derived from `mSnapshotsSent` incrementing per
+   peer, not measured. `measure.ps1` supports a single client plus an optional mid-run late joiner.
 8. ~~**Stale comments in frozen source.**~~ **Fixed.** `NetworkObject.h` now states 60 bytes per halo
    entry (as `PacketSizeTests` measures) and the snapshot gate comment states 60 Hz.
 9. ~~**`run-experiments.ps1`'s `-OutDir` is not anchored to the repo root.**~~ **Fixed.** Both scripts
@@ -406,5 +430,5 @@ followed by one full re-measurement.
 **Items 3, 4, 5, 8 and 9 are now closed** (Batch A). Items 1, 2, 6 and 7 remain, and all four are
 simulation-affecting, so they belong to a single batch followed by one full re-measurement.
 
-**E8 is now unblocked and has not yet been re-run.** The halo publish gate was its prerequisite and is
-in; the bandwidth composition claim stays untested until that run happens.
+**E8 has since been re-run** (`runs/exp-bytes-clean`) and is reported in §3. It leaves two small items
+behind, both listed below as items 10 and 11.
