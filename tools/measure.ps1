@@ -88,19 +88,9 @@ $ErrorActionPreference = "Continue"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $deploy = Join-Path $repoRoot "deploy"
 
-if ([string]::IsNullOrWhiteSpace($OutDir)) {
-    $OutDir = Join-Path $repoRoot "runs"
-} elseif (-not [System.IO.Path]::IsPathRooted($OutDir)) {
-    # Anchor a relative -OutDir to the repo root (as run-experiments.ps1 always does),
-    # not to the caller's current directory. $metricsDir below is derived from this
-    # and handed to the game servers via --metrics-dir; the midware spawns them with
-    # lpCurrentDirectory = nullptr (PhysicsServerMidware/ServerMidwareManager.cpp:185),
-    # so they inherit deploy/ as their working directory, not wherever this script was
-    # invoked from. A relative metrics path then resolves against deploy/ instead of
-    # the repo root and silently fails to open the CSV - the run still exits clean and
-    # prints @@FINAL, so nothing else about the run flags the lost metrics.
-    $OutDir = Join-Path $repoRoot $OutDir
-}
+. (Join-Path $PSScriptRoot "RunPaths.ps1")
+
+$OutDir = Resolve-RunOutDir -OutDir $OutDir -RepoRoot $repoRoot
 $runDir = Join-Path $OutDir $Tag
 
 Get-Process -Name EntryPoint -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue

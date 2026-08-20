@@ -108,9 +108,10 @@ if ($valueList.Count -eq 0) {
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
-if ([string]::IsNullOrWhiteSpace($OutDir)) {
-    $OutDir = Join-Path $repoRoot "runs"
-}
+
+. (Join-Path $PSScriptRoot "RunPaths.ps1")
+
+$OutDir = Resolve-RunOutDir -OutDir $OutDir -RepoRoot $repoRoot
 $experimentDir = Join-Path $OutDir "exp-$Name"
 
 Remove-Item $experimentDir -Recurse -Force -ErrorAction SilentlyContinue
