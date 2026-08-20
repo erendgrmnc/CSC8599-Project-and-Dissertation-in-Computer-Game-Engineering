@@ -192,7 +192,7 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 				timeTaken = end - start;
 				Profiler::SetLastDeltaSnapshotTime(timeTaken.count());
 			}
-			mTimeToNextPacket += 1.0f / 60.f; //20hz server/client update
+			mTimeToNextPacket += 1.0f / 60.f; // 60hz, one full snapshot in six
 		}
 	}
 
@@ -1103,6 +1103,27 @@ void DistributedGameServer::DistributedGameServerManager::PublishHaloBand() {
 		return;
 	}
 
+	// Once per tick, not once per call. The batching comment below states the intended
+	// pattern as one packet per neighbour per tick, but the caller runs every loop
+	// iteration, and a loop iteration is not a tick:
+	//
+	//  - in realtime mode the loop spins at ~1 kHz against a 120 Hz substep, so roughly
+	//    seven publishes in eight re-send an unchanged state under the same senderTick.
+	//    The receiver schedules each at senderTick + lookahead and the later copies
+	//    overwrite the earlier ones with identical values, so they are pure bandwidth.
+	//  - the drain phase calls this too (ServerStarter.cpp) but never steps the world,
+	//    so mTickCounter is frozen for its whole duration and every iteration
+	//    republished the entire band. On the lookahead sweeps that flood was about 97%
+	//    of haloObjSent, which is why E8's bandwidth figures had to be retracted.
+	//
+	// A paced run already does exactly one iteration per tick, so this changes nothing
+	// there and leaves the E2 and E5 measurements valid.
+	const uint64_t currentTick = worldManager->GetTickCounter();
+	if (currentTick == mLastHaloPublishTick) {
+		return;
+	}
+	mLastHaloPublishTick = currentTick;
+
 	std::vector<ServerWorldManager::HaloPublication> publications;
 	worldManager->CollectHaloPublications(publications);
 	if (publications.empty()) {
@@ -1112,7 +1133,7 @@ void DistributedGameServer::DistributedGameServerManager::PublishHaloBand() {
 	// Sorted by (target, object) already, so one pass fills a batch per target and
 	// flushes on the boundary. Batching matters: one packet per object per neighbour
 	// per tick is the traffic pattern this increment has to avoid being dismissed for.
-	const int senderTick = static_cast<int>(worldManager->GetTickCounter());
+	const int senderTick = static_cast<int>(currentTick);
 	int currentTarget = -1;
 	HaloUpdatePacket batch(mGameServerID, senderTick);
 

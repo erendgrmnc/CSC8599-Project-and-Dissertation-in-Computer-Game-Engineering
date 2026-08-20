@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <mutex>
 #include <queue>
 
@@ -124,6 +125,11 @@ namespace NCL {
 			// affordable, and a packet count alone would hide it.
 			// Set from --halo-reliable. See PublishHaloBand.
 			bool mHaloReliable = false;
+			// The tick the halo band was last published on, so it is published once per
+			// tick rather than once per loop iteration. See PublishHaloBand. The
+			// sentinel is a tick value the counter cannot reach, so the first publish
+			// on tick 0 is not mistaken for a repeat.
+			uint64_t mLastHaloPublishTick = UINT64_MAX;
 			// The instance's server registry, assembled from pages. Keyed by server id,
 			// so a page delivered twice overwrites rather than appending and the
 			// completeness test cannot be satisfied by duplicates.
