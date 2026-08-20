@@ -164,7 +164,7 @@ namespace NCL::CSC8503 {
 	// the run would stop being reproducible.
 	struct HaloUpdatePacket : public GamePacket {
 		// Sized so a full batch stays inside a typical 1400-byte MTU: 20 entries at
-		// 64 bytes is 1280, plus the header. Larger batches would be fragmented by
+		// 60 bytes is 1200, plus the header. Larger batches would be fragmented by
 		// ENet, which costs a retransmit of the whole thing if any fragment is lost.
 		static constexpr int MAX_ENTRIES = 20;
 
