@@ -2,7 +2,14 @@
 //
 // Acknowledged transfers are ERASED from mPendingTransfers, so they never reach this
 // function - it only ever sees transfers still outstanding. That is what keeps it a
-// pure function of (tick, lastSentTick, attempts, config) with no "acked" input.
+// pure function of (tick, lastSentTick, attempts, config, peerLinkGone) with no
+// "acked" input.
+//
+// The last parameter is the whole point of the Task 6a fix: reclaim is gated on
+// evidence that the peer is GONE (a resend with no peer link to send it down at all),
+// never on elapsed time. Time-gated reclaim duplicated objects under load - it cannot
+// tell "never arrived" from "arrived and the receiver is slow", and under overload it
+// is systematically the latter.
 
 #include "TestHarness.h"
 
@@ -15,7 +22,7 @@ TEST(CustodyWaitsBeforeTheRetryTimeout) {
 	config.retryTicks = 30;
 	config.maxAttempts = 3;
 	// Sent on tick 100, now tick 129: 29 ticks elapsed, one short of the timeout.
-	CHECK(DecideCustody(129, 100, 1, config) == CustodyAction::Wait);
+	CHECK(DecideCustody(129, 100, 1, config, false) == CustodyAction::Wait);
 }
 
 TEST(CustodyResendsExactlyOnTheTimeoutTick) {
@@ -23,30 +30,62 @@ TEST(CustodyResendsExactlyOnTheTimeoutTick) {
 	config.retryTicks = 30;
 	config.maxAttempts = 3;
 	// Boundary: elapsed == retryTicks must resend, not wait one more tick.
-	CHECK(DecideCustody(130, 100, 1, config) == CustodyAction::Resend);
+	CHECK(DecideCustody(130, 100, 1, config, false) == CustodyAction::Resend);
 }
 
 TEST(CustodyResendsWhileAttemptsRemain) {
 	CustodyConfig config;
 	config.retryTicks = 30;
 	config.maxAttempts = 3;
-	CHECK(DecideCustody(500, 100, 2, config) == CustodyAction::Resend);
+	CHECK(DecideCustody(500, 100, 2, config, false) == CustodyAction::Resend);
 }
 
-TEST(CustodyReclaimsWhenAttemptsAreExhausted) {
+TEST(CustodyHoldsRatherThanReclaimingWhenAttemptsAreExhaustedButSendsSucceeded) {
+	// THE REGRESSION TEST FOR THE DUPLICATION DEFECT. attempts == maxAttempts means
+	// all three sends have happened and none was acked - but every one of them was
+	// DELIVERED, so the peer is alive and the object is either in flight or already
+	// installed there. Reclaiming here is what produced conservation_delta of +627 and
+	// +13,532: the sender applied its own transfer back to itself while the receiver
+	// was still applying the original, and both then owned the object.
 	CustodyConfig config;
 	config.retryTicks = 30;
 	config.maxAttempts = 3;
-	// attempts == maxAttempts means all three sends have happened and none was acked.
-	CHECK(DecideCustody(500, 100, 3, config) == CustodyAction::Reclaim);
-	CHECK(DecideCustody(500, 100, 4, config) == CustodyAction::Reclaim);
+	CHECK(DecideCustody(500, 100, 3, config, false) == CustodyAction::Hold);
+	CHECK(DecideCustody(500, 100, 4, config, false) == CustodyAction::Hold);
+	// However long it has been outstanding. Time alone is never evidence.
+	CHECK(DecideCustody(100000000, 100, 99, config, false) == CustodyAction::Hold);
 }
 
-TEST(CustodyReclaimsOnFirstTimeoutWhenOnlyOneAttemptIsAllowed) {
+TEST(CustodyHoldsForeverWhenOnlyOneAttemptIsAllowedAndItWasDelivered) {
+	// maxAttempts 1 used to mean "reclaim on the first timeout" - the most aggressive
+	// possible time-gated reclaim. It now means "stop counting attempts", not "reclaim".
 	CustodyConfig config;
 	config.retryTicks = 30;
 	config.maxAttempts = 1;
-	CHECK(DecideCustody(130, 100, 1, config) == CustodyAction::Reclaim);
+	CHECK(DecideCustody(130, 100, 1, config, false) == CustodyAction::Hold);
+}
+
+TEST(CustodyReclaimsOnlyWhenThePeerLinkIsGone) {
+	// The one admissible piece of evidence: there is no peer link to that server at
+	// all, so the resend could not even be attempted. The object exists nowhere and no
+	// amount of further resending can change that, so the sender takes it back.
+	CustodyConfig config;
+	config.retryTicks = 30;
+	config.maxAttempts = 3;
+	CHECK(DecideCustody(500, 100, 3, config, true) == CustodyAction::Reclaim);
+}
+
+TEST(CustodyReclaimsOnAMissingPeerLinkWithoutWaitingForTheDeadline) {
+	// A missing peer link is evidence, not a timeout, so there is nothing to wait for.
+	// Deferring to the next deadline would leave the object existing nowhere for
+	// another full retry window.
+	CustodyConfig config;
+	config.retryTicks = 30;
+	config.maxAttempts = 3;
+	// Well inside the retry window, and attempts nowhere near exhausted.
+	CHECK(DecideCustody(101, 100, 1, config, true) == CustodyAction::Reclaim);
+	// Even with the clock behind the send tick, which otherwise forces Wait.
+	CHECK(DecideCustody(50, 100, 1, config, true) == CustodyAction::Reclaim);
 }
 
 TEST(CustodyDisabledByZeroRetryTicksNeverActs) {
@@ -56,17 +95,52 @@ TEST(CustodyDisabledByZeroRetryTicksNeverActs) {
 	CustodyConfig config;
 	config.retryTicks = 0;
 	config.maxAttempts = 3;
-	CHECK(DecideCustody(100000, 100, 1, config) == CustodyAction::Wait);
-	CHECK(DecideCustody(100000, 100, 99, config) == CustodyAction::Wait);
+	CHECK(DecideCustody(100000, 100, 1, config, false) == CustodyAction::Wait);
+	CHECK(DecideCustody(100000, 100, 99, config, false) == CustodyAction::Wait);
+	// Including the undeliverable case: with retry disabled no resend is ever issued,
+	// so there is no delivery result to act on and the escape hatch must stay inert.
+	CHECK(DecideCustody(100000, 100, 99, config, true) == CustodyAction::Wait);
 }
 
 TEST(CustodyWaitsIfTheTickCounterIsBehindTheSendTick) {
 	// Defensive: a repartition or a reset must not produce a huge unsigned elapsed
-	// value and trigger an instant reclaim.
+	// value and trigger an instant action.
 	CustodyConfig config;
 	config.retryTicks = 30;
 	config.maxAttempts = 3;
-	CHECK(DecideCustody(50, 100, 1, config) == CustodyAction::Wait);
+	CHECK(DecideCustody(50, 100, 1, config, false) == CustodyAction::Wait);
+}
+
+TEST(CustodyNeverReclaimsOnElapsedTimeAloneAtAnyAttemptCount) {
+	// Swept assertion of the controller ruling: across the whole (attempts, elapsed)
+	// space, with the peer link intact, NO input may produce Reclaim.
+	CustodyConfig config;
+	config.retryTicks = 30;
+	config.maxAttempts = 3;
+	for (int attempts = 1; attempts <= 50; ++attempts) {
+		for (uint64_t now = 100; now <= 100000; now += 997) {
+			CHECK(DecideCustody(now, 100, attempts, config, false) != CustodyAction::Reclaim);
+		}
+	}
+}
+
+TEST(CustodyStillBoundsResendsByMaxAttempts) {
+	// Hold must not become "resend forever". A resend is only safe while the receiver
+	// still HOLDS the object - it acks the duplicate and custody discharges. Once the
+	// receiver has handed the object onward (tens of ticks on a moving workload, far
+	// less than the retry deadline), a late resend re-installs an object that now lives
+	// elsewhere: duplication by a second route. An unbounded-resend build was measured
+	// doing 4,117 resends against 199 transfers for conservation_delta +1,463.
+	// maxAttempts is what bounds that, so past it the answer must be Hold, never
+	// Resend, however long the transfer has been outstanding.
+	CustodyConfig config;
+	config.retryTicks = 30;
+	config.maxAttempts = 3;
+	for (int attempts = 3; attempts <= 200; ++attempts) {
+		for (uint64_t now = 130; now <= 100000; now += 997) {
+			CHECK(DecideCustody(now, 100, attempts, config, false) == CustodyAction::Hold);
+		}
+	}
 }
 
 // --- CustodyTicksToMicros -------------------------------------------------------

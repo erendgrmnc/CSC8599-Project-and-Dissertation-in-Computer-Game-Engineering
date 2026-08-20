@@ -174,11 +174,23 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 		PublishHaloBand();
 
 		// Resends for transfers that were never acknowledged. Same reliable path as
-		// the original send; the receiver dedupes by object id because an object it
-		// already holds fails IsReleasePending and is ignored.
+		// the original send. A receiver that STILL HOLDS the object re-applies it
+		// harmlessly and acks, which discharges custody - but one that has since handed
+		// the object onward re-installs an object that now lives elsewhere, so resends
+		// are bounded by --handoff-max-attempts rather than repeated indefinitely (see
+		// NCL::Distributed::DecideCustody).
+		//
+		// The verdict is fed straight back into custody, and it is deliberately not
+		// just "the send returned false": a refused send with a peer link still in
+		// place is ENet's outgoing queue filling up under overload, which is exactly
+		// the condition a timeout-based reclaim used to misread as death. Only a
+		// MISSING peer link authorises a reclaim. ServerWorldManager cannot see either
+		// fact itself - it never touches the network layer.
 		StartSimulatingObjectPacket resend;
 		while (mServerWorldManager->PopHandoffResend(resend)) {
-			SendPacketToServer(resend.newOwnerServerID, resend);
+			const bool delivered = SendPacketToServer(resend.newOwnerServerID, resend);
+			const bool peerLinkGone = !delivered && !HasPeerLink(resend.newOwnerServerID);
+			mServerWorldManager->RecordHandoffResendResult(resend.objectID, peerLinkGone);
 		}
 
 		mTimeToNextPacket -= dt;
@@ -841,6 +853,20 @@ bool DistributedGameServer::DistributedGameServerManager::SendPacketToServer(int
 			// this returning true, so reporting success for a packet ENet refused
 			// loses the object outright.
 			return connection->client->SendReliablePacket(packet);
+		}
+	}
+	return false;
+}
+
+// Deliberately separate from SendPacketToServer's return value. That returns false for
+// two very different things: no peer link at all, and ENet refusing an otherwise-valid
+// send because the peer's outgoing reliable queue is full. The second is backpressure
+// under overload - exactly the condition custody must not read as "the peer died" - so
+// custody asks this instead. See NCL::Distributed::DecideCustody.
+bool DistributedGameServer::DistributedGameServerManager::HasPeerLink(int targetServerID) const {
+	for (const auto* connection : mDistributedPhysicsClients) {
+		if (connection->serverID == targetServerID && connection->client != nullptr) {
+			return true;
 		}
 	}
 	return false;

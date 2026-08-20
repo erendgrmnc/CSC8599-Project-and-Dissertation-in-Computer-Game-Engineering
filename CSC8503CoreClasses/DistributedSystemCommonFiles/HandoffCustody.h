@@ -21,25 +21,75 @@ namespace NCL::Distributed {
 
 	enum class CustodyAction {
 		Wait,       // still within the retry window
-		Resend,     // timed out, attempts remain
-		Reclaim,    // timed out, attempts exhausted - take the object back
+		Resend,     // timed out, attempts remain - send the transfer again
+		Hold,       // timed out, attempts exhausted, BUT the peer link is still there:
+		            // keep the object in custody and stop acting on it. Never reclaim.
+		Reclaim,    // the peer link is gone - take the object back
 	};
 
 	struct CustodyConfig {
 		// Ticks to wait for an ack before resending. 0 disables retry entirely and
 		// restores the original behaviour, so an experiment can compare the two.
 		int retryTicks = 30;
-		// Total sends allowed, including the first. 1 means reclaim on first timeout.
+		// Total sends allowed, including the first. Past this the action becomes Hold,
+		// not Reclaim - see the comment on DecideCustody below.
 		int maxAttempts = 3;
 	};
 
+	// RECLAIM IS GATED ON EVIDENCE THAT THE PEER IS GONE, NEVER ON ELAPSED TIME.
+	//
+	// The first version of this function reclaimed once `attempts >= maxAttempts`
+	// timeouts had passed. A timeout cannot distinguish "the receiver never got it"
+	// from "the receiver got it and is slow", and under overload it is systematically
+	// the latter: measurement (docs/superpowers/results/2026-08-20-B-custody.md) showed
+	// the sender reclaiming while the original transfer was still landing on the
+	// receiver, so BOTH servers ended up owning the object. conservation_delta went
+	// from -4..-8 (loss, which custody was built to fix) to +100/+113 at 8k objects,
+	// +627 at 4k, and +13,532 with rebalancing - over 3x the population. Duplicate
+	// ownership is strictly worse than the loss it replaced: two integrators diverge
+	// and nothing downstream can tell which copy is real.
+	//
+	// `peerLinkGone` is the only admissible evidence: a resend the network layer could
+	// not even attempt, because there is no peer link to that server at all. Note this
+	// is NARROWER than "SendPacketToServer returned false" - ENet also refuses a send
+	// when the peer's outgoing reliable queue is full, which is backpressure under
+	// overload, i.e. exactly the condition custody must not mistake for death. The
+	// caller distinguishes the two (DistributedGameServerManager::HasPeerLink) and only
+	// a genuinely absent link reaches here. Measured: treating a queue refusal as death
+	// still produced reclaims, and they still duplicated (fix3-E7 r2, +124).
+	//
+	// A delivered resend proves the peer is alive, so custody keeps waiting.
+	//
+	// ACCEPTED TRADE-OFF: a peer that is alive but permanently wedged - accepting
+	// packets, never acking - will never return the object, and custody holds it
+	// forever. That is a STALL, permanently visible in the hoCustody counter and in
+	// the conservation total, rather than a silent corruption that no counter can
+	// see. A visible stall is strictly better than duplicate ownership.
+	//
+	// Hold also stops RESENDING, not just reclaiming. Resends are only safe while the
+	// receiver still holds the object: it acks the duplicate and custody discharges.
+	// Once the receiver has handed the object onward - which on a moving workload takes
+	// tens of ticks, far less than the retry deadline - a late resend RE-INSTALLS an
+	// object that now lives somewhere else, which is duplication by a second route.
+	// An unbounded-resend variant of this function was measured doing exactly that:
+	// 4,117 resends against 199 transfers, hoRecv 846 against hoSent 199, and
+	// conservation_delta +1,463. maxAttempts is what bounds that exposure, so it is
+	// still enforced - it just ends in Hold instead of Reclaim.
 	inline CustodyAction DecideCustody(uint64_t currentTick, uint64_t lastSentTick,
-		int attempts, const CustodyConfig& config) {
+		int attempts, const CustodyConfig& config, bool peerLinkGone) {
 		if (config.retryTicks <= 0) {
+			// Custody disabled entirely (the pre-custody comparison build). No resends
+			// happen, so there is never a delivery result to judge either.
 			return CustodyAction::Wait;
 		}
+		// Checked BEFORE the deadline: a missing peer link is evidence, not a timeout,
+		// so there is nothing to wait for. Deferring the reclaim to the next deadline
+		// would leave the object nowhere for another full retry window.
+		if (peerLinkGone) {
+			return CustodyAction::Reclaim;
+		}
 		// The tick counter can sit below lastSentTick after a repartition. Unsigned
-		// subtraction would wrap to an enormous elapsed value and reclaim instantly.
+		// subtraction would wrap to an enormous elapsed value and act instantly.
 		if (currentTick < lastSentTick) {
 			return CustodyAction::Wait;
 		}
@@ -47,7 +97,11 @@ namespace NCL::Distributed {
 			return CustodyAction::Wait;
 		}
 		if (attempts >= config.maxAttempts) {
-			return CustodyAction::Reclaim;
+			// The peer link is still there (or peerLinkGone would have returned above),
+			// so the transfer is on its way or already installed. Hold: the caller keeps
+			// the custody record and stops acting on it - no further resend, and above
+			// all no apply back to itself.
+			return CustodyAction::Hold;
 		}
 		return CustodyAction::Resend;
 	}

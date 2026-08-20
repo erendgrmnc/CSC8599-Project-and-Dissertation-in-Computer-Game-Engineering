@@ -203,6 +203,11 @@ namespace NCL {
 			bool SendPacketToServer(int targetServerID, GamePacket& packet) const;
 			// For state superseded every tick. See the definition.
 			bool SendUnreliablePacketToServer(int targetServerID, GamePacket& packet) const;
+			// Whether a peer link to that server exists AT ALL, independently of
+			// whether any particular send succeeded. Custody needs the distinction:
+			// a send can fail because ENet's outgoing reliable queue is full (overload)
+			// or because the peer is gone, and only the second may reclaim an object.
+			bool HasPeerLink(int targetServerID) const;
 
 			// Fault injection (see ServerWorldManager::SetHandoffDelayTicks). The
 			// object is released locally at the normal moment; only the transfer

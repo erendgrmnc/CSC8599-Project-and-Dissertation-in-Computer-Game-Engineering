@@ -359,6 +359,16 @@ namespace NCL {
 			void RecordPendingTransfer(const CSC8503::StartSimulatingObjectPacket& packet,
 				int targetServerID, int batchSize = 1);
 			bool PopHandoffResend(CSC8503::StartSimulatingObjectPacket& out);
+			// Feeds the network layer's verdict back into custody. Called by
+			// DistributedGameServerManager for every packet it drains from
+			// PopHandoffResend: `peerLinkGone` means the resend could not even be
+			// attempted because no peer link to that server exists, and it is the ONLY
+			// evidence that authorises a reclaim. Deliberately NOT "the send returned
+			// false" - ENet also refuses when the outgoing queue is full, which is
+			// overload, not death. This exists so that ServerWorldManager still never
+			// touches the network layer itself - same idiom as
+			// PendingRelay/PopPendingRelay.
+			void RecordHandoffResendResult(int objectID, bool peerLinkGone);
 			// retryTicks is a COUNT OF TICKS on the CLI and in the config struct's name,
 			// but mCustodyConfig.retryTicks below actually holds MICROSECONDS: the
 			// conversion is NCL::Distributed::CustodyTicksToMicros (HandoffCustody.h),
@@ -548,12 +558,19 @@ namespace NCL {
 			// 50x the grace a lone transfer would; a fixed per-transfer deadline cannot
 			// tell the two apart; a deadline scaled by however many the receiver was
 			// simultaneously handed can.
+			// peerLinkGone is the ONLY thing that may trigger a reclaim - see
+			// NCL::Distributed::DecideCustody. It is fed back from
+			// DistributedGameServerManager (which owns the network layer) via
+			// RecordHandoffResendResult: a resend that failed with no peer link to that
+			// server is evidence the peer is gone, as opposed to a deadline expiring,
+			// which only ever meant "slow".
 			struct PendingTransfer {
 				std::unique_ptr<CSC8503::StartSimulatingObjectPacket> packet;
 				int targetServerID = -1;
 				uint64_t lastSentTick = 0;
 				int attempts = 1;
 				int batchSizeAtSend = 1;
+				bool peerLinkGone = false;
 			};
 			// Keyed by object id: a resend must replace, never duplicate, the record.
 			std::map<int, PendingTransfer> mPendingTransfers;

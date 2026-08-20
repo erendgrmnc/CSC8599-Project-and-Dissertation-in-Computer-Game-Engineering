@@ -1468,6 +1468,19 @@ bool DistributedGameServer::ServerWorldManager::PopHandoffResend(
 	return false;
 }
 
+void DistributedGameServer::ServerWorldManager::RecordHandoffResendResult(int objectID,
+	bool peerLinkGone) {
+	const auto entry = mPendingTransfers.find(objectID);
+	// Acked (and erased) between the send and this call - nothing left in custody to
+	// judge, and a delivery failure on an already-acked transfer is meaningless.
+	if (entry == mPendingTransfers.end()) {
+		return;
+	}
+	// Cleared as well as set: a peer link that came back proves the peer is alive
+	// again, and custody must not carry a stale "gone" verdict into a later tick.
+	entry->second.peerLinkGone = peerLinkGone;
+}
+
 void DistributedGameServer::ServerWorldManager::FlushPendingTransfers() {
 	if (mPendingTransfers.empty()) {
 		return;
@@ -1514,9 +1527,15 @@ void DistributedGameServer::ServerWorldManager::FlushPendingTransfers() {
 
 		const NCL::Distributed::CustodyAction action = NCL::Distributed::DecideCustody(
 			NCL::MonotonicMicros(), entry->second.lastSentTick, entry->second.attempts,
-			scaledConfig);
+			scaledConfig, entry->second.peerLinkGone);
 
-		if (action == NCL::Distributed::CustodyAction::Wait) {
+		// Wait (deadline not reached) and Hold (attempts exhausted, peer link intact)
+		// are both "do nothing and keep the record". Hold is permanent by design: it
+		// deliberately never resends again and never reclaims, so the entry stays in
+		// mPendingTransfers - and therefore in hoCustody - for the rest of the run. A
+		// visible stall, not a silent corruption. See DecideCustody.
+		if (action == NCL::Distributed::CustodyAction::Wait ||
+			action == NCL::Distributed::CustodyAction::Hold) {
 			++entry;
 			continue;
 		}
@@ -1530,7 +1549,12 @@ void DistributedGameServer::ServerWorldManager::FlushPendingTransfers() {
 			continue;
 		}
 
-		// Reclaim. The sender applies its OWN transfer packet back to itself, which is
+		// Reclaim - reached ONLY when a resend was undeliverable, i.e. there is no peer
+		// link to the target server at all. Never on elapsed time: see DecideCustody for
+		// the measurement that forced that rule (a time-gated reclaim duplicated up to
+		// 13,532 objects on a 4,000-object run).
+		//
+		// The sender applies its OWN transfer packet back to itself, which is
 		// the same path an incoming handoff takes - correct precisely because
 		// HandleOutgoingObject erased the pool entry rather than nulling it, so a
 		// fresh construct is the normal arrival case and not a tombstone conflict.
