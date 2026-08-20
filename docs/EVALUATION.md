@@ -241,15 +241,66 @@ more conservative, not less, as lookahead grows. **The functional form is explic
 mid-experiment prediction (`0.25*L + 1`, giving 5 at L=16 and 7 at L=24) was stated in advance and
 refuted twice (measured knees were 4 and 6); the refutation is reported as a refutation, not re-fit.
 
-**The declared envelope.** Lookahead 32 is outside the implementation's tested range: it hardcodes
-`HALO_STALE_TICKS = 30` (`ServerWorldManager.cpp:944`), so a shadow scheduled to apply at
-`senderTick + 32` is retired as stale before it is ever applied — the halo is silently disabled above
-lookahead 30, with no warning equivalent to the one that guards halo width. Round 1's L=32 sweep
-returned flat crossings at every width, including widths above the floor, and every one of those 18
-runs also failed the ownership-gap invariant, a failure mode absent from all 90 other runs. This is
-recorded as a defect for the build phase (backlog item 3), not a soundness falsification — the formula
-was never actually tested at L=32, because the mechanism that would test it had already stopped
-working.
+**The declared envelope: the condition has an upper bound on lookahead, between 24 and 32.** At every
+lookahead up to 24, widening the band drives missed contacts to *exactly zero*. At lookahead 32 it does
+not, and no width recovers it: crossings sit at 60 (of 100 objects) at widths 17, 18, 19, 20, 21 and 22
+alike — flat, and specifically unchanged at and above the conservative floor of 20.
+
+| lookahead | crossings vs width | knee |
+|---|---|---|
+| 8 | 50 -> 22 -> **0** from width 3 | 3 |
+| 16 | 50 -> 50 -> **0** from width 4 | 4 |
+| 24 | 50 -> 50 -> **0** from width 6 | 6 |
+| 32 | **60, 60, 60, 60, 60, 60** at widths 17-22 | none |
+
+This corrects an earlier explanation recorded here, which attributed the L=32 failure to
+`HALO_STALE_TICKS = 30` (`ServerWorldManager.cpp:944`) retiring shadows before they could be applied.
+Re-analysis of round 1's own per-tick CSVs refutes that: on the L=32 runs `haloLate = 0` (every update
+landed in its slot) and `halo_objects` averages 18.2 with shadows present on 98.2% of ticks. Nothing
+was being retired, and `HALO_STALE_TICKS` is not involved.
+
+With delivery, retirement and band width all eliminated, the remaining term in a shadow's placement is
+the extrapolation itself: at lookahead 32 a shadow is dead-reckoned 32 ticks — 0.267 s at the 120 Hz
+substep — ahead of its sample, which at 30 units/s puts it 8 units, two body diameters, from where the
+object actually is. A contact resolved against a shadow that far out of position is resolved against
+the wrong geometry, and widening the band cannot fix a placement error. **This is an inference by
+elimination, not a measurement**: confirming it means disabling extrapolation and re-running, which is
+a simulation-affecting change and is recorded for the build phase rather than claimed here.
+
+The practical statement is therefore weaker than "the formula holds" and stronger than "L=32 was never
+tested": the formula is sound over the measured range L in [2, 24], and there exists an upper bound on
+lookahead, somewhere in (24, 32], past which no band width satisfies the condition — which is the
+"halo lag is permanent, so keep the lookahead small" argument the halo spec asserted without evidence,
+now with evidence.
+
+### 4.1 Re-validation after the halo publish gate
+
+E2 and E5 were measured on a build that published the halo band once per *loop iteration* rather than
+once per tick. Since the 5 s drain phase runs the loop without stepping the world, any run that ended
+with objects still inside the band republished that band continuously with the tick counter frozen.
+The effect is large where it applies: on the L=32 width-20 run `haloSent` reached 178,693 and 173,943
+on the two servers against 2,101 each for the same configuration gated, an 82x reduction in halo
+objects sent — and note the two figures differ from one another, because each server was spinning at
+whatever rate it could, which is server-to-server non-determinism inside a run that was supposed to be
+reproducible.
+
+It reached only the sweeps that end with objects in-band: **L=24 at widths >= 6, and all of L=32**.
+Every other halo sweep ran clean (`haloSent` 15-400), E2 included, which is consistent with E2's runs
+ending with zero objects in band.
+
+Both affected results were re-measured on the gated build:
+
+| | before | after |
+|---|---|---|
+| E2 (`headon`, widths 0 and 8, 3 repeats) | crossings 100/0, contacts 76,600/82,390 | **identical, all 6 runs** |
+| E5 L=24 knee (widths 4-7, 2 repeats) | knee at width 6 | **knee at width 6** |
+
+Neither moved, because both are read from *crossings*, which the flood did not affect. What it did
+affect is contact totals and contact symmetry: on the L=32 width-20 run the two servers resolved
+55,695 and 55,830 contacts — a violation of invariant I8 (symmetric contact) — where the gated run has
+both resolving exactly 55,980. No figure quoted in this document is drawn from a flooded run, but the
+distinction matters for anything read from those CSVs later: **their crossing counts are trustworthy
+and their contact counts are not.**
 
 ---
 
@@ -314,28 +365,37 @@ runs valid against a fixed binary.
    still loses the object with no retry path.
 2. **Ownership atomicity fails above the tick budget.** E7 (§3 above), and E4's rebalancing case (§6
    above). The guarantee is conditional on both servers keeping pace, not unconditional.
-3. **No guard on halo lookahead.** The server warns loudly when halo *width* is set below its computed
-   floor, but is silent when *lookahead* meets or exceeds `HALO_STALE_TICKS = 30`
-   (`ServerWorldManager.cpp:944`), at which point halo shadows retire before they are ever applied and
-   the halo is silently disabled. E5 round 1 hit exactly this at lookahead 32.
-4. **`PublishHaloBand()` has no rate gate.** `DistributedGameServerManager.cpp:174`, versus the 60 Hz
-   gate on snapshot broadcast at `:195`. Halo bandwidth scales with loop spin rate rather than a fixed
-   rate, which is part of why E8 could not produce a trustworthy number.
-5. **`--drain-seconds` is never forwarded by the midware.** Parsed at `ServerStarter.cpp:214`, absent
-   from `PhysicsServerMidware/ProgramStart.cpp`'s flag-forwarding block. Blocks a clean E8
-   re-measurement. The fix is mechanical — one more `if` block, matching the pattern already used for
-   over a dozen other game-server flags.
+3. ~~**No guard on halo lookahead.**~~ **Withdrawn — this was a mis-diagnosis, not a defect.**
+   Re-analysis of E5 round 1's own CSVs shows `haloLate = 0` and shadows present on 98.2% of ticks at
+   lookahead 32, so nothing was retiring and `HALO_STALE_TICKS` was never involved. There is no
+   "silently disabled" threshold to guard. The real behaviour at lookahead 32 is an upper bound on the
+   soundness condition, now recorded as a result in §4 rather than as a bug. What *does* remain open is
+   confirming the mechanism: §4 attributes it to extrapolation error by elimination, and proving that
+   means disabling extrapolation and re-running.
+4. ~~**`PublishHaloBand()` has no rate gate.**~~ **Fixed.** Now published once per tick rather than
+   once per loop iteration. It was worse than a bandwidth problem: because the drain phase runs the
+   loop without stepping the world, affected runs republished the whole band with the tick counter
+   frozen, at rates that differed between the two servers (178,693 vs 173,943 sends on one L=32 run) —
+   non-determinism inside a supposedly reproducible run — and the resulting traffic broke invariant I8,
+   with the two servers resolving 55,695 and 55,830 contacts where the gated build has both at exactly
+   55,980. See §4.1, including the re-validation of E2 and E5's L=24 knee.
+5. ~~**`--drain-seconds` is never forwarded by the midware.**~~ **Fixed.** Forwarded like the dozen
+   other game-server flags. Note item 4 was the actual E8 blocker; this one now only gives control over
+   the drain, rather than being needed to escape it.
 6. **Load profile buckets objects, not contacts.** E4's residual contact imbalance (14.2M vs 8.1M, §6
    above, sourced from a different run than the object split it is quoted alongside — see §6) despite
    near-perfect object balance.
 7. **`CalculateIncomingObjectOffsetPosition` is never called.** `ServerWorldManager.cpp:440`. Incoming
    handoffs get no positional nudge into the receiving region.
-8. **Stale comments in frozen source.** `NetworkObject.h:167` says halo entries are 64 bytes (measured
-   60); `DistributedGameServerManager.cpp:195` says "20hz server/client update" where the code runs at
-   60 Hz.
-9. **`run-experiments.ps1`'s `-OutDir` is not anchored to the repo root** the way `measure.ps1`'s now
-   is; and `measure.ps1`'s own anchoring guard treats a drive-relative path like `C:runs` as absolute
-   when it is not.
+8. ~~**Stale comments in frozen source.**~~ **Fixed.** `NetworkObject.h` now states 60 bytes per halo
+   entry (as `PacketSizeTests` measures) and the snapshot gate comment states 60 Hz.
+9. ~~**`run-experiments.ps1`'s `-OutDir` is not anchored to the repo root.**~~ **Fixed.** Both scripts
+   now share `tools/RunPaths.ps1`, which also rejects the drive-relative case (`C:runs`) that
+   `Path.IsPathRooted` reports as absolute. Shared rather than copied precisely because this bug
+   existed only because the earlier fix was applied to one script and not the other.
 
-**E8 must be re-run once items 4 and 5 land** — forwarding `--drain-seconds` and fixing the halo
-publish rate gate are both prerequisites for a trustworthy bandwidth figure.
+**Items 3, 4, 5, 8 and 9 are now closed** (Batch A). Items 1, 2, 6 and 7 remain, and all four are
+simulation-affecting, so they belong to a single batch followed by one full re-measurement.
+
+**E8 is now unblocked and has not yet been re-run.** The halo publish gate was its prerequisite and is
+in; the bandwidth composition claim stays untested until that run happens.
