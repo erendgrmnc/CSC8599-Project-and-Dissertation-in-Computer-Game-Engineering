@@ -1178,6 +1178,7 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 		sample.contacts = static_cast<int32_t>(Profiler::GetContactsResolved());
 		mContactsSinceReport += Profiler::GetContactsResolved();
 		sample.haloObjects = static_cast<int32_t>(mHaloObjects.size());
+		sample.substeps = (mPhysics != nullptr) ? mPhysics->GetLastSubstepCount() : 0;
 		mMetrics->Record(sample);
 	}
 	++mTickCounter;

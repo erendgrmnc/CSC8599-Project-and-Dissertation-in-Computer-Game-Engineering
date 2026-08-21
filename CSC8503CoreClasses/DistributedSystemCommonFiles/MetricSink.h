@@ -51,6 +51,14 @@ namespace NCL {
 		// Halo shadows held. Separate from poolObjects: one is what this server
 		// simulates, the other is what it only watches.
 		int32_t haloObjects = 0;
+		// Physics substeps executed during this loop iteration.
+		//
+		// A sample is recorded on EVERY loop iteration, and in realtime mode the
+		// loop spins at roughly 1 kHz while physics substeps at 120 Hz - so most
+		// rows did no physics at all. AP's frame time is an update period, so any
+		// frame-time analysis needs to know which iterations were real frames.
+		// Keying off physicsMs > 0 is not sufficient: it rounds to zero.
+		int32_t substeps = 0;
 	};
 
 	// Fixed-capacity, allocation-free per-tick recorder.

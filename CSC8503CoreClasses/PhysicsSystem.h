@@ -42,6 +42,19 @@ namespace NCL {
 				return mRealHZ;
 			}
 
+			// Substeps executed by the most recent Update call. The rate above is
+			// what the system AIMS at; this is what it actually ran, which is not
+			// the same thing: Update accumulates dt and drains it in whole
+			// substeps, so a loop iteration arriving with less than one substep's
+			// worth of time does none at all. In realtime mode the loop spins at
+			// roughly 1 kHz against a 120 Hz substep rate, so most iterations
+			// return having integrated nothing. Anything reasoning about frames
+			// rather than loop iterations needs this to tell the two apart, and
+			// physicsMs cannot serve - it rounds to zero.
+			int GetLastSubstepCount() const {
+				return mLastSubstepCount;
+			}
+
 			// Lookahead horizon used when extrapolating an object's state for handoff,
 			// in seconds. Must cover the server-to-server transfer latency.
 			void SetPredictionHorizon(float seconds) {
@@ -210,6 +223,9 @@ namespace NCL {
 			int mNumCollisionFrames	= 5;
 			int mBroadphaseX = 256;
 			int mBroadphaseZ = 256;
+
+			// Substeps run by the last Update. See GetLastSubstepCount.
+			int mLastSubstepCount = 0;
 
 			// The substep rate actually in use. Previously file-scope globals, which
 			// meant every PhysicsSystem in a process shared one adaptive timestep.

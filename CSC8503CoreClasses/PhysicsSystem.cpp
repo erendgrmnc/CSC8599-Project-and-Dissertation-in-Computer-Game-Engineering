@@ -116,6 +116,9 @@ void PhysicsSystem::Update(float dt) {
 		mDTOffset -= mRealDT;
 		iteratorCount++;
 	}
+	// Recorded before the adaptation below, which changes the rate for the NEXT
+	// call and would otherwise be mistaken for this one's work.
+	mLastSubstepCount = iteratorCount;
 
 	ClearForces();	//Once we've finished with the forces, reset them to zero
 
