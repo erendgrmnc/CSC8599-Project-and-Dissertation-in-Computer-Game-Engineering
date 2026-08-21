@@ -143,6 +143,12 @@ server 1 in the fifth — so it is a race, not a wiring error.
 `RetryPendingPeers` only retries peers that failed their *initial* connect; `mPendingPeers` is
 never repopulated when an established link drops. **A dropped peer link is permanent.**
 
+Reproduced on three further independent runs after the two logging fixes below. The affected
+server was server 0 in five of the eight observations and server 1 in three, and in three of
+them it never finished inside the harness's 900 s ceiling and produced no metrics at all.
+Cutting the log volume by 88x (715,702 lines to 8,077) changed neither the drop nor the
+outcome, which is what establishes the logging as an amplifier rather than the cause.
+
 This is a genuine system defect, not a harness artifact, and fixing it needs design work:
 re-establishing a link mid-run has to interact correctly with handoff custody, the ownership
 invariants, and reproducibility. It is recorded as a backlog item rather than patched here.
@@ -192,7 +198,12 @@ found by *running* the workload, not by reading code.
 | 3 | `analyse.py` used the final population as the I1 per-tick baseline, reporting 1,199 of 1,200 ticks as ownership gaps on a world that fills from empty | fixed, `2db5044` |
 | 4 | Client lifetime was sized in simulated seconds, so it died mid-run and left servers broadcasting reliable packets at a dead peer — 34 s of blocking against 10 s of work | fixed, `e413ab0` |
 | 5 | The "no peer link" error logged once per object per tick | fixed, `45a4838` |
-| 6 | **A dropped peer link is never re-established** | **open — blocks §5** |
+| 6 | Both handoff traces printed BEFORE the send, so a down link reprinted them once per pending object per tick — 470,753 lines against 400 real handoffs, one of them from inside a packet constructor | fixed, `dd63915` |
+| 7 | **A dropped peer link is never re-established** | **open — blocks §5** |
+
+Items 5 and 6 share a second theme worth stating: **an error path that retries every tick
+must not log every tick.** Both wrote more than half a million lines down the midware pipe on
+a single run, which is enough I/O to perturb the measurement they were reporting on.
 
 Items 1, 3 and 4 are the same underlying mistake in three places: **assuming wall-clock time
 and simulated time are interchangeable.** They are not, and under load they diverge by a factor
