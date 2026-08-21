@@ -195,5 +195,43 @@ class ApFrameTimeTests(unittest.TestCase):
         self.assertEqual(analyse.ap_frame_times(rows, bucket_seconds=5.0), {})
 
 
+class OwnershipAnomalyTests(unittest.TestCase):
+    """Invariant I1, checked per tick against a baseline that can GROW.
+
+    The baseline used to be the run's final population, which is only correct when
+    the population is fixed. Under the injection workload it grows from zero, so
+    every tick before the last sat below the maximum and the whole run reported as
+    an ownership gap - 1,199 of 1,200 ticks on a 10 s two-server run where nothing
+    was actually wrong.
+    """
+
+    def test_fixed_population_is_clean(self):
+        self.assertEqual(analyse.ownership_anomalies([10, 10, 10]), (0, 0))
+
+    def test_a_dip_is_a_gap(self):
+        self.assertEqual(analyse.ownership_anomalies([10, 9, 10]), (1, 0))
+
+    def test_a_growing_population_is_not_a_gap(self):
+        # The injection case: nobody lost anything, the world is being filled.
+        self.assertEqual(
+            analyse.ownership_anomalies([0, 400, 800, 1200], population_may_grow=True),
+            (0, 0))
+
+    def test_a_dip_after_growth_is_still_a_gap(self):
+        self.assertEqual(
+            analyse.ownership_anomalies([1, 2, 3, 2, 3], population_may_grow=True),
+            (1, 0))
+
+    def test_a_rise_above_the_running_max_is_a_double(self):
+        # A transient double-owner raises the baseline for the rest of the run, so
+        # the following tick also reads as a gap. That is the same weakness the
+        # previous global-max baseline had, and it at least reports the double -
+        # the global-max version reported two gaps and no double at all.
+        self.assertEqual(analyse.ownership_anomalies([10, 11, 10]), (1, 1))
+
+    def test_empty_series_is_clean(self):
+        self.assertEqual(analyse.ownership_anomalies([]), (0, 0))
+
+
 if __name__ == "__main__":
     unittest.main()

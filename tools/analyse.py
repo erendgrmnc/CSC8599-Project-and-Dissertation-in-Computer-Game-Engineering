@@ -138,6 +138,41 @@ def percentile(values, pct):
     return ordered[low] + (ordered[high] - ordered[low]) * (k - low)
 
 
+def ownership_anomalies(totals_in_tick_order, population_may_grow=False):
+    """Invariant I1 per tick: (gap_ticks, double_ticks).
+
+    The baseline is the RUNNING maximum, not the run's final population. Under a
+    fixed population the two are the same from tick one, so this is unchanged for
+    every workload that pre-seeds a grid. Under one that grows - injection spawns
+    from an empty world - the final population is reached only at the end, so a
+    final-population baseline marks every earlier tick as an ownership gap: 1,199
+    of 1,200 ticks on a 10 s two-server run where nothing was lost.
+
+    population_may_grow suppresses double-owner detection, because a rise is then
+    ambiguous: two servers claiming one object and one server spawning a new one
+    look identical in a per-tick owned total. Losses stay detectable either way,
+    since nothing legitimately REMOVES an object unless it was destroyed - which
+    is why a run with destroys needs conservation_delta read alongside this rather
+    than this alone.
+
+    With a fixed population a transient double raises the baseline for the rest of
+    the run, so the tick after it also reads as a gap. That is the same weakness a
+    final-population baseline has, and this at least reports the double: against
+    [10, 11, 10] the old form reported two gaps and no double.
+    """
+    gap_ticks = 0
+    double_ticks = 0
+    running_max = None
+    for total in totals_in_tick_order:
+        if running_max is None or total > running_max:
+            if running_max is not None and not population_may_grow:
+                double_ticks += 1
+            running_max = total
+        elif total < running_max:
+            gap_ticks += 1
+    return gap_ticks, double_ticks
+
+
 # AP aggregates over 5 s periods. Named because print_ap_frame_report labels its
 # windows from it: a literal in one place and a default in the other would let the
 # label drift from the width it describes.
@@ -326,13 +361,14 @@ def summarise_run(run_dir):
     server_count = len(glob.glob(os.path.join(run_dir, "ticks-server*.csv")))
     # Only ticks every server reported: a tick one server has not reached yet would
     # read as a gap.
-    complete = [sum(v) for v in per_tick.values() if len(v) == server_count]
+    # Sorted by tick: the baseline below is a RUNNING maximum, so dict insertion
+    # order (which follows the CSV rows, server by server) would make it nonsense.
+    complete = [sum(per_tick[t]) for t in sorted(per_tick)
+                if len(per_tick[t]) == server_count]
     ownership_gap_ticks = 0
     ownership_double_ticks = 0
-    if complete and paced:
-        expected = max(complete)
-        ownership_gap_ticks = sum(1 for v in complete if v < expected)
-        ownership_double_ticks = sum(1 for v in complete if v > expected)
+    # Evaluated below, once objSpawned is known: whether the population may grow
+    # decides whether a RISE is interpretable at all.
 
     finals = read_final_lines(run_dir)
     server_finals = [f for f in finals if f["role"] == "server"]
@@ -351,6 +387,12 @@ def summarise_run(run_dir):
         # count.
         preseed = max((int(f.get("objPreseed", 0)) for f in server_finals), default=0)
         invariants["conservation_delta"] = owned - (preseed + spawned - destroyed)
+
+        # A workload that spawns at runtime grows its population, so a rising owned
+        # total is expected rather than a double-owner. See ownership_anomalies.
+        if complete and paced:
+            ownership_gap_ticks, ownership_double_ticks = ownership_anomalies(
+                complete, population_may_grow=(spawned > 0))
         invariants["ho_sent"] = total(server_finals, "hoSent")
         invariants["ho_recv"] = total(server_finals, "hoRecv")
         # Minus the transfers still in flight. Ownership changes on an agreed tick
