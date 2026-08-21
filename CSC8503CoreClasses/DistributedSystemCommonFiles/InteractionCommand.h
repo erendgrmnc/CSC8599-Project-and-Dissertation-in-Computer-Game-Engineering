@@ -46,7 +46,11 @@ namespace NCL::Interaction {
 	// inside a memcpy'd packet.
 	enum class ObjectArchetype : int {
 		Cube = 0,
-		Sphere = 1
+		Sphere = 1,
+		// AP's cuboid: 0.3 x 0.3 x 1.0 m, OBB so it tumbles, cube inertia.
+		// APPENDED, never renumbered - this is a wire value, and Cube's AABB volume
+		// and sphere inertia are what every measurement in E1-E8 used.
+		Cuboid = 2
 	};
 
 	// Bit flags carried in CommandArgs::flags. Wire values - APPEND ONLY.

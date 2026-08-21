@@ -292,9 +292,20 @@ NCL::CSC8503::GameObject* NCL::DistributedGameServer::ServerWorldManager::Create
 
 	// The archetype is chosen explicitly rather than by a hash of the seed, so every
 	// server and every client builds the same shape for the same id.
-	GameObject* object = (archetypeID == static_cast<int>(NCL::Interaction::ObjectArchetype::Sphere))
-		? AddSphereToWorld(transform, networkID, playerID)
-		: AddCubeToWorld(transform, networkID, playerID);
+	GameObject* object = nullptr;
+	switch (static_cast<NCL::Interaction::ObjectArchetype>(archetypeID)) {
+	case NCL::Interaction::ObjectArchetype::Sphere:
+		object = AddSphereToWorld(transform, networkID, playerID);
+		break;
+	case NCL::Interaction::ObjectArchetype::Cuboid:
+		object = AddCuboidToWorld(transform, networkID, playerID);
+		break;
+	default:
+		// Cube, and any unknown id: unchanged fallback, so an archetype a peer knows
+		// and we do not still produces an object rather than dropping a handoff.
+		object = AddCubeToWorld(transform, networkID, playerID);
+		break;
+	}
 
 	// An explicit id, not the pre-seed counter: runtime ids come from the partitioned
 	// space and must be identical on every server.
@@ -2203,6 +2214,37 @@ CSC8503::GameObject* DistributedGameServer::ServerWorldManager::AddCubeToWorld(
 	cube->SetCollisionLayer(CollisionLayer::NoSpecialFeatures);
 
 	return cube;
+}
+
+CSC8503::GameObject* DistributedGameServer::ServerWorldManager::AddCuboidToWorld(
+	const CSC8503::Transform& transform, int count, int playerID) const {
+	std::string objName = "Cuboid " + std::to_string(count);
+	TestObject* cuboid = new TestObject(*mServerBorderData, playerID);
+	cuboid->SetName(objName);
+
+	// AP's cuboid is 0.3 x 0.3 x 1.0 m, so half-extents are (0.15, 0.15, 0.5).
+	Vector3 halfDims(0.15f, 0.15f, 0.5f);
+
+	// OBB, not AABB: an AABB cannot rotate, and AP's cuboids tumble under gravity
+	// from a random initial velocity. OBB-OBB intersection is implemented.
+	OBBVolume* volume = new OBBVolume(halfDims);
+	cuboid->SetBoundingVolume((CollisionVolume*)volume);
+
+	cuboid->GetTransform()
+		.SetScale(halfDims * 2)
+		.SetPosition(transform.GetPosition())
+		.SetOrientation(transform.GetOrientation());
+
+	cuboid->SetPhysicsObject(new PhysicsObject(&cuboid->GetTransform(), cuboid->GetBoundingVolume()));
+
+	cuboid->GetPhysicsObject()->SetInverseMass(0.5f);
+	// Cube inertia, not sphere: AddCubeToWorld uses InitSphereInertia and is left
+	// alone because E1-E8 measured it, but a new archetype has no such constraint.
+	cuboid->GetPhysicsObject()->InitCubeInertia();
+
+	cuboid->SetCollisionLayer(CollisionLayer::NoSpecialFeatures);
+
+	return cuboid;
 }
 
 CSC8503::GameObject* DistributedGameServer::ServerWorldManager::AddSphereToWorld(const CSC8503::Transform& transform,

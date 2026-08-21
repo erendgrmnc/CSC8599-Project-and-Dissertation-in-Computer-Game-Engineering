@@ -51,6 +51,7 @@ namespace NCL {
 
 			CSC8503::GameObject* AddDistributedControllableObject(const CSC8503::Transform& transform,int playerID) const;
 			CSC8503::GameObject* AddCubeToWorld(const CSC8503::Transform& transform, int count, int playerID) const;
+			CSC8503::GameObject* AddCuboidToWorld(const CSC8503::Transform& transform, int count, int playerID) const;
 			CSC8503::GameObject* AddSphereToWorld(const CSC8503::Transform& transform, int count, int playerID) const;
 			CSC8503::GameObject* AddFloorWorld(const CSC8503::Transform& transform);
 
