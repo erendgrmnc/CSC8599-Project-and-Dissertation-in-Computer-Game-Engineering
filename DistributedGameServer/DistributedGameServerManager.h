@@ -269,6 +269,11 @@ namespace NCL {
 			std::vector<PendingPeer> mPendingPeers;
 			float mPeerRetryTimer = 0.0f;
 			void RetryPendingPeers(float dt);
+			// Requeues links ENet has dropped so RetryPendingPeers rebuilds them.
+			void ReclaimDroppedPeers();
+			// Links ENet has dropped, kept alive rather than destroyed. See
+			// ReclaimDroppedPeers for why they are not deleted during a run.
+			std::vector<GameServerConnection*> mRetiredPeerLinks;
 		};
 	}
 }

@@ -62,6 +62,18 @@ namespace NCL {
 			void Disconnect();
 
 			bool GetIsConnected() const;
+			void RegisterOnDisconnectedEvent(const std::function<void()>& callback) {
+				mOnClientDisconnectedFromServer.push_back(callback);
+			}
+
+			// True only once ENet has REPORTED the peer going away.
+			//
+			// Deliberately not the inverse of GetIsConnected(). Connect() returns as
+			// soon as enet_host_connect has allocated a peer - it does not wait for
+			// the handshake - so mIsConnected is false for a window after a link is
+			// created and perfectly healthy. Polling that to decide a link is dead
+			// tears down every link during bootstrap.
+			bool HasLostLink() const { return mLinkLost; }
 
 			void WriteAndSendAnnouncementSyncPacket(int annType, float time, int playerNo);
 
@@ -80,6 +92,8 @@ namespace NCL {
 			std::string GetIPAddress();
 		protected:
 			bool mIsConnected;
+			// See HasLostLink.
+			bool mLinkLost = false;
 
 			int mPeerId;
 			int mClientSideLastFullID;
@@ -93,6 +107,10 @@ namespace NCL {
 			void SendClientInitPacket();
 
 			std::vector<std::function<void()>> mOnClientConnectedToServer;
+			// Fired when a live link drops, as opposed to being closed on purpose.
+			// The owner needs this to rebuild the link: nothing else can observe an
+			// ENet peer going away.
+			std::vector<std::function<void()>> mOnClientDisconnectedFromServer;
 		};
 	}
 }

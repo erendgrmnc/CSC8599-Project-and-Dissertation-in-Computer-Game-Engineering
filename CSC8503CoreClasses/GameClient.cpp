@@ -59,6 +59,7 @@ bool GameClient::UpdateClient() {
 			//erendgrmnc: I remember +1 is needed because when counting server as a player, outgoing peer Id is not increasing.
 			mPeerId = mNetPeer->outgoingPeerID + 1;
 			mIsConnected = true;
+			mLinkLost = false;
 			std::cout << "Connected to server!" << std::endl;
 
 			for (const auto& callback : mOnClientConnectedToServer) {
@@ -67,6 +68,38 @@ bool GameClient::UpdateClient() {
 
 			//TODO(eren.degirmenci): send player init packet.
 			SendClientInitPacket();
+		}
+		else if (event.type == ENET_EVENT_TYPE_DISCONNECT) {
+			// Previously not handled AT ALL in the live loop - only in Disconnect(),
+			// the deliberate-shutdown path. An ENet peer that drops mid-run therefore
+			// left mIsConnected true and mNetPeer non-null, so:
+			//
+			//   * GetIsConnected() and anything built on it reported a healthy link,
+			//   * every enet_peer_send refused the packet, because ENet will not send
+			//     on a peer that is not CONNECTED, and
+			//   * nothing ever reconnected, because nothing knew there was anything
+			//     to reconnect.
+			//
+			// On a two-server injection run that made one server's handoffs fail for
+			// the rest of the run while it still claimed to have the link - observed
+			// on 8 of 8 runs, roughly 13 s in.
+			//
+			// event.data is whatever the peer passed to enet_peer_disconnect; 0 is
+			// what a timeout reports, since no peer chose it.
+			mIsConnected = false;
+			mLinkLost = true;
+			// mNetPeer is deliberately LEFT set. ENet has already reset the peer, so
+			// enet_peer_send refuses on it safely, and ReclaimDroppedPeers destroys
+			// this client - and with it the host that owns the peer - so the pointer
+			// cannot outlive its target or be reused behind our back. Nulling it here
+			// instead crashed the server outright: SendPacket dereferences mNetPeer
+			// with no guard, so the first unreliable send after a dropped link took
+			// the process down.
+			std::cout << "Client: link to server lost (reason "
+				<< event.data << ", 0 = timeout)\n";
+			for (const auto& callback : mOnClientDisconnectedFromServer) {
+				callback();
+			}
 		}
 		else if (event.type == ENET_EVENT_TYPE_RECEIVE) {
 			//std::cout << "Client Packet recieved..." << std::endl;
@@ -91,9 +124,21 @@ void GameClient::WriteAndSendClientInputPacket(int playerID){
 }
 
 void GameClient::SendPacket(GamePacket&  payload) {
-	// defines packet to send and sends packet
+	// Guarded, unlike the original. Every other path through this class checks
+	// mNetPeer; this one dereferenced it unconditionally, so any caller reaching it
+	// before a connection existed - or after one was torn down - crashed the process.
+	if (mNetPeer == nullptr) {
+		return;
+	}
 	ENetPacket* dataPacket = enet_packet_create(&payload, payload.GetTotalSize(), 0);
-	enet_peer_send(mNetPeer, 0, dataPacket);
+	if (dataPacket == nullptr) {
+		return;
+	}
+	// Unreliable, so a refusal is not worth reporting - but ENet does NOT take
+	// ownership of a packet it refused, so it still has to be destroyed here.
+	if (enet_peer_send(mNetPeer, 0, dataPacket) < 0) {
+		enet_packet_destroy(dataPacket);
+	}
 }
 
 // Returns whether ENet ACCEPTED the packet.

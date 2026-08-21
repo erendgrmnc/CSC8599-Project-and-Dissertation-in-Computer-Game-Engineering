@@ -160,6 +160,7 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 	for (auto& gameServerConnection : mDistributedPhysicsClients) {
 		gameServerConnection->client->UpdateClient();
 	}
+	ReclaimDroppedPeers();
 
 	if (mIsGameStarted) {
 		// Reported to the manager, which owns the partition and may move it. Emitted
@@ -883,7 +884,11 @@ bool DistributedGameServer::DistributedGameServerManager::SendPacketToServer(int
 bool DistributedGameServer::DistributedGameServerManager::HasPeerLink(int targetServerID) const {
 	for (const auto* connection : mDistributedPhysicsClients) {
 		if (connection->serverID == targetServerID && connection->client != nullptr) {
-			return true;
+			// The link's real state, not merely "the object exists". A dropped ENet peer
+			// leaves the GameClient in place, so the object test alone reported a
+			// healthy link for the rest of the run - and custody, which reclaims only
+			// when the link is genuinely gone, could therefore never fire.
+			return !connection->client->HasLostLink();
 		}
 	}
 	return false;
@@ -1464,6 +1469,71 @@ void DistributedGameServer::DistributedGameServerManager::FlushDelayedHandoffs()
 				<< " - object LOST (it was released when the delay was queued).\n";
 		}
 		entry = mDelayedHandoffs.erase(entry);
+	}
+}
+
+// Moves links that ENet has dropped back into the pending set, so the existing retry
+// path rebuilds them.
+//
+// RetryPendingPeers only ever covered peers that failed their FIRST connect, and
+// mPendingPeers was never repopulated afterwards - so a link established at bootstrap
+// and dropped later was gone for the rest of the run. Every handoff to that peer then
+// failed on every tick, the peer's snapshot-interest declaration stopped arriving so
+// this server flooded it with snapshots it discarded, and the run took four times as
+// long as its neighbour. Observed on 8 of 8 two-server injection runs.
+//
+// Run after the UpdateClient loop rather than from the disconnect callback: the
+// callback fires from inside enet_host_service, while that same vector is being
+// iterated, and erasing from it there invalidates the iterator.
+void DistributedGameServer::DistributedGameServerManager::ReclaimDroppedPeers() {
+	for (auto entry = mDistributedPhysicsClients.begin();
+		entry != mDistributedPhysicsClients.end(); ) {
+		GameServerConnection* connection = *entry;
+		if (connection == nullptr) {
+			entry = mDistributedPhysicsClients.erase(entry);
+			continue;
+		}
+		// HasLostLink, not !GetIsConnected: a link still completing its handshake is
+		// not connected yet and must not be torn down. Only ENet reporting the peer
+		// gone counts.
+		if (connection->client != nullptr && !connection->client->HasLostLink()) {
+			++entry;
+			continue;
+		}
+
+		// The registry is the only place the address lives; GameServerConnection
+		// carries just the id. A peer with no registry entry cannot be rebuilt, so it
+		// is dropped rather than retried forever against an address we do not have.
+		const auto registered = mServerRegistry.find(connection->serverID);
+		if (registered != mServerRegistry.end()) {
+			const std::string peerIP(registered->second.ip);
+			const std::vector<char> octets = IpToCharArray(peerIP);
+			if (octets.size() >= 4 && registered->second.port != 0) {
+				PendingPeer pending;
+				pending.ip = octets;
+				pending.port = registered->second.port;
+				pending.serverID = connection->serverID;
+				mPendingPeers.push_back(pending);
+				std::cout << "Peer link to server " << connection->serverID
+					<< " dropped - queued for reconnect.\n";
+			}
+		}
+		else {
+			std::cout << "Peer link to server " << connection->serverID
+				<< " dropped and it has no registry entry - cannot reconnect.\n";
+		}
+
+		// RETIRED, not destroyed. Destroying the GameClient here - which runs
+		// enet_host_destroy on a host that ENet was servicing moments earlier, from
+		// inside the same tick that consumed its disconnect event - killed the server
+		// outright: its last output was the line above, every time. Three separate
+		// attempts to make the teardown safe failed, so the teardown is simply not
+		// done during a run.
+		//
+		// The cost is bounded and small: one dead host per link drop, held until the
+		// process exits. The alternative was a server that stops existing.
+		mRetiredPeerLinks.push_back(connection);
+		entry = mDistributedPhysicsClients.erase(entry);
 	}
 }
 
