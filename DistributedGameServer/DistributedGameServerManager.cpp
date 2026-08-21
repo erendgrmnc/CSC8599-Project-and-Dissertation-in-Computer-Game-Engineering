@@ -883,6 +883,19 @@ bool DistributedGameServer::DistributedGameServerManager::HasPeerLink(int target
 	return false;
 }
 
+// Powers of ten rather than a timer: a link that comes back goes quiet on its own,
+// and one that stays down still leaves a record of how bad it got without writing a
+// line per object per tick.
+bool DistributedGameServer::DistributedGameServerManager::ShouldLogMissingLink(
+	int targetServerID) const {
+	const long long count = ++mMissingLinkFailures[targetServerID];
+	long long threshold = 1;
+	while (threshold < count) {
+		threshold *= 10;
+	}
+	return threshold == count;
+}
+
 bool DistributedGameServer::DistributedGameServerManager::SendFinishTransactionPacket(NetworkObject& obj,
 	StartSimulatingObjectPacket& outSent) const {
 	auto& gameObjectComp = obj.GetGameObject();
@@ -925,9 +938,11 @@ bool DistributedGameServer::DistributedGameServerManager::SendFinishTransactionP
 	if (!SendPacketToServer(packet.newOwnerServerID, packet)) {
 		// Loud, and the caller keeps the object. There is no broadcast to fall back
 		// on now, so releasing it here would destroy it outright.
-		std::cout << "ERROR: no peer link to server " << packet.newOwnerServerID
-			<< " for handoff of object " << packet.objectID
-			<< " - object retained, will retry next tick.\n";
+		if (ShouldLogMissingLink(packet.newOwnerServerID)) {
+			std::cout << "ERROR: no peer link to server " << packet.newOwnerServerID
+				<< " for handoff of object " << packet.objectID
+				<< " - object retained, will retry next tick.\n";
+		}
 		return false;
 	}
 	return true;

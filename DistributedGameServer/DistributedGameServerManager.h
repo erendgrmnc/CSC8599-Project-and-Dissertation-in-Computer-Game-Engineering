@@ -209,6 +209,18 @@ namespace NCL {
 			// or because the peer is gone, and only the second may reclaim an object.
 			bool HasPeerLink(int targetServerID) const;
 
+			// Per-target count of "no peer link" failures, so the message can be
+			// logged on a 1, 10, 100, ... schedule instead of once per object per
+			// tick. A lost link fails EVERY pending handoff EVERY tick, and the
+			// unthrottled form wrote 233,654 lines down the midware pipe on a single
+			// 60 s run - enough I/O to dominate the run it was reporting on, and to
+			// perturb any measurement taken while it was happening. Mutable because
+			// the send paths that hit it are const.
+			mutable std::map<int, long long> mMissingLinkFailures;
+			// True when this failure should be printed. Always true the first time
+			// for a given target.
+			bool ShouldLogMissingLink(int targetServerID) const;
+
 			// Fault injection (see ServerWorldManager::SetHandoffDelayTicks). The
 			// object is released locally at the normal moment; only the transfer
 			// packet is held back, which is precisely the window race W3 needs.
