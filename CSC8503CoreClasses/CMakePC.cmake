@@ -215,6 +215,7 @@ function(Create_CSC8503CoreClasses_Files_PC)
         "./DistributedSystemCommonFiles/SequenceWindow.h"
         "./DistributedSystemCommonFiles/RegionOwnership.h"
         "./DistributedSystemCommonFiles/NetworkIdSpace.h"
+        "./DistributedSystemCommonFiles/InjectionSchedule.h"
         "./DistributedSystemCommonFiles/InteractionCommand.h"
         "./DistributedSystemCommonFiles/InteractionCommand.cpp"
         "./DistributedSystemCommonFiles/InteractionCommands.cpp"
