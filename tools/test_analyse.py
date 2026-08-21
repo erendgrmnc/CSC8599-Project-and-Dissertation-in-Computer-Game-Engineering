@@ -233,5 +233,35 @@ class OwnershipAnomalyTests(unittest.TestCase):
         self.assertEqual(analyse.ownership_anomalies([]), (0, 0))
 
 
+class ApFrameFloorNoteTests(unittest.TestCase):
+    """The frame-time floor has two different causes, and naming the wrong one
+    turns a meaningful number into an apparent measurement artifact.
+
+    In PACED mode the loop waits with sleep_until(tick * fixedDt), so a server
+    keeping up reports a frame time equal to the physics step - that is the
+    timestep itself, and a declared deviation from AP's 16 ms rather than an
+    artifact. Only in REALTIME mode does the loop take the sleep_for(1ms) branch,
+    which Windows rounds up to the timer granularity. The two floors are ~8.33 ms
+    and ~8.3 ms, near enough to be mistaken for each other in the data.
+    """
+
+    def test_paced_note_names_the_timestep_not_the_sleep(self):
+        note = " ".join(analyse.ap_frame_floor_note([True, True]))
+        self.assertIn("8.33", note)
+        self.assertNotIn("sleep_for", note)
+
+    def test_realtime_note_names_the_sleep(self):
+        note = " ".join(analyse.ap_frame_floor_note([False, False]))
+        self.assertIn("sleep_for(1ms)", note)
+
+    def test_mixed_modes_name_both(self):
+        note = " ".join(analyse.ap_frame_floor_note([True, False]))
+        self.assertIn("sleep_for(1ms)", note)
+        self.assertIn("8.33", note)
+
+    def test_no_runs_still_returns_lines(self):
+        self.assertIsInstance(analyse.ap_frame_floor_note([]), list)
+
+
 if __name__ == "__main__":
     unittest.main()

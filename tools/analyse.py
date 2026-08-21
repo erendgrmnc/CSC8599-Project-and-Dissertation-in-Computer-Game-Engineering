@@ -173,6 +173,43 @@ def ownership_anomalies(totals_in_tick_order, population_may_grow=False):
     return gap_ticks, double_ticks
 
 
+def ap_frame_floor_note(paced_flags):
+    """The lines explaining what floors the frame-time series, per run mode.
+
+    Both modes have a floor and they are nearly the same NUMBER, which is exactly
+    why the cause has to be named rather than the value quoted:
+
+      * PACED - the loop waits with sleep_until(tick * fixedDt), so a server that
+        keeps up reports a frame time equal to the physics step. That is the
+        timestep, not an artifact, and it is already a declared deviation from
+        AP's 16 ms step. A server that falls behind overruns the deadline,
+        sleep_until returns immediately, and the figure becomes real cost.
+      * REALTIME - the loop takes the sleep_for(1ms) branch, which Windows rounds
+        up to the timer granularity (~8.3 ms measured here). That IS an artifact:
+        it is idle time credited to the simulation.
+    """
+    step_ms = 1000.0 / DEFAULT_SUBSTEP_HZ
+    paced = [f for f in paced_flags if f]
+    realtime = [f for f in paced_flags if not f]
+
+    lines = []
+    if paced:
+        lines.append(f"  note: paced runs wait on sleep_until(tick * fixedDt), so a server that")
+        lines.append(f"        KEEPS UP reports frame time = the physics step ({step_ms:.2f} ms at")
+        lines.append(f"        {DEFAULT_SUBSTEP_HZ} Hz). That floor is the timestep - a declared deviation")
+        lines.append(f"        from AP's 16 ms - not a measurement artifact. Above it the")
+        lines.append(f"        server is overrunning its deadline and the figure is real cost.")
+    if realtime:
+        lines.append("  note: realtime runs wait on sleep_for(1ms), which Windows rounds up to")
+        lines.append("        the timer granularity (~8.3 ms here). That floor IS an artifact -")
+        lines.append("        idle time credited to the simulation. Compare physics p95 above")
+        lines.append("        for the cost of the simulation itself.")
+    if paced and realtime:
+        lines.append("  WARNING: this experiment mixes both modes, so its frame times are not")
+        lines.append("           floored by the same thing and must not be compared directly.")
+    return lines
+
+
 # AP aggregates over 5 s periods. Named because print_ap_frame_report labels its
 # windows from it: a literal in one place and a default in the other would let the
 # label drift from the width it describes.
@@ -370,6 +407,11 @@ def summarise_run(run_dir):
     # Evaluated below, once objSpawned is known: whether the population may grow
     # decides whether a RISE is interpretable at all.
 
+    # Which floor the frame-time series has depends on the run mode; see
+    # ap_frame_floor_note. Carried per server row and popped before summary.csv.
+    for server in servers:
+        server["ap_paced"] = paced
+
     finals = read_final_lines(run_dir)
     server_finals = [f for f in finals if f["role"] == "server"]
     client_finals = [f for f in finals if f["role"] == "client"]
@@ -508,7 +550,7 @@ def print_ap_frame_report(frame_series, sweep_name="point"):
     affects the exit code.
     """
     per_point = {}
-    for point, repeat, _server, buckets in frame_series:
+    for point, repeat, _server, buckets, _paced in frame_series:
         if not buckets:
             continue
         by_repeat = per_point.setdefault(point, {}).setdefault(repeat, {})
@@ -534,14 +576,12 @@ def print_ap_frame_report(frame_series, sweep_name="point"):
             print(f"{point:>10g} {window:>10} "
                   f"{statistics.mean(values):>19.3f} {len(values):>8}")
 
-    # Stated unconditionally, because it is a property of the loop rather than of any
-    # particular run, and a reader comparing these figures against AP's would
-    # otherwise credit the sleep to the physics.
-    print("  note: frame time is the loop's UPDATE PERIOD, so it includes the")
-    print("        headless loop's inter-iteration sleep_for(1ms) - which Windows")
-    print("        rounds up to the timer granularity, measured at ~8.3 ms here.")
-    print("        Values near that floor are loop-paced, not physics-limited;")
-    print("        compare physics p95 above for the simulation cost itself.")
+    # Frame time is the loop's UPDATE PERIOD, so it carries whatever the loop waited
+    # on. Which wait that is depends on the run mode, and the two floors are close
+    # enough in value to be mistaken for one another - so the CAUSE is named, not the
+    # number. See ap_frame_floor_note.
+    for line in ap_frame_floor_note([paced for *_, paced in frame_series]):
+        print(line)
 
 
 def analyse_experiment(experiment_dir):
@@ -611,7 +651,7 @@ def analyse_experiment(experiment_dir):
     # Frame buckets are per-window dicts, not scalars, so they are lifted out before
     # summary.csv is written rather than flattened into it.
     frame_series = [
-        (r["point"], r["repeat"], r["server"], r.pop("ap_frames"))
+        (r["point"], r["repeat"], r["server"], r.pop("ap_frames"), r.pop("ap_paced"))
         for r in rows
     ]
 
