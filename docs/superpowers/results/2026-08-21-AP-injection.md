@@ -4,9 +4,10 @@ Spec: `docs/superpowers/specs/2026-08-21-ap-injection-benchmark-design.md`
 Plan: `docs/superpowers/plans/2026-08-21-ap-injection-benchmark.md`
 Dataset: `runs/exp-ap-injection-paced` (gitignored), commit `e413ab0`
 
-**Status: 1 server measured and sound. 2 servers NOT reportable** — a peer link is lost
-mid-run and never re-established (§5). The scalability half of the comparison is blocked on
-that defect, not on the workload.
+**Status: 1 and 2 servers both measured and sound.** The defects that blocked the 2-server
+configuration are fixed (§5); it now runs to completion with balanced load, zero link drops and
+clean invariants. §5.1 adds a 1/2/4-server scaling breakdown, which is the more useful result:
+**the physics scales very nearly linearly, and the coordination overhead does not.**
 
 ---
 
@@ -31,7 +32,7 @@ against anything anyone else built.
 | Site B (50%) | 20 × 20 × 20 m at region centre, 15 m up | identical |
 | Metric | max frame time of any server, per 5 s window | identical, windows in simulated time (§3.2) |
 | Repeats | 50 | 5 |
-| Servers | 1–10 column | **1 only** (§5) |
+| Servers | 1–10 column | 1, 2, and a 4-server scaling point (§5.1) |
 
 Seed 42, world −150,150 / −150,150, `--fixed-step`, `--run-ticks 7200`, halo width 8,
 halo lookahead 4, reliable halo, handoff lookahead 300, drain 10 s.
@@ -107,7 +108,7 @@ as a *load* curve (both report frame time at a known population) and not equival
 | Networking | RakNet | ENet |
 | Solver | PhysX | CSC8503 engine (uniform-grid broadphase, no sleeping, no islands) |
 | Hardware | 10 identical AWS G2.2xlarge | 1 commodity desktop, shared with every other role |
-| Server counts | 1–10 column, 3/4/9 corner | **1** (2 blocked, §5) |
+| Server counts | 1–10 column, 3/4/9 corner | 1 and 2 measured, 4 profiled (§5.1) |
 | Repeats | 50 | 5 |
 | Latency | ~2 ms measured, and **in the aura formula** | ~0 ms LAN, **absent from the halo formula** (§6) |
 | Injection clock | real time | simulated time (§3.3) |
@@ -122,42 +123,97 @@ Adding servers on one box adds contention rather than capacity. Phase 1 validate
 workload, the metric, and the per-machine baseline; the scalability comparison needs Phase 2
 hardware.
 
-## 5. Why 2 servers is not reported
+## 5. The 2-server configuration, and what blocked it
 
-In every 2-server repeat, one server loses its peer link to the other roughly 13 s into the
-run and never recovers it. The consequences compound:
+It was blocked by three defects, all now fixed. They are recorded because the way they hid
+behind one another is the substantive part.
 
-1. Every subsequent handoff to that peer fails. The object is correctly *retained* rather than
-   lost, so conservation holds — but the partition stops functioning as a partition.
-2. The peer's snapshot-interest declaration ("send me nothing") stops arriving, so the
-   affected server floods its peer with snapshots that are decoded and discarded. Measured as
-   suppression rate: **50.0% on the healthy server, 15–18% on the affected one**, in all five
-   repeats.
-3. The affected server takes **~800 s** of wall clock against ~180 s for its peer. In one
-   repeat of five it never finished at all and produced no metrics.
+The visible symptom was that one server of the pair took ~800 s of wall clock against ~180 s
+for its peer, suppressed 12% of snapshots to that peer against the peer's 50%, held zero halo
+shadows, and in three runs of eight never finished at all. It was not a fixed server id — it
+struck whichever server lost a race — and the peer link dropped repeatedly with ENet reason 0,
+a timeout.
 
-The correlation is exact across all nine server-runs that completed: low suppression ⟺ ~800 s,
-50% suppression ⟺ ~180 s. It is **not** a fixed server id — it was server 0 in four repeats and
-server 1 in the fifth — so it is a race, not a wiring error.
+All of it came from **one** cause. `FlushScheduledHaloUpdates` re-sorted its entire pending
+queue every tick, due or not, and erased applied entries one at a time from the middle:
+O(n log n) plus O(k·n) against a backlog that grows whenever a server's tick counter falls
+behind its peer's, because the peer's updates carry the peer's tick and land in the future.
+That is a runaway — fall behind, accumulate backlog, sort costs more, fall further behind. It
+reached 27–42 ms per tick in that one function against an 8.33 ms budget.
 
-`RetryPendingPeers` only retries peers that failed their *initial* connect; `mPendingPeers` is
-never repopulated when an established link drops. **A dropped peer link is permanent.**
+Everything else was downstream: the loop stopped servicing ENet for hundreds of milliseconds,
+so the peer link timed out; the tick counters diverged past the staleness window, so halo
+shadows died; and the peer-interest declaration was lost in the reconnect churn, so snapshots
+were no longer suppressed.
 
-Reproduced on three further independent runs after the two logging fixes below. The affected
-server was server 0 in five of the eight observations and server 1 in three, and in three of
-them it never finished inside the harness's 900 s ceiling and produced no metrics at all.
-Cutting the log volume by 88x (715,702 lines to 8,077) changed neither the drop nor the
-outcome, which is what establishes the logging as an amplifier rather than the cause.
+Two further defects were real but not the cause, and were fixed on the way:
 
-This is a genuine system defect, not a harness artifact, and fixing it needs design work:
-re-establishing a link mid-run has to interact correctly with handoff custody, the ownership
-invariants, and reproducibility. It is recorded as a backlog item rather than patched here.
+- **A dropped peer link was never re-established.** `GameClient::UpdateClient` had no
+  `ENET_EVENT_TYPE_DISCONNECT` case at all, so a dropped peer left the client reporting a
+  healthy link while every send was refused, and custody — which reclaims only when the link
+  is genuinely gone — could never fire.
+- **Declared snapshot interest was never cleared when a peer left.** ENet reuses peer numbers,
+  so the next occupant of a slot inherited the previous one's declaration: a client landing
+  where a server had been is starved of snapshots, a server landing where a client had been is
+  sent the whole world every tick.
 
-> Two contributing factors were fixed while diagnosing this, neither of which is the cause:
-> the failure logged once per object per tick (233,654 lines down the midware pipe in a single
-> run, enough I/O to perturb the measurement it was reporting on — now rate-limited, `45a4838`),
-> and the harness killed the client long before the servers finished, which caused *unrelated*
-> multi-second stalls from reliable broadcasts to a dead peer (`e413ab0`).
+Measured on 2 servers × 7,200 paced ticks, before → after:
+
+| | before | after |
+|---|---|---|
+| slow world-ticks (>25 ms) | 60 | **0** |
+| peer link drops | 8–9 | **0** |
+| snapshot suppression | 50.0% / 12.4% | **50.0% / 50.0%** |
+| wall clock | 610 s / 185 s | **141 s / 140 s** |
+| halo shadows held at exit | 0 / 65 | 779 / 644 |
+| per-server contact ratio | — | 0.983 |
+| invariants | conservation −175 | conservation −2 of 9,601 |
+
+### 5.1 What scales, and what does not
+
+Injection at a fixed **total** 160/s, 3,600 paced ticks (30 s simulated, 4,800 objects), swept
+over server count on one 6-core machine:
+
+| servers | tick period | **physics** | coordination overhead | objects/server |
+|---|---|---|---|---|
+| 1 | 14.01 ms | **9.87 ms** | 3.94 ms | 4,799 |
+| 2 | 9.23 ms | **4.39 ms** | 4.72 ms | 2,400 |
+| 4 | 9.05 ms | **2.34 ms** | 6.57 ms | 1,200 |
+
+**The physics scales very nearly linearly** — 2.25× then 1.88× per doubling — which is the
+claim the partition exists to support. At 4 servers the simulation costs 2.34 ms against an
+8.33 ms budget.
+
+**The coordination overhead does not scale**: 3.94 → 4.72 → 6.57 ms. Going from 2 servers to 4
+saves 2.05 ms of physics and spends 1.85 ms more on coordination, so the total barely moves
+(9.23 → 9.05 ms). Wall clock for the same 30 s of simulation went 50.4 s → 34.8 s → 34.6 s.
+
+That flat segment is **not** a limit of the simulation. On this machine four servers plus the
+manager, midware and client are seven processes on six cores, and the overhead term carries
+that contention as well as the genuine per-peer protocol cost. Two supporting observations:
+`haloLate` *improves* with server count (23.0% → 14.2%), which is lower per-server load
+helping; while inter-server tick drift *worsens* (20 → 105 ticks), which is contention making
+progress uneven. Separating those two contributions needs the multi-machine setup — but the
+overhead is attributable to named work (halo publication, snapshots, handoffs), so it is an
+optimisation target rather than a wall.
+
+### 5.2 The limit that remains
+
+`haloLate` stays high on whichever server runs ahead — 84% at 2 servers on the full 60 s run.
+It measures **tick-epoch divergence**, not delivery jitter: `applyAt` is expressed in the
+sender's tick numbers, and two servers share no epoch once either stops holding its pacing
+budget. On the full AP load the counters start together and diverge monotonically to 89 ticks.
+
+Both sides degrade, in mirror image: the faster server applies stale samples, the slower one
+withheld fresh samples for the whole offset. The second of those is now bounded — a sample is
+never withheld for longer than it could usefully be extrapolated — which clamped 1.87 M of
+2.85 M arrivals and moved the per-server contact ratio from 0.979 to 0.983.
+
+The divergence itself is not fixable at this layer, and invariant **I8 is unattainable while it
+persists**: the lookahead exists precisely so both servers apply an update on the same
+simulated tick. The cure is both servers holding their pacing budget, which this machine does
+not at 9,600 objects (56–58 ticks/s against 120/s). Any 2-server figure from the full AP load
+must carry that caveat.
 
 ## 6. The finding that outlives the benchmark
 
@@ -199,7 +255,11 @@ found by *running* the workload, not by reading code.
 | 4 | Client lifetime was sized in simulated seconds, so it died mid-run and left servers broadcasting reliable packets at a dead peer — 34 s of blocking against 10 s of work | fixed, `e413ab0` |
 | 5 | The "no peer link" error logged once per object per tick | fixed, `45a4838` |
 | 6 | Both handoff traces printed BEFORE the send, so a down link reprinted them once per pending object per tick — 470,753 lines against 400 real handoffs, one of them from inside a packet constructor | fixed, `dd63915` |
-| 7 | **A dropped peer link is never re-established** | **open — blocks §5** |
+| 7 | A dropped peer link was never re-established: `GameClient::UpdateClient` had no `ENET_EVENT_TYPE_DISCONNECT` case | fixed, `d47d12b` |
+| 8 | `FlushScheduledHaloUpdates` re-sorted its whole pending queue every tick — a runaway that cost 27–42 ms/tick and caused every 2-server symptom (§5) | fixed, `35f5e20` |
+| 9 | Declared snapshot interest was never cleared when a peer left, so a reused peer slot inherited it | fixed, `35f5e20` |
+| 10 | Halo updates could be scheduled arbitrarily far ahead, so a slower server withheld fresh samples for 89 ticks | fixed, `37a2f3c` |
+| 11 | **Tick-epoch divergence between servers under load** (§5.2) | **open — bounded, not cured** |
 
 Items 5 and 6 share a second theme worth stating: **an error path that retries every tick
 must not log every tick.** Both wrote more than half a million lines down the midware pipe on

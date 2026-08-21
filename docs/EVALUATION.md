@@ -331,12 +331,46 @@ and their contact counts are not.**
   two partitions of the same total work on the same hardware, which is a fair comparison, but not a
   distributed speedup claim. Turning any of it into one needs one server per machine; nothing in the
   code has to change for that, only the run configuration.
+
+  **What the single machine does and does not hide (2026-08-21).** Splitting the per-tick cost into
+  simulation and coordination separates the two, and they behave differently. On a fixed total load
+  (injection at 160/s, 4,800 objects, 3,600 paced ticks):
+
+  | servers | tick period | physics | coordination overhead | objects/server |
+  |---|---|---|---|---|
+  | 1 | 14.01 ms | 9.87 ms | 3.94 ms | 4,799 |
+  | 2 | 9.23 ms | 4.39 ms | 4.72 ms | 2,400 |
+  | 4 | 9.05 ms | 2.34 ms | 6.57 ms | 1,200 |
+
+  The **physics scales very nearly linearly** — 2.25x then 1.88x per doubling — and that half is not
+  contention-limited, because it is per-server work on a shrinking share of the world. The
+  **coordination overhead grows** with server count, so 2 -> 4 servers saves 2.05 ms of physics and
+  spends 1.85 ms more coordinating, and the total barely moves.
+
+  That flat segment is the part the single machine confounds: four servers plus the manager, midware
+  and client are seven processes on six cores, so the overhead term carries contention as well as
+  genuine per-peer protocol cost. The two are not separated here. Supporting both readings at once:
+  `haloLate` improves with server count (23.0% -> 14.2%), which is lower per-server load helping,
+  while inter-server tick drift worsens (20 -> 105 ticks), which is contention making progress
+  uneven. **Do not quote the 2->4 segment as a scaling limit of the design** - it is a measurement of
+  this machine. The 1->2 segment (50.4 s -> 34.8 s wall for the same simulated work) is the safer
+  figure, and the physics column is the safest of all.
 - **No latency injection.** Every measurement runs on a local network with effectively zero link
   latency. Nothing here says how any of these claims hold up once cross-server or client-server
   messages carry real network delay.
-- **No AP-comparable injection workload.** These experiments were not designed against an established
-  AP-system benchmark or fault-injection methodology; comparisons to other distributed physics or
-  Dyconits-style systems would need a shared workload definition that does not exist yet.
+- ~~**No AP-comparable injection workload.**~~ **Closed.** `--workload injection` reproduces Aura
+  Projection's published benchmark (160 objects/s for 60 s), measured at 1 and 2 servers with a
+  4-server scaling point. See `docs/superpowers/results/2026-08-21-AP-injection.md`, which also
+  carries the declared-deviation table without which "AP-comparable" means nothing. Comparisons to
+  Dyconits-style systems still lack a shared workload definition.
+- **Tick-epoch divergence bounds cross-border fidelity under load.** Halo scheduling is expressed in
+  the *sender's* tick numbers, and two servers share no epoch once either stops holding its pacing
+  budget. On the full AP load the counters diverge monotonically to 89 ticks, and the server running
+  ahead sees 84% of halo arrivals already past due. Invariant **I8 is unattainable while that
+  persists**, since the lookahead exists precisely so both servers apply an update on the same
+  simulated tick. The withholding half is now bounded (`haloAhead`), but the divergence is not cured
+  and cannot be at that layer: it needs both servers inside their pacing budget. Any cross-border
+  figure taken at 9,600 objects on one machine carries this.
 - **`headon` is one synthetic workload.** E2 and E5's soundness sweep both rely on `headon` — pairs on
   fixed lanes, one speed, meeting the border perpendicular — which is the configuration in which the
   halo's knee is sharpest and easiest to locate. Oblique approaches, mixed speeds, and denser traffic
