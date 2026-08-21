@@ -156,8 +156,28 @@ Start-Sleep -Seconds 4
 
 # The client stops sending well before the servers stop counting, so every command
 # it issued has been processed by the time they exit and the I4 tally is exact.
+#
+# That constraint only exists when the client actually SENDS commands. When it does
+# not, outliving the servers costs nothing - and stopping early costs a great deal,
+# because the servers keep broadcasting reliable spawn packets at a peer that is no
+# longer acknowledging them. Measured on a 1200-tick injection run: the loop blocked
+# for 8.0 s and then 26.0 s, against 10 s of actual work, and those blocks land in
+# the frame-time series as 8,031 ms and 25,980 ms "frames".
+#
+# The seconds figure below is SIMULATED time (ticks / 120). In paced mode a server
+# that cannot hold the pace takes longer than that in wall clock - the 1200-tick run
+# above took 43 s - so a client sized from it dies most of the way through. Sizing it
+# from the harness's own wall-clock ceiling is the only figure that tracks the run.
 $serverRunSeconds = if ($Ticks -gt 0) { [Math]::Round($Ticks / 120.0) } else { $Seconds }
-$clientSeconds = [Math]::Max(5, $serverRunSeconds - 15)
+$clientDrivesCommands = ($ImpulseTest -gt 0) -or ($MisrouteEvery -gt 0) -or ($BlastEvery -gt 0) `
+    -or ($SpawnEvery -gt 0) -or ($DestroyEvery -gt 0) -or ($DriveEvery -gt 0)
+$clientSeconds = if ($clientDrivesCommands) {
+    [Math]::Max(5, $serverRunSeconds - 15)
+} elseif ($Ticks -gt 0) {
+    [Math]::Max(120, $Ticks / 8)
+} else {
+    $Seconds + 45
+}
 
 $cli = Start-Process -PassThru -FilePath (Join-Path $deploy "Client\EntryPoint.exe") `
     -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --headless --impulse-test $ImpulseTest --misroute-every $MisrouteEvery --blast-every $BlastEvery --spawn-every $SpawnEvery --blast-offset-x $BlastOffsetX --destroy-every $DestroyEvery --drive-every $DriveEvery --interest-radius $InterestRadius --run-seconds $clientSeconds" `
