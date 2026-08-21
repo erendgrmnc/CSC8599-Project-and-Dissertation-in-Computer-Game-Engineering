@@ -1099,8 +1099,9 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	timeTaken = end - start;
 	Profiler::SetPhysicsPredictionTime(timeTaken.count());
 
-	// Before the integrator: an object scheduled to arrive this tick must be part of
-	// this tick's simulation, not the next one.
+	// Before the integrator: an object spawned this tick, or one scheduled to arrive
+	// this tick, must be part of this tick's simulation, not the next one.
+	UpdateInjection(dt);
 	FlushScheduledHandoffs();
 
 	// Same reason, and in this order: a halo update due this tick creates or refreshes
@@ -1193,6 +1194,14 @@ void NCL::DistributedGameServer::ServerWorldManager::AddNetworkObject(CSC8503::G
 }
 
 void DistributedGameServer::ServerWorldManager::CreatePlayerObjects(int playerCount, int objectsPerPlayer) {
+	// The injection workload starts EMPTY and accumulates over the run - that is
+	// the whole shape of AP's benchmark. Pre-seeding a grid here would put the
+	// full population in place at t=0 and measure a different experiment.
+	if (mWorkload == "injection") {
+		std::cout << "Injection workload: starting with an empty world.\n";
+		return;
+	}
+
 	for (int i = 0; i < playerCount; i++) {
 		Vector3 startPos;
 
@@ -1289,6 +1298,118 @@ void DistributedGameServer::ServerWorldManager::CreatePlayerObjects(int playerCo
 
 		CreateObjectGrid(rows, cols, objectsPerPlayer, rowSpacing, colSpacing, i, startPos);
 	}
+}
+
+void DistributedGameServer::ServerWorldManager::UpdateInjection(float dt) {
+	if (mWorkload != "injection") {
+		return;
+	}
+	mInjectionElapsedSeconds += static_cast<double>(dt);
+
+	// Walk the schedule to the current time. Every server runs this identically;
+	// the region test below is what makes each object spawn exactly once.
+	while (true) {
+		const NCL::Distributed::InjectionDraw draw = NCL::Distributed::DrawInjection(
+			mInjectionIndex, static_cast<uint32_t>(mWorldSeed), NCL::Distributed::AP_INJECTION_RATE);
+		if (draw.dueSeconds > mInjectionElapsedSeconds) {
+			break;
+		}
+		++mInjectionIndex;
+
+		const Maths::Vector3 at = InjectionPosition(draw);
+		// Only the owning server spawns. SpawnObject would build a deactivated
+		// object and burn a runtime id on every other server otherwise.
+		if (GetObjectServer(at) != mServerID) {
+			continue;
+		}
+		const int networkID = SpawnObject(draw.archetypeID, at, -1);
+		if (networkID < 0) {
+			continue;
+		}
+		const auto entry = mCreatedObjectPool.find(networkID);
+		if (entry == mCreatedObjectPool.end() || entry->second == nullptr) {
+			continue;
+		}
+		if (auto* physics = entry->second->GetPhysicsObject()) {
+			physics->SetLinearVelocity(Maths::Vector3(draw.velX, draw.velY, draw.velZ));
+		}
+	}
+}
+
+Maths::Vector3 DistributedGameServer::ServerWorldManager::InjectionPosition(
+	const NCL::Distributed::InjectionDraw& draw) const {
+	// AP's two injection sites, per the paper's section 5:
+	//   site A - 20 x 20 x 150 m, centred 12 m from a boundary, 15 m above ground
+	//   site B - 20 x 20 x 20 m at region centre, 15 m above ground
+	// The 150 m dimension runs PARALLEL to the boundary (along Z here), matching
+	// their Fig. 4 where boundary volumes are long thin rectangles along it.
+	constexpr float SPAWN_HEIGHT = 15.0f;
+	constexpr float SITE_A_THICKNESS = 20.0f;   // perpendicular to the boundary, X
+	constexpr float SITE_A_LENGTH = 150.0f;     // parallel to the boundary, Z
+	constexpr float SITE_A_DISTANCE = 12.0f;    // centre offset from the boundary
+	constexpr float SITE_B_EXTENT = 20.0f;
+	constexpr float SITE_HEIGHT = 20.0f;
+
+	const std::vector<NCL::Interaction::RegionBounds>& regions = GetRegionBounds();
+	if (regions.empty()) {
+		// No partition yet. Return the origin and let the caller's ownership test
+		// reject it - spawning against an unknown partition would place the object
+		// in whichever region the origin happens to fall in.
+		return Maths::Vector3(0.f, SPAWN_HEIGHT, 0.f);
+	}
+
+	// Which region this draw targets. This is the whole reason the schedule needs no
+	// coordination: the site is a function of the INDEX, not of the evaluating
+	// server, so every server computes the same world position and exactly the one
+	// that owns it spawns. Deriving the site from the evaluating server's own region
+	// instead makes the ownership test vacuous and every server spawns every draw,
+	// multiplying the injection rate by the server count - measured at 3,178 objects
+	// after 10 s on two servers where 1,600 was due.
+	//
+	// Keyed on index/4 rather than index because the site rule cycles with period 2
+	// and the archetype rule with period 4: keying the region on index directly would
+	// correlate region with site - on two servers, every site-A object in region 0
+	// and every site-B object in region 1. Advancing the region only after a complete
+	// site x type cycle gives every region an equal mix of all four combinations,
+	// which is the same independence rule the site/type split already obeys.
+	const int regionCount = static_cast<int>(regions.size());
+	const NCL::Interaction::RegionBounds& region =
+		regions[static_cast<size_t>((draw.index / 4) % regionCount)];
+
+	const float centreX = (region.minX + region.maxX) * 0.5f;
+	const float centreZ = (region.minZ + region.maxZ) * 0.5f;
+	const float y = SPAWN_HEIGHT + draw.v * SITE_HEIGHT;
+
+	if (!draw.boundarySite) {
+		return Maths::Vector3(
+			centreX + (draw.u - 0.5f) * SITE_B_EXTENT,
+			y,
+			centreZ + (draw.w - 0.5f) * SITE_B_EXTENT);
+	}
+
+	// Site A hugs an INTERIOR boundary - an edge shared with another region - since
+	// the point of AP's boundary volume is to load the cross-region path. A region's
+	// maxX edge is interior unless it is the world edge, in which case the minX edge
+	// is used. On a single server neither edge is interior and the site sits against
+	// the world wall, which is honest: with one region there is no boundary to load.
+	float worldMinX = 0.f, worldMaxX = 0.f, worldMinZ = 0.f, worldMaxZ = 0.f;
+	const bool haveWorld = GetWorldExtent(worldMinX, worldMaxX, worldMinZ, worldMaxZ);
+	const bool maxXIsInterior = haveWorld && region.maxX < worldMaxX;
+	const float siteCentreX = maxXIsInterior
+		? region.maxX - SITE_A_DISTANCE
+		: region.minX + SITE_A_DISTANCE;
+
+	// Site A is kept at AP's published dimensions rather than clamped to the region.
+	// A region narrower than SITE_A_THICKNESS, or shallower than SITE_A_LENGTH, would
+	// put part of the volume outside it and the ownership test would silently drop
+	// those draws, lowering the effective rate. That does not happen at the server
+	// counts measured here (a 300 x 300 world split two ways leaves 150 x 300 per
+	// region against a 20 x 150 site), and the run's object count is the detector if
+	// it ever does.
+	return Maths::Vector3(
+		siteCentreX + (draw.u - 0.5f) * SITE_A_THICKNESS,
+		y,
+		centreZ + (draw.w - 0.5f) * SITE_A_LENGTH);
 }
 
 void NCL::DistributedGameServer::ServerWorldManager::AddNetworkObjectToNetworkObjects(CSC8503::NetworkObject* networkObj) {

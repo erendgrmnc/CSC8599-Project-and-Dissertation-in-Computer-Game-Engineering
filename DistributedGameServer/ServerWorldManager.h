@@ -11,6 +11,7 @@
 #include "DistributedSystemCommonFiles/RegionOwnership.h"
 #include "DistributedSystemCommonFiles/NetworkIdSpace.h"
 #include "DistributedSystemCommonFiles/HandoffCustody.h"
+#include "DistributedSystemCommonFiles/InjectionSchedule.h"
 
 namespace NCL::CSC8503 {
 	struct StartSimulatingObjectReceivedPacket;
@@ -532,6 +533,16 @@ namespace NCL {
 			int mHandoffDelayTicks = 0;
 			int mHandoffLookaheadTicks = 0;
 			int mHandoffsLate = 0;
+
+			// AP-comparable injection. mInjectionIndex is the next index in the global
+			// schedule this server has yet to consider; every server walks the same
+			// schedule and spawns only the objects landing in its own region, so the
+			// counter advances identically everywhere.
+			int mInjectionIndex = 0;
+			double mInjectionElapsedSeconds = 0.0;
+			void UpdateInjection(float dt);
+			// Maps a schedule draw onto a world position inside this server's region.
+			Maths::Vector3 InjectionPosition(const NCL::Distributed::InjectionDraw& draw) const;
 
 			// Handoffs waiting for their scheduled tick. Buffered by value: the packet
 			// is a POD copy, so nothing here depends on the network buffer surviving.

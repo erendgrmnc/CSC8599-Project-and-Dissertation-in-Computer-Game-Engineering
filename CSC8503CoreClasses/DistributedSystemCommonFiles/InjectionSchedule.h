@@ -29,7 +29,10 @@ namespace NCL::Distributed {
 		bool boundarySite = true;
 		int archetypeID = 0;
 		// Position within the chosen volume, each in [0, 1). The caller maps these
-		// onto its own region, because region geometry is not knowable here.
+		// onto the region the draw TARGETS - which it derives from `index`, not from
+		// its own server id. Mapping them onto the evaluating server's own region
+		// instead makes every server the owner of every draw, and the injection rate
+		// comes out multiplied by the server count.
 		float u = 0.f, v = 0.f, w = 0.f;
 		float velX = 0.f, velY = 0.f, velZ = 0.f;
 	};
