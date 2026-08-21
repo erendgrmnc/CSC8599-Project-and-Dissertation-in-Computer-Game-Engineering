@@ -797,7 +797,6 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectTransition
 	}
 
 	for (auto* networkObj : transitioning) {
-		std::cout << "Sending Finish Transition Packet to server: " << networkObj->GetNewServerID() << "\n";
 		// Release the object ONLY once the packet is actually on a link to the new
 		// owner. The transition flag is left set on failure, so the next tick
 		// retries rather than the object being lost to a link that was not up yet.
@@ -805,6 +804,13 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectTransition
 		if (!SendFinishTransactionPacket(*networkObj, sentPacket)) {
 			continue;
 		}
+		// Logged AFTER the send, not before it. The transition flag stays set on
+		// failure so the next tick retries, which means a pre-send trace prints once
+		// per pending object per tick for as long as the link is down - 235,578 lines
+		// in one run against 400 handoffs actually made. One line per handoff that
+		// really happened is the useful form.
+		std::cout << "Handoff: object " << networkObj->GetNetworkID()
+			<< " -> server " << networkObj->GetNewServerID() << "\n";
 		mServerWorldManager->RecordHandoffSent();
 		// Custody starts here, not at release. The object is released on its normal
 		// tick below; this record is what lets an unacknowledged transfer be resent

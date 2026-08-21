@@ -364,7 +364,6 @@ StartSimulatingObjectPacket::StartSimulatingObjectPacket(int objectID, int newSe
 	type = BasicNetworkMessages::StartSimulatingObjectInServer;
 	size = sizeof(StartSimulatingObjectPacket);
 
-	std::cout << "Start simulation packet position: " << lastFullState.position << "\n";
 
 	this->lastFullState.position = lastFullState.position;
 	this->lastFullState.orientation = lastFullState.orientation;
