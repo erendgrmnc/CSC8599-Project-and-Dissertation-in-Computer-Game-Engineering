@@ -138,6 +138,52 @@ def percentile(values, pct):
     return ordered[low] + (ordered[high] - ordered[low]) * (k - low)
 
 
+# AP aggregates over 5 s periods. Named because print_ap_frame_report labels its
+# windows from it: a literal in one place and a default in the other would let the
+# label drift from the width it describes.
+AP_BUCKET_SECONDS = 5.0
+
+
+def ap_frame_times(rows, bucket_seconds=AP_BUCKET_SECONDS):
+    """Max frame time (ms) per elapsed-time bucket, AP's metric.
+
+    AP aggregates "the maximum frame time of any server" over each 5 s period.
+    This computes one server's per-bucket maximum; the caller takes the max
+    across servers and then the mean across repeats.
+
+    A frame is a loop iteration in which physics advanced (substeps > 0). Its
+    frame time is the wall-clock gap since the previous such iteration, so the
+    idle spin between them is charged to the frame that follows it - which is
+    what AP's update period actually contains.
+    """
+    stamps = []
+    for row in rows:
+        raw = row.get("substeps")
+        if raw is None:
+            # Recorded before the column existed. Returning nothing is deliberate:
+            # deriving frames from every loop iteration would report the loop's
+            # spin rate as a frame rate.
+            return {}
+        try:
+            if int(raw) <= 0:
+                continue
+            stamps.append(int(row["time_us"]))
+        except (TypeError, ValueError):
+            continue
+
+    if len(stamps) < 2:
+        return {}
+
+    start = stamps[0]
+    buckets = {}
+    for previous, current in zip(stamps, stamps[1:]):
+        frame_ms = (current - previous) / 1000.0
+        bucket = int(((current - start) / 1e6) // bucket_seconds)
+        if frame_ms > buckets.get(bucket, 0.0):
+            buckets[bucket] = frame_ms
+    return buckets
+
+
 def read_final_lines(run_dir):
     """@@FINAL totals are exact end-of-run values; @@STAT is a 2 Hz sample and is
     never used for a reported number."""
@@ -239,6 +285,10 @@ def summarise_run(run_dir):
             "integ_mismatch": sum(
                 1 for r in rows if r["owned_objects"] != r["integrated_objects"]
             ),
+            # AP's frame-time series for this server. Kept out of summary.csv - it is
+            # a dict per 5 s window, not a scalar - and popped before the row is
+            # written. See ap_frame_times.
+            "ap_frames": ap_frame_times(rows, AP_BUCKET_SECONDS),
         })
 
     # Only meaningful when the run was PACED. In realtime mode each server advances
@@ -403,6 +453,55 @@ def print_tracking_report(knees):
               f"{slack:>8} {verdict:>10}")
 
 
+def print_ap_frame_report(frame_series, sweep_name="point"):
+    """AP's headline: the maximum frame time of ANY server, per 5 s window.
+
+    Max across servers rather than mean, because a distributed simulation is only
+    as responsive as its slowest participant - averaging over servers hides the
+    one that fell behind, which is the whole thing the number is for. Mean across
+    repeats, because a window is already a maximum and taking a median of maxima
+    would discard the spikes AP's metric exists to expose.
+
+    A measurement, not a check: it is printed outside INVARIANT FAILURES and never
+    affects the exit code.
+    """
+    per_point = {}
+    for point, repeat, _server, buckets in frame_series:
+        if not buckets:
+            continue
+        by_repeat = per_point.setdefault(point, {}).setdefault(repeat, {})
+        for bucket, frame_ms in buckets.items():
+            # Max ACROSS SERVERS within one repeat.
+            if frame_ms > by_repeat.get(bucket, 0.0):
+                by_repeat[bucket] = frame_ms
+
+    if not per_point:
+        return
+
+    print()
+    print("AP FRAME TIME (max across servers per 5s window, mean over repeats)")
+    print(f"{sweep_name:>10} {'window_s':>10} {'mean_max_frame_ms':>19} {'repeats':>8}")
+    print("-" * 51)
+    for point in sorted(per_point):
+        repeats = per_point[point]
+        buckets = sorted({b for r in repeats.values() for b in r})
+        for bucket in buckets:
+            values = [r[bucket] for r in repeats.values() if bucket in r]
+            window = (f"{bucket * AP_BUCKET_SECONDS:g}-"
+                      f"{(bucket + 1) * AP_BUCKET_SECONDS:g}")
+            print(f"{point:>10g} {window:>10} "
+                  f"{statistics.mean(values):>19.3f} {len(values):>8}")
+
+    # Stated unconditionally, because it is a property of the loop rather than of any
+    # particular run, and a reader comparing these figures against AP's would
+    # otherwise credit the sleep to the physics.
+    print("  note: frame time is the loop's UPDATE PERIOD, so it includes the")
+    print("        headless loop's inter-iteration sleep_for(1ms) - which Windows")
+    print("        rounds up to the timer granularity, measured at ~8.3 ms here.")
+    print("        Values near that floor are loop-paced, not physics-limited;")
+    print("        compare physics p95 above for the simulation cost itself.")
+
+
 def analyse_experiment(experiment_dir):
     """Returns (exit_code, knee_dict_or_None), or None if the directory is unusable."""
     manifest_path = os.path.join(experiment_dir, "experiment.json")
@@ -467,6 +566,13 @@ def analyse_experiment(experiment_dir):
         print("No usable runs.")
         return None
 
+    # Frame buckets are per-window dicts, not scalars, so they are lifted out before
+    # summary.csv is written rather than flattened into it.
+    frame_series = [
+        (r["point"], r["repeat"], r["server"], r.pop("ap_frames"))
+        for r in rows
+    ]
+
     out_path = os.path.join(experiment_dir, "summary.csv")
     with open(out_path, "w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
@@ -514,6 +620,8 @@ def analyse_experiment(experiment_dir):
         ratio = (busiest / lightest) if lightest > 0 else float("inf")
         print(f"{point:>8g} {busiest:>15.4f} {lightest:>16.4f} {ratio:>7.2f} "
               f"{max(owned.values()):>10.0f} {min(owned.values()):>10.0f}")
+
+    print_ap_frame_report(frame_series, sweep_name)
 
     print()
     if failures:

@@ -140,5 +140,60 @@ class CustodyReproducibilityNoteTests(unittest.TestCase):
         self.assertIsNotNone(analyse.custody_reproducibility_note("0", "1"))
 
 
+class ApFrameTimeTests(unittest.TestCase):
+    """AP's metric: max frame time across servers per 5 s window.
+
+    A 'frame' is a loop iteration in which physics advanced; its frame time is
+    the wall-clock gap since the previous such iteration. Rows with substeps == 0
+    did no physics and are not frames - but the time they consumed still belongs
+    to the next frame's interval, which is why the gap is measured between
+    consecutive physics rows rather than between adjacent CSV rows.
+    """
+
+    def test_gap_is_measured_between_physics_rows_not_adjacent_rows(self):
+        rows = [
+            {"time_us": "0", "substeps": "1"},
+            {"time_us": "1000", "substeps": "0"},
+            {"time_us": "2000", "substeps": "0"},
+            {"time_us": "8000", "substeps": "1"},
+        ]
+        buckets = analyse.ap_frame_times(rows, bucket_seconds=5.0)
+        # One frame interval: 8000 - 0 = 8 ms. The two idle rows are absorbed.
+        self.assertEqual(buckets, {0: 8.0})
+
+    def test_max_is_taken_within_a_bucket(self):
+        rows = [
+            {"time_us": "0", "substeps": "1"},
+            {"time_us": "2000", "substeps": "1"},
+            {"time_us": "9000", "substeps": "1"},
+        ]
+        buckets = analyse.ap_frame_times(rows, bucket_seconds=5.0)
+        self.assertEqual(buckets, {0: 7.0})
+
+    def test_frames_are_bucketed_by_elapsed_time(self):
+        rows = [
+            {"time_us": "0", "substeps": "1"},
+            {"time_us": "1000", "substeps": "1"},
+            {"time_us": "6000000", "substeps": "1"},
+        ]
+        buckets = analyse.ap_frame_times(rows, bucket_seconds=5.0)
+        self.assertIn(0, buckets)
+        self.assertIn(1, buckets)
+
+    def test_no_physics_rows_yields_no_buckets(self):
+        rows = [{"time_us": "0", "substeps": "0"}, {"time_us": "1000", "substeps": "0"}]
+        self.assertEqual(analyse.ap_frame_times(rows, bucket_seconds=5.0), {})
+
+    def test_a_single_physics_row_yields_no_interval(self):
+        rows = [{"time_us": "5", "substeps": "1"}]
+        self.assertEqual(analyse.ap_frame_times(rows, bucket_seconds=5.0), {})
+
+    def test_missing_substeps_column_is_treated_as_no_frames(self):
+        # Runs recorded before the substeps column existed must not silently
+        # produce a frame-time series computed from every loop iteration.
+        rows = [{"time_us": "0"}, {"time_us": "1000"}]
+        self.assertEqual(analyse.ap_frame_times(rows, bucket_seconds=5.0), {})
+
+
 if __name__ == "__main__":
     unittest.main()
