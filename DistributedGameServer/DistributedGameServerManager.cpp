@@ -108,6 +108,17 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 
 	// Published every update so the I4 accounting invariant can be checked from the
 	// @@STAT stream without any extra instrumentation.
+	// Drained per tick, not only from DispatchCommand. Spawns and destroys used to be
+	// drained solely at the end of a client command, on the assumption that a command
+	// is the only thing that creates an object. The injection workload breaks that:
+	// it spawns from the world manager on a schedule, with no command anywhere, so on
+	// a run with no client traffic mPendingSpawns grew for the whole run - every
+	// injected object went uncounted (objSpawned stayed 0, which made the conservation
+	// invariant read the entire population as unaccounted) and no spawn broadcast was
+	// ever sent, so a connected client would never have learned the objects existed.
+	DrainPendingSpawns();
+	DrainPendingDespawns();
+
 	Profiler::SetCommandsApplied(mCommandsApplied);
 	Profiler::SetCommandsRelayed(mCommandsRelayed);
 	Profiler::SetCommandsDuplicate(mCommandsDuplicate);
