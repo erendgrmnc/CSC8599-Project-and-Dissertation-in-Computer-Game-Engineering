@@ -851,9 +851,25 @@ CSC8503::GameObject* DistributedGameServer::ServerWorldManager::CreateHaloShadow
 	transform.SetPosition(state.position);
 	transform.SetOrientation(state.orientation);
 
-	GameObject* object = (archetypeID == static_cast<int>(NCL::Interaction::ObjectArchetype::Sphere))
-		? AddSphereToWorld(transform, networkID, -1)
-		: AddCubeToWorld(transform, networkID, -1);
+	// The shadow's shape must match the owner's, or the two servers resolve
+	// different contacts for the same pair - a mismatched shadow is exactly how
+	// invariant I8 (symmetric contact) breaks. This is a RECONSTRUCTION of an
+	// archetype decided elsewhere (by the owning server), so it must dispatch the
+	// same way CreateObjectFromArchetype does, not fall back to a two-way choice.
+	GameObject* object = nullptr;
+	switch (static_cast<NCL::Interaction::ObjectArchetype>(archetypeID)) {
+	case NCL::Interaction::ObjectArchetype::Sphere:
+		object = AddSphereToWorld(transform, networkID, -1);
+		break;
+	case NCL::Interaction::ObjectArchetype::Cuboid:
+		object = AddCuboidToWorld(transform, networkID, -1);
+		break;
+	default:
+		// Cube, and any unknown id: unchanged fallback, matching
+		// CreateObjectFromArchetype's default.
+		object = AddCubeToWorld(transform, networkID, -1);
+		break;
+	}
 	if (object == nullptr) {
 		return nullptr;
 	}
