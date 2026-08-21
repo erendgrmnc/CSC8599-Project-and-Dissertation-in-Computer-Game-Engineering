@@ -686,6 +686,9 @@ namespace NCL {
 			// before this increment ran with.
 			float mHaloWidth = 0.0f;
 			int mHaloUpdatesLate = 0;
+			// Updates whose scheduled tick had to be pulled back because the sender's
+			// counter is running ahead of ours. See ScheduleHaloUpdate.
+			int mHaloUpdatesAhead = 0;
 
 			// The authoritative state of each shadow, as its owner last told us.
 			// Re-imposed at the top of every tick, because contact resolution writes

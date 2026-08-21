@@ -158,6 +158,8 @@ namespace NCL {
 		// and the run is not reproducible.
 		static int GetHaloUpdatesLate();
 		static void SetHaloUpdatesLate(int count);
+		static int GetHaloUpdatesAhead();
+		static void SetHaloUpdatesAhead(int count);
 
 		// Object-snapshots put on the wire, and the ones interest suppressed. The
 		// ratio is the whole point of interest management, so it is measured.
@@ -231,6 +233,7 @@ namespace NCL {
 		static int sHaloUpdatesReceived;
 		static int sHaloObjectsReceived;
 		static int sHaloUpdatesLate;
+		static int sHaloUpdatesAhead;
 		static long long sSnapshotsSent;
 		static long long sSnapshotsSuppressed;
 		static int sDeltasApplied;

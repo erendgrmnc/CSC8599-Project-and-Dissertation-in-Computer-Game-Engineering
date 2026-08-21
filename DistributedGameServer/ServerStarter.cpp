@@ -332,6 +332,7 @@ int StartGameServer(int argc, char* argv[]) {
 			<< " haloRecv=" << Profiler::GetHaloUpdatesReceived()
 			<< " haloObjRecv=" << Profiler::GetHaloObjectsReceived()
 			<< " haloLate=" << Profiler::GetHaloUpdatesLate()
+			<< " haloAhead=" << Profiler::GetHaloUpdatesAhead()
 			// Object-snapshots sent, and the ones a client's declared interest
 			// suppressed. This pair is the interest-management result.
 			<< " snapSent=" << Profiler::GetSnapshotsSent()

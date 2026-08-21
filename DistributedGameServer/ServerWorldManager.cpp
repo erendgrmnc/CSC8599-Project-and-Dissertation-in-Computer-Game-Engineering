@@ -790,6 +790,29 @@ void DistributedGameServer::ServerWorldManager::ScheduleHaloUpdate(
 	const uint64_t applyAt =
 		static_cast<uint64_t>(senderTick) + static_cast<uint64_t>(std::max(0, mHaloLookaheadTicks));
 
+	// Bounded on the FUTURE side as well as the stale side.
+	//
+	// applyAt is expressed in the SENDER's tick numbers, and the two servers share no
+	// tick epoch once either stops holding its pacing budget. Measured on a 2-server
+	// injection run: the counters start together, then diverge monotonically to 89
+	// ticks as the population grows. The faster server sees 81% of arrivals as late;
+	// the slower one sees them as far-future and sits on fresh samples for the whole
+	// offset - 89 ticks is 740ms of withholding newer data while the shadow coasts on
+	// older data, which is strictly worse than applying it.
+	//
+	// ReimposeHaloState already clamps the stale direction (maxElapsed). This is that
+	// same bound in the other direction, so a sample is never withheld for longer
+	// than it could usefully be extrapolated. It does not make the epochs agree -
+	// nothing here can, and invariant I8 is already unattainable once they diverge -
+	// it stops the divergence being paid twice and keeps the pending queue bounded.
+	const uint64_t maxAhead = static_cast<uint64_t>(std::max(1, mHaloLookaheadTicks)) * 3u;
+	if (applyAt > mTickCounter + maxAhead) {
+		++mHaloUpdatesAhead;
+		scheduled.applyAtTick = mTickCounter + maxAhead;
+		mScheduledHaloUpdates.push_back(std::move(scheduled));
+		return;
+	}
+
 	if (applyAt <= mTickCounter) {
 		// Missed its slot. Applied anyway - a shadow frozen at an old position is
 		// worse than one that jumps - but counted, because a non-zero total means the
@@ -1175,6 +1198,7 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 
 	Profiler::SetHandoffsLate(mHandoffsLate);
 	Profiler::SetHaloUpdatesLate(mHaloUpdatesLate);
+	Profiler::SetHaloUpdatesAhead(mHaloUpdatesAhead);
 	Profiler::SetHandoffsSent(mHandoffsSent);
 	Profiler::SetHandoffsReceived(mHandoffsReceived);
 	Profiler::SetHandoffsFailed(mHandoffsFailed);

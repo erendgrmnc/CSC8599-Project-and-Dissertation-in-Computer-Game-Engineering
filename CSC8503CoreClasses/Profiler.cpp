@@ -59,6 +59,7 @@ int Profiler::sHaloObjectsSent = 0;
 int Profiler::sHaloUpdatesReceived = 0;
 int Profiler::sHaloObjectsReceived = 0;
 int Profiler::sHaloUpdatesLate = 0;
+int Profiler::sHaloUpdatesAhead = 0;
 long long Profiler::sSnapshotsSent = 0;
 long long Profiler::sSnapshotsSuppressed = 0;
 int Profiler::sDeltasApplied = 0;
@@ -346,6 +347,8 @@ long long Profiler::GetSnapshotsSuppressed() { return sSnapshotsSuppressed; }
 void Profiler::SetSnapshotsSuppressed(long long count) { sSnapshotsSuppressed = count; }
 int Profiler::GetHaloUpdatesLate() { return sHaloUpdatesLate; }
 void Profiler::SetHaloUpdatesLate(int count) { sHaloUpdatesLate = count; }
+int Profiler::GetHaloUpdatesAhead() { return sHaloUpdatesAhead; }
+void Profiler::SetHaloUpdatesAhead(int count) { sHaloUpdatesAhead = count; }
 int Profiler::GetHaloUpdatesSent() { return sHaloUpdatesSent; }
 void Profiler::SetHaloUpdatesSent(int count) { sHaloUpdatesSent = count; }
 int Profiler::GetHaloObjectsSent() { return sHaloObjectsSent; }
