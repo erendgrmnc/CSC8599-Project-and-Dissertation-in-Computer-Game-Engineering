@@ -235,6 +235,7 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 		std::cout << "Last Received Client ID " << mStateIDs[0] << "\n";
 		mDebugTimer = 5.f;
 	}
+
 }
 
 void DistributedGameServer::DistributedGameServerManager::RegisterGameServerPackets() {
@@ -283,6 +284,15 @@ void DistributedGameServer::DistributedGameServerManager::RegisterPacketSenderSe
 	// client re-receive the entire world each time anyone joins.
 	mDistributedPacketSenderServer->RegisterOnPeerJoinedEvent(
 		[this](int peerNumber) { SendManifestToPeer(peerNumber); });
+
+	// Declared interest is keyed by peer number and ENet reuses those numbers, so an
+	// entry left behind by a departed peer is inherited by the next one to take the
+	// slot. Both directions of that are wrong: a client landing on a slot a SERVER
+	// vacated would be silently starved of snapshots (servers declare "send me
+	// nothing"), and a server landing on a slot a CLIENT vacated would be sent the
+	// whole world every tick and decode and discard all of it.
+	mDistributedPacketSenderServer->RegisterOnPeerLeftEvent(
+		[this](int peerNumber) { mPeerInterest.erase(peerNumber); });
 
 	std::function<void()> onAllClientsConnectedCallback = std::bind(&DistributedGameServerManager::SendAllClientsAreConnectedToPacketSenderServerPacket, this);
 	mDistributedPacketSenderServer->RegisterOnAllClientsAreConnectedEvent(onAllClientsConnectedCallback);

@@ -24,9 +24,15 @@ namespace NCL {
 			// snapshot arrives - which loses the archetype, and never conveys an
 			// object sitting in the handoff ownership gap at the moment of joining.
 			void RegisterOnPeerJoinedEvent(const std::function<void(int)>& callback);
+			// Fired when a peer goes away. Needed because per-peer state kept OUTSIDE
+			// this class - the manager's declared snapshot interest, keyed by peer
+			// number - outlives the peer otherwise, and ENet reuses peer numbers. The
+			// next occupant of a slot then inherits the previous one's declaration.
+			void RegisterOnPeerLeftEvent(const std::function<void(int)>& callback);
 		protected:
 			std::vector<std::function<void()>> mOnAllClientsAreConnected;
 			std::vector<std::function<void(int)>> mOnPeerJoined;
+			std::vector<std::function<void(int)>> mOnPeerLeft;
 
 			void TriggerOnAllClientsAreConnectedEvents() const;
 

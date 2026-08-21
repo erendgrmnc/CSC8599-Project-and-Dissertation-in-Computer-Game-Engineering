@@ -42,6 +42,12 @@ void NCL::Networking::DistributedPacketSenderServer::UpdateServer() {
 				}
 			}
 			mPeerHandles.erase(peer + 1);
+			// Per-peer state held elsewhere has to go too. ENet reuses peer numbers,
+			// so anything keyed by one and not cleared here is silently inherited by
+			// whoever connects into that slot next.
+			for (const auto& callback : mOnPeerLeft) {
+				callback(peer + 1);
+			}
 		}
 		else if (type == ENetEventType::ENET_EVENT_TYPE_RECEIVE) {
 			//std::cout << "Server: Has recieved packet" << std::endl;
@@ -63,6 +69,11 @@ void NCL::Networking::DistributedPacketSenderServer::AddPeer(int peerNumber) {
 	}
 
 	CheckAllClientsConnected();
+}
+
+void NCL::Networking::DistributedPacketSenderServer::RegisterOnPeerLeftEvent(
+	const std::function<void(int)>& callback) {
+	mOnPeerLeft.push_back(callback);
 }
 
 void NCL::Networking::DistributedPacketSenderServer::SetMaxClients(int maxClients) {

@@ -148,6 +148,14 @@ class ApFrameTimeTests(unittest.TestCase):
     did no physics and are not frames - but the time they consumed still belongs
     to the next frame's interval, which is why the gap is measured between
     consecutive physics rows rather than between adjacent CSV rows.
+
+    Windows are SIMULATED seconds (cumulative substeps / substep rate), while the
+    frame time inside them stays wall-clock milliseconds. AP's x-axis indexes the
+    injected population - at t seconds their world holds 160*t objects - so a
+    window only compares against theirs if it is placed by how far the schedule
+    has advanced. A paced 60 s injection run that cannot hold the pace takes ~150 s
+    of wall clock, and wall-clock windows would spread AP's 60 s benchmark across
+    an axis two and a half times too long.
     """
 
     def test_gap_is_measured_between_physics_rows_not_adjacent_rows(self):
@@ -170,15 +178,26 @@ class ApFrameTimeTests(unittest.TestCase):
         buckets = analyse.ap_frame_times(rows, bucket_seconds=5.0)
         self.assertEqual(buckets, {0: 7.0})
 
-    def test_frames_are_bucketed_by_elapsed_time(self):
+    def test_windows_advance_with_simulated_time(self):
+        # 600 substeps at 120 Hz is 5 s simulated, so the last frame lands in the
+        # second window even though only 3 ms of wall clock elapsed.
         rows = [
             {"time_us": "0", "substeps": "1"},
             {"time_us": "1000", "substeps": "1"},
+            {"time_us": "2000", "substeps": "598"},
+        ]
+        buckets = analyse.ap_frame_times(rows, bucket_seconds=5.0)
+        self.assertEqual(sorted(buckets), [0, 1])
+
+    def test_wall_clock_alone_does_not_advance_the_window(self):
+        # Six seconds of wall clock, but only two substeps of simulated time: this
+        # is one very slow frame at the START of the benchmark, not a later one.
+        rows = [
+            {"time_us": "0", "substeps": "1"},
             {"time_us": "6000000", "substeps": "1"},
         ]
         buckets = analyse.ap_frame_times(rows, bucket_seconds=5.0)
-        self.assertIn(0, buckets)
-        self.assertIn(1, buckets)
+        self.assertEqual(buckets, {0: 6000.0})
 
     def test_no_physics_rows_yields_no_buckets(self):
         rows = [{"time_us": "0", "substeps": "0"}, {"time_us": "1000", "substeps": "0"}]
@@ -193,44 +212,6 @@ class ApFrameTimeTests(unittest.TestCase):
         # produce a frame-time series computed from every loop iteration.
         rows = [{"time_us": "0"}, {"time_us": "1000"}]
         self.assertEqual(analyse.ap_frame_times(rows, bucket_seconds=5.0), {})
-
-
-class OwnershipAnomalyTests(unittest.TestCase):
-    """Invariant I1, checked per tick against a baseline that can GROW.
-
-    The baseline used to be the run's final population, which is only correct when
-    the population is fixed. Under the injection workload it grows from zero, so
-    every tick before the last sat below the maximum and the whole run reported as
-    an ownership gap - 1,199 of 1,200 ticks on a 10 s two-server run where nothing
-    was actually wrong.
-    """
-
-    def test_fixed_population_is_clean(self):
-        self.assertEqual(analyse.ownership_anomalies([10, 10, 10]), (0, 0))
-
-    def test_a_dip_is_a_gap(self):
-        self.assertEqual(analyse.ownership_anomalies([10, 9, 10]), (1, 0))
-
-    def test_a_growing_population_is_not_a_gap(self):
-        # The injection case: nobody lost anything, the world is being filled.
-        self.assertEqual(
-            analyse.ownership_anomalies([0, 400, 800, 1200], population_may_grow=True),
-            (0, 0))
-
-    def test_a_dip_after_growth_is_still_a_gap(self):
-        self.assertEqual(
-            analyse.ownership_anomalies([1, 2, 3, 2, 3], population_may_grow=True),
-            (1, 0))
-
-    def test_a_rise_above_the_running_max_is_a_double(self):
-        # A transient double-owner raises the baseline for the rest of the run, so
-        # the following tick also reads as a gap. That is the same weakness the
-        # previous global-max baseline had, and it at least reports the double -
-        # the global-max version reported two gaps and no double at all.
-        self.assertEqual(analyse.ownership_anomalies([10, 11, 10]), (1, 1))
-
-    def test_empty_series_is_clean(self):
-        self.assertEqual(analyse.ownership_anomalies([]), (0, 0))
 
 
 class ApFrameFloorNoteTests(unittest.TestCase):

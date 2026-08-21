@@ -809,18 +809,43 @@ void DistributedGameServer::ServerWorldManager::FlushScheduledHaloUpdates() {
 		return;
 	}
 
-	// Same total order as FlushScheduledHandoffs, and for the same reason: the vector
-	// is in packet ARRIVAL order, and the order shadows are created in decides their
-	// order in the broadphase pair list, which contact resolution is sensitive to.
-	std::sort(mScheduledHaloUpdates.begin(), mScheduledHaloUpdates.end(),
-		[](const ScheduledHaloUpdate& l, const ScheduledHaloUpdate& r) {
-			if (l.applyAtTick != r.applyAtTick) {
-				return l.applyAtTick < r.applyAtTick;
-			}
-			return l.objectID < r.objectID;
-		});
+	// Sorted only when something new has been appended, not on every tick.
+	//
+	// This used to re-sort the WHOLE vector every tick whether or not anything was
+	// due, and then erase applied entries one at a time from the middle - O(n log n)
+	// plus O(k*n) against a backlog that grows whenever this server's tick counter
+	// falls behind its peer's, because the peer's updates are stamped with the
+	// peer's tick and land far in the future.
+	//
+	// That is a runaway: a server that falls slightly behind accumulates a backlog,
+	// the backlog makes the per-tick sort more expensive, and the extra cost puts it
+	// further behind. Measured at 27-42 ms per tick spent here alone, against an
+	// 8.33 ms budget, which took the per-tick period to 269 ms and dragged a 60 s
+	// run out to 800 s. It struck whichever server lost the race first, and the
+	// peer's link then timed out because the loop stopped servicing ENet.
+	const auto byTickThenID = [](const ScheduledHaloUpdate& l, const ScheduledHaloUpdate& r) {
+		if (l.applyAtTick != r.applyAtTick) {
+			return l.applyAtTick < r.applyAtTick;
+		}
+		return l.objectID < r.objectID;
+	};
 
-	for (auto entry = mScheduledHaloUpdates.begin(); entry != mScheduledHaloUpdates.end(); ) {
+	// Only the newly appended tail is unsorted, so sort THAT and merge it into the
+	// already-sorted head. A dirty flag alone is not enough: halo updates arrive on
+	// essentially every tick, so the flag is essentially always set and a full sort
+	// still runs every tick.
+	if (mScheduledHaloUpdates.size() > mScheduledHaloSorted) {
+		const auto tail = mScheduledHaloUpdates.begin() + mScheduledHaloSorted;
+		std::sort(tail, mScheduledHaloUpdates.end(), byTickThenID);
+		std::inplace_merge(mScheduledHaloUpdates.begin(), tail,
+			mScheduledHaloUpdates.end(), byTickThenID);
+	}
+
+	// The due entries are a prefix, because the vector is sorted by applyAtTick.
+	// Walk it once and erase the whole prefix in one operation rather than erasing
+	// each entry from the middle as it is applied.
+	auto entry = mScheduledHaloUpdates.begin();
+	for (; entry != mScheduledHaloUpdates.end(); ++entry) {
 		if (entry->applyAtTick > mTickCounter) {
 			break;   // Sorted, so nothing after this is due either.
 		}
@@ -830,7 +855,6 @@ void DistributedGameServer::ServerWorldManager::FlushScheduledHaloUpdates() {
 		const auto owned = mCreatedObjectPool.find(entry->objectID);
 		const bool nowOurs = (owned != mCreatedObjectPool.end() && owned->second != nullptr);
 		if (nowOurs || IsTombstoned(entry->objectID)) {
-			entry = mScheduledHaloUpdates.erase(entry);
 			continue;
 		}
 
@@ -840,9 +864,11 @@ void DistributedGameServer::ServerWorldManager::FlushScheduledHaloUpdates() {
 		if (mHaloObjects.find(entry->objectID) == mHaloObjects.end()) {
 			CreateHaloShadow(entry->archetypeID, entry->objectID, entry->state);
 		}
-
-		entry = mScheduledHaloUpdates.erase(entry);
 	}
+	mScheduledHaloUpdates.erase(mScheduledHaloUpdates.begin(), entry);
+	// Everything left is sorted: the prefix that was removed came off the front of a
+	// sorted range, and the merge above put the whole vector in order.
+	mScheduledHaloSorted = mScheduledHaloUpdates.size();
 }
 
 CSC8503::GameObject* DistributedGameServer::ServerWorldManager::CreateHaloShadow(

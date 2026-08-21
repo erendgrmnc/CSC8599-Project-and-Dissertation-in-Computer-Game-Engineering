@@ -216,19 +216,30 @@ def ap_frame_floor_note(paced_flags):
 AP_BUCKET_SECONDS = 5.0
 
 
-def ap_frame_times(rows, bucket_seconds=AP_BUCKET_SECONDS):
-    """Max frame time (ms) per elapsed-time bucket, AP's metric.
+def ap_frame_times(rows, bucket_seconds=AP_BUCKET_SECONDS,
+                   substep_hz=DEFAULT_SUBSTEP_HZ):
+    """Max frame time (ms) per SIMULATED-time window, AP's metric.
 
     AP aggregates "the maximum frame time of any server" over each 5 s period.
-    This computes one server's per-bucket maximum; the caller takes the max
-    across servers and then the mean across repeats.
+    This computes one server's per-window maximum; the caller takes the max across
+    servers and then the mean across repeats.
 
     A frame is a loop iteration in which physics advanced (substeps > 0). Its
     frame time is the wall-clock gap since the previous such iteration, so the
     idle spin between them is charged to the frame that follows it - which is
     what AP's update period actually contains.
+
+    Windows are placed by SIMULATED time (cumulative substeps / substep_hz), not
+    by wall clock, while the frame time inside them stays wall-clock milliseconds.
+    AP's x-axis indexes the injected population: at t seconds their world holds
+    160*t objects, so a window of ours only compares against theirs if it sits at
+    the same point in the schedule. A paced 60 s injection run that cannot hold
+    the pace takes about 150 s of wall clock, and wall-clock windows would spread
+    AP's 60 s benchmark over an axis two and a half times too long - reporting a
+    quiet late window that is really the same load AP saw at 60 s.
     """
-    stamps = []
+    samples = []
+    simulated_ticks = 0
     for row in rows:
         raw = row.get("substeps")
         if raw is None:
@@ -237,20 +248,21 @@ def ap_frame_times(rows, bucket_seconds=AP_BUCKET_SECONDS):
             # spin rate as a frame rate.
             return {}
         try:
-            if int(raw) <= 0:
+            substeps = int(raw)
+            if substeps <= 0:
                 continue
-            stamps.append(int(row["time_us"]))
+            simulated_ticks += substeps
+            samples.append((int(row["time_us"]), simulated_ticks))
         except (TypeError, ValueError):
             continue
 
-    if len(stamps) < 2:
+    if len(samples) < 2:
         return {}
 
-    start = stamps[0]
     buckets = {}
-    for previous, current in zip(stamps, stamps[1:]):
-        frame_ms = (current - previous) / 1000.0
-        bucket = int(((current - start) / 1e6) // bucket_seconds)
+    for (previous_us, _), (current_us, ticks) in zip(samples, samples[1:]):
+        frame_ms = (current_us - previous_us) / 1000.0
+        bucket = int((ticks / float(substep_hz)) // bucket_seconds)
         if frame_ms > buckets.get(bucket, 0.0):
             buckets[bucket] = frame_ms
     return buckets
@@ -564,7 +576,9 @@ def print_ap_frame_report(frame_series, sweep_name="point"):
 
     print()
     print("AP FRAME TIME (max across servers per 5s window, mean over repeats)")
-    print(f"{sweep_name:>10} {'window_s':>10} {'mean_max_frame_ms':>19} {'repeats':>8}")
+    print("  windows are SIMULATED seconds - the point the 160/s schedule has")
+    print("  reached, which is what AP's x-axis indexes; frame time is wall-clock ms")
+    print(f"{sweep_name:>10} {'sim_window_s':>14} {'mean_max_frame_ms':>19} {'repeats':>8}")
     print("-" * 51)
     for point in sorted(per_point):
         repeats = per_point[point]
@@ -573,7 +587,7 @@ def print_ap_frame_report(frame_series, sweep_name="point"):
             values = [r[bucket] for r in repeats.values() if bucket in r]
             window = (f"{bucket * AP_BUCKET_SECONDS:g}-"
                       f"{(bucket + 1) * AP_BUCKET_SECONDS:g}")
-            print(f"{point:>10g} {window:>10} "
+            print(f"{point:>10g} {window:>14} "
                   f"{statistics.mean(values):>19.3f} {len(values):>8}")
 
     # Frame time is the loop's UPDATE PERIOD, so it carries whatever the loop waited

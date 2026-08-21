@@ -725,6 +725,10 @@ namespace NCL {
 				HaloAuthoritativeState state;
 			};
 			std::vector<ScheduledHaloUpdate> mScheduledHaloUpdates;
+			// How many leading entries of mScheduledHaloUpdates are known sorted.
+			// Anything past this is a newly appended tail, sorted and merged in on the
+			// next flush. See FlushScheduledHaloUpdates.
+			size_t mScheduledHaloSorted = 0;
 			void FlushScheduledHaloUpdates();
 
 			// Releases scheduled by ScheduleOutgoingObject, keyed by object id so the
