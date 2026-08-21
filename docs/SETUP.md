@@ -14,6 +14,14 @@ Assets are resolved from a path baked into the binary at configure time via the 
 
 ## The build-mode toggle
 
+> **OUT OF DATE — see [BUILDING.md](BUILDING.md) instead.**
+>
+> This section describes a three-variable scheme that no longer exists. There is now **one**
+> switch, `CMAKE_DISTRIBUTED_SYSTEM_ACTIVE`, and role selection is a per-target setting, so a
+> single configure builds all three server programs at once.
+> `CMAKE_BUILD_FOR_DISTRIBUTED_MANAGER` and `CMAKE_BUILD_FOR_PHYSICS_MIDWARE` were removed.
+> The rest of this file is still accurate.
+
 This is the single most important concept. **There is one entry point, `EntryPoint/main.cpp`, and it compiles into one of four different executables** depending on preprocessor definitions. Those definitions come from three variables near the top of the root `CMakeLists.txt`:
 
 ```cmake
