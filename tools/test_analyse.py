@@ -279,5 +279,54 @@ class ApFrameFloorNoteTests(unittest.TestCase):
         self.assertIsInstance(analyse.ap_frame_floor_note([]), list)
 
 
+import shutil
+import tempfile
+
+
+class ClientLogDiscoveryTests(unittest.TestCase):
+    """Multi-client runs write one log per client. The late joiner must stay out.
+
+    measure.ps1's -LateClientAfter client exists to exercise the join path, not to
+    carry load: it runs for 10 s regardless of the run length. Counting its @@FINAL
+    line would inflate the client-side total that invariant I4 balances against what
+    the servers applied.
+    """
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, ignore_errors=True)
+
+    def _write(self, name, text):
+        with open(os.path.join(self.directory, name), "w") as handle:
+            handle.write(text)
+
+    def _clients(self):
+        return [
+            f for f in analyse.read_final_lines(self.directory)
+            if f["role"] == "client"
+        ]
+
+    def test_every_numbered_client_log_is_read(self):
+        self._write("cli-0.log", "@@FINAL role=client cmdSent=10\n")
+        self._write("cli-1.log", "@@FINAL role=client cmdSent=7\n")
+        clients = self._clients()
+        self.assertEqual(len(clients), 2)
+        self.assertEqual(sum(int(f["cmdSent"]) for f in clients), 17)
+
+    def test_the_late_joiner_is_not_counted(self):
+        self._write("cli-0.log", "@@FINAL role=client cmdSent=10\n")
+        self._write("cli-late.log", "@@FINAL role=client cmdSent=99\n")
+        clients = self._clients()
+        self.assertEqual(len(clients), 1)
+        self.assertEqual(int(clients[0]["cmdSent"]), 10)
+
+    def test_the_single_client_name_is_still_read(self):
+        self._write("cli.log", "@@FINAL role=client cmdSent=4\n")
+        self.assertEqual(len(self._clients()), 1)
+
+    def test_a_missing_run_directory_is_not_an_error(self):
+        self.assertEqual(analyse.read_final_lines(os.path.join(self.directory, "nope")), [])
+
+
 if __name__ == "__main__":
     unittest.main()

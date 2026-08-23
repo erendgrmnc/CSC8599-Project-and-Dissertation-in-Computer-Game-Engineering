@@ -289,11 +289,24 @@ def ap_frame_times(rows, bucket_seconds=AP_BUCKET_SECONDS,
     return buckets
 
 
+# cli.log (single client) or cli-0.log, cli-1.log, ... (multi-client).
+#
+# Deliberately NOT a cli*.log glob: that would also match cli-late.log, the
+# short-lived join-path client, whose totals must not enter the I4 tally.
+CLIENT_LOG_PATTERN = re.compile(r"^cli(-\d+)?\.log$")
+
+
 def read_final_lines(run_dir):
     """@@FINAL totals are exact end-of-run values; @@STAT is a 2 Hz sample and is
     never used for a reported number."""
     finals = []
-    for name in ("mid.log", "cli.log"):
+    client_logs = []
+    if os.path.isdir(run_dir):
+        client_logs = sorted(
+            entry for entry in os.listdir(run_dir) if CLIENT_LOG_PATTERN.match(entry)
+        )
+
+    for name in ["mid.log"] + client_logs:
         path = os.path.join(run_dir, name)
         if not os.path.exists(path):
             continue
