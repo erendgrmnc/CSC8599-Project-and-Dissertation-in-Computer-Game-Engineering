@@ -15,8 +15,8 @@ import re
 import sys
 
 # Identical on every clean run measured. A Phase A regression would almost certainly
-# move one of these off its value - they are the failure counters plus the two
-# tick-locked halo counts.
+# move one of these off its value - they are the failure counters plus the one
+# remaining tick-locked halo count (haloAhead; haloLate was moved out, see below).
 #
 # haloLate was in this list originally (it read 0 on all 8 pre-change server-runs
 # sampled for the Task 6 baseline) and was moved OUT after a counterfactual on the
@@ -38,17 +38,90 @@ STABLE = [
 CONSERVED = ["objs", "objPool"]
 
 
-def finals(experiment_dir):
-    """One dict per server per run under this experiment directory."""
-    out = []
-    for log in sorted(glob.glob(os.path.join(experiment_dir, "*", "mid.log"))):
+class GateError(Exception):
+    """A structural problem with the data itself, distinct from a gate FAILURE
+    (which means the data is fine but the values disagree). Raised loudly rather
+    than letting mismatched data silently produce a wrong or spuriously-passing
+    total.
+    """
+
+
+def _natural_key(path):
+    """Numeric-aware sort key so 'ticks1800-r10' sorts after 'ticks1800-r2', not
+    before it (plain lexicographic sort puts '10' before '2'). Not triggered at
+    the repeat counts used so far, but an experiment is not bounded to those.
+    """
+    return [int(chunk) if chunk.isdigit() else chunk
+            for chunk in re.split(r"(\d+)", path)]
+
+
+def finals_by_log(experiment_dir):
+    """List of (log_path, [row dict, ...]) - one entry per mid.log under this
+    experiment directory, each holding that log's own @@FINAL role=server rows.
+    Keeping the per-log grouping (rather than flattening across logs) is what
+    lets the conservation check pair rows from the SAME run instead of drifting
+    across a run boundary if some log contributed an unexpected number of lines.
+    """
+    groups = []
+    for log in sorted(glob.glob(os.path.join(experiment_dir, "*", "mid.log")),
+                       key=_natural_key):
+        rows = []
         for line in open(log, errors="ignore"):
             if "@@FINAL role=server" not in line:
                 continue
-            out.append(dict(
+            rows.append(dict(
                 re.findall(r"(\w+)=(-?\d+)", line[line.index("@@FINAL"):])
             ))
-    return out
+        groups.append((log, rows))
+    return groups
+
+
+def finals(experiment_dir):
+    """One dict per server per run under this experiment directory, flattened
+    across runs. Safe for the STABLE-field checks below, which only ever build a
+    set of values and do not care which run a value came from - the per-run
+    boundary only matters for the conservation check, which uses
+    finals_by_log directly instead of this.
+    """
+    return [row for _log, rows in finals_by_log(experiment_dir) for row in rows]
+
+
+def conservation_totals(dirs):
+    """Per-run sums of the CONSERVED fields, one dict per mid.log (= per run).
+
+    The expected server count is DERIVED, not hardcoded: it is the number of
+    distinct server ids seen anywhere across every log passed in (the union of
+    every 'id=' value), which is correct whether this is a 1-server or a
+    4-server experiment - no assumption baked in.
+
+    Every individual log is then required to report exactly that many rows,
+    each with a distinct id. A log that falls short (a server that died before
+    printing @@FINAL - a real failure mode this project has hit) or reports a
+    duplicate id (a stray matching line) raises GateError naming the log path
+    and what was found, instead of letting the pairing silently drift and sum
+    rows from different runs together.
+    """
+    groups = [group for d in dirs for group in finals_by_log(d)]
+
+    all_ids = {row["id"] for _log, rows in groups for row in rows if "id" in row}
+    expected = len(all_ids)
+    if expected == 0:
+        raise GateError(
+            f"no @@FINAL role=server lines found in any of: {', '.join(dirs)}"
+        )
+
+    per_run = []
+    for log, rows in groups:
+        ids = [row.get("id") for row in rows]
+        if len(rows) != expected or len(set(ids)) != len(rows):
+            raise GateError(
+                f"{log}: expected {expected} @@FINAL server line(s) with distinct "
+                f"ids (server ids seen across this experiment: {sorted(all_ids)}), "
+                f"found {len(rows)} line(s) with id(s) {ids} - refusing to pair, "
+                f"since doing so would silently sum rows across different runs"
+            )
+        per_run.append({f: sum(int(r[f]) for r in rows) for f in CONSERVED})
+    return per_run
 
 
 def main():
@@ -83,22 +156,16 @@ def main():
 
     # 2. Conservation: per-server assignment drifts, the world total does not.
     #    Grouped per run, because a total is only meaningful within one run.
-    def totals(rows, dirs):
-        per_run = []
-        for d in dirs:
-            rows_here = finals(d)
-            by_run = {}
-            for log_index in range(0, len(rows_here), 2):
-                pair = rows_here[log_index:log_index + 2]
-                if len(pair) == 2:
-                    by_run.setdefault(log_index, pair)
-            for pair in by_run.values():
-                per_run.append({f: sum(int(r[f]) for r in pair) for f in CONSERVED})
-        return per_run
+    try:
+        pre_run_totals = conservation_totals(pre_dirs)
+        post_run_totals = conservation_totals(post_dirs)
+    except GateError as error:
+        print(f"GATE FAILED: {error}")
+        return 1
 
     for field in CONSERVED:
-        pre_totals = {t[field] for t in totals(pre, pre_dirs)}
-        post_totals = {t[field] for t in totals(post, post_dirs)}
+        pre_totals = {t[field] for t in pre_run_totals}
+        post_totals = {t[field] for t in post_run_totals}
         if pre_totals != post_totals:
             failures.append(
                 f"{field} total: was {sorted(pre_totals)}, now {sorted(post_totals)}"
