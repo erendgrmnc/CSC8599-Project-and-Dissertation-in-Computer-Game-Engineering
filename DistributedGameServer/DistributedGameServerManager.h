@@ -49,6 +49,14 @@ namespace NCL {
 			// split, and here it falls out of the topology instead of being
 			// attributed after the fact.
 			struct NetworkByteTotals {
+				// Mirrors the wrap note on NetworkBase::GetTotalSentData/GetTotalSentPackets
+				// (NetworkBase.h:188-190): each host's own counter is an enet_uint32 that
+				// wraps after ~4 GB (~15 minutes at E8's measured rates). The peer fields
+				// here are worse, not just as exposed: GetNetworkByteTotals() SUMS several
+				// peer links' host counters into one field of this struct, so the sum can
+				// wrap before any individual host's own counter does. Safe at the durations
+				// this project measures; a longer run needs 64-bit accumulation during the
+				// run rather than a read once at exit.
 				unsigned int clientBytes = 0;
 				unsigned int clientPackets = 0;
 				unsigned int peerBytes = 0;

@@ -55,7 +55,7 @@ This paragraph previously described the path as scaffolded, with the ack a `TODO
 
 ### Incoming position offset
 
-`CalculateIncomingObjectOffsetedPosition` (`ServerWorldManager.cpp:296-314`) exists to nudge a handed-off object just inside the receiving region's bounds (so it isn't re-detected as out-of-bounds on arrival). Most of its branches are currently commented out, leaving only a Z-axis floor adjustment active — another area flagged for refinement.
+`CalculateIncomingObjectOffsetPosition` (`ServerWorldManager.cpp:440` — note the name has no "ed") exists to nudge a handed-off object just inside the receiving region's bounds (so it isn't re-detected as out-of-bounds on arrival). It **is** called now, from `ApplyIncomingObject` on every non-reclaim arrival, but only to observe: the clamp is computed and the result is *discarded*, incrementing `hoClamp` when it would have moved the object. So incoming handoffs still get no positional nudge; what changed is that the codebase now measures how often one would be needed — and that measurement shows the case is reachable, including on the correctness-budget configuration when `--halo-width` is on. See `docs/EVALUATION.md` §7 item 7 and the verified-state warnings in `CLAUDE.md`.
 
 ## Summary
 

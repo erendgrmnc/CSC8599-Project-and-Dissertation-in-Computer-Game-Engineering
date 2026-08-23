@@ -756,10 +756,17 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    region. Batch B added `hoClamp`, a counter that computes the clamp this function would apply and
    discards it without changing behaviour, purely to observe whether the gap is real. It fired 25,434
    times across 10 of 52 server-lines on the E7 runs, and roughly 2,600 times per run under
-   rebalancing, while never firing on any healthy-path (correctness-budget) run — and it fires with
+   rebalancing. **It also fires on the correctness-budget (healthy-path) configuration when
+   `--halo-width` is on**: server 0 reported `hoClamp` 7–8 across the four Phase A pre-change repeats
+   and 8, 8, 8 across the three gate repeats — see the Step 4 table in
+   `docs/superpowers/results/2026-08-23-A-instrumentation.md:152`. The likely mechanism is that an
+   arriving object is promoted from an existing halo shadow rather than constructed, so its arrival
+   position comes from a different path; every earlier run behind the "never on healthy-path" claim
+   had the halo off. It fires with
    `hoReclaimed = 0`, so it is not an artefact of custody's own reclaim churn. That refutes the
    expectation, held when this item was filed, that the gap was practically unreachable: it is real
-   and load-dependent. The fix (wiring the function into the handoff path) stays deferred for the same
+   and load-dependent, and reachable at correctness-budget scale, not only under load or rebalancing.
+   The fix (wiring the function into the handoff path) stays deferred for the same
    reason as before — it changes measured handoff behaviour, so it belongs with a dedicated change,
    not a drive-by.
 
@@ -801,6 +808,12 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    spread (38.0% raw) is a per-tick-rate effect, not noise: normalised to B/tick it is 10.3%, halo/radius
    independence holds, and because the r=0 baseline itself under-accumulates ticks from the same effect,
    the 0.105 ratio is conservative rather than an open question. See §3.
+
+   **Qualification (F4, found 2026-08-23):** no client `@@FINAL` line was printed in any run of this
+   phase — `measure.ps1` sizes `--run-seconds` well past how long the harness actually waits, so every
+   client is force-killed before it gets there. This item's own per-client discovery (numbered
+   `cli-N.log` files) is real and unit-tested, but it has never been exercised against a real client
+   `@@FINAL` line, only fixture data. See item 14.
 13. **Open — a snapshot-throughput change (not tick-rate variability), plus a second, distinct change in
    interest management's own reduction fraction — both between the published commit and this phase's
    re-measurement.** Client-facing byte rates measured in this phase are 2-4x the published ones at the
@@ -850,10 +863,22 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    now share `tools/RunPaths.ps1`, which also rejects the drive-relative case (`C:runs`) that
    `Path.IsPathRooted` reports as absolute. Shared rather than copied precisely because this bug
    existed only because the earlier fix was applied to one script and not the other.
+14. **Open — no client `@@FINAL` line exists in any run of this phase (F4, found 2026-08-23).**
+   `measure.ps1` sizes `--run-seconds` far longer than the harness actually waits, so every client is
+   force-killed before it can print `@@FINAL`. Checked across every experiment run in this phase (four
+   experiments, five client logs total): zero contain `@@FINAL role=client`. Two consequences:
+   invariant I4 is silently vacuous in every run of this phase rather than failing (`analyse.py` guards
+   it behind `if client_finals:`, so it simply never runs), and item 11's per-client `@@FINAL`
+   discovery has never been exercised against real client data, only unit-test fixtures. E8 and E3 are
+   unaffected — both read server-side counters only. The fix is a harness timing change (`measure.ps1`'s
+   `--run-seconds` sizing relative to how long it actually waits for a client), out of this phase's
+   scope.
 
 **Items 3, 4, 5, 8 and 9 are now closed** (Batch A). Item 1 is now also closed and item 6 withdrawn
 (Batch B). Items 2 and 7 remain open — narrowed and confirmed-reachable respectively, not fixed — and
-Batch B's own measurement opened item 12, the rebalancing regression, which still needs a bisect.
+Batch B's own measurement opened item 12, the rebalancing regression, which still needs a bisect. Item
+14, a harness timing defect found while writing up item 11, is also open and is not attributable to
+any task's code change.
 
 **E8 has since been re-run** (`runs/exp-bytes-1client`, `runs/exp-bytes-2client`) and is reported in
 §3. It closes items 10 and 11 above, and — because the two builds' snapshot throughput differs by a

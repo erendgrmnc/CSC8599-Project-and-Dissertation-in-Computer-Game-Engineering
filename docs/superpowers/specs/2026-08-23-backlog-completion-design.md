@@ -84,9 +84,9 @@ execution on four clean runs at the identical commit, seed and configuration (`u
 
 | behaviour | fields |
 |---|---|
-| identical on every clean run | the 21 zero-valued or tick-locked counters — `cmdApplied` `cmdRelayed` `cmdDup` `cmdRejected` `cmdFanout` `hoFail` `hoLate` `hoResent` `hoReclaimed` `hoCustody` `hoDup` `hoPending` `hoSched` `haloLate` `haloAhead` `haloSent` `haloRecv` `manifestSent` `objPreseed` `objSpawned` `objDestroyed` |
+| identical on every clean run | the 20 zero-valued or tick-locked counters — `cmdApplied` `cmdRelayed` `cmdDup` `cmdRejected` `cmdFanout` `hoFail` `hoLate` `hoResent` `hoReclaimed` `hoCustody` `hoDup` `hoPending` `hoSched` `haloAhead` `haloSent` `haloRecv` `manifestSent` `objPreseed` `objSpawned` `objDestroyed` |
 | per-server varies, world total stable | `objs`, `objPool` — the 400 objects split 201/199 or 200/200 |
-| varies outright | `contacts` (~1%), `snapSent` (~1.5%), `haloObjSent`/`haloObjRecv` (~10%), `hoSent`/`hoRecv` (±1), `objFwd`, `objHalo`, `objWorld`, `hoClamp` |
+| varies outright | `contacts` (~1%), `snapSent` (~1.5%), `haloObjSent`/`haloObjRecv` (~10%), `hoSent`/`hoRecv` (±1), `objFwd`, `objHalo`, `objWorld`, `hoClamp`, `haloLate` — **load-sensitive, not a fixed point**: moved here after a counterfactual re-run of the unmodified pre-change commit produced 526/66 on a degraded run with zero code change (a mildly loaded run can clear the degraded-run thresholds — custody firing, `ownership_gap_ticks` in the thousands — while still posting a handful of late halo updates); see `docs/superpowers/results/2026-08-23-A-instrumentation.md` |
 
 `ownership_gap_ticks` across those four runs was 84, 82, 91, 84.
 

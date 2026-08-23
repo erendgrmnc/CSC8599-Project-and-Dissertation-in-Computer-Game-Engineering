@@ -328,5 +328,62 @@ class ClientLogDiscoveryTests(unittest.TestCase):
         self.assertEqual(analyse.read_final_lines(os.path.join(self.directory, "nope")), [])
 
 
+class SummariseRunWireBytesWiringTests(unittest.TestCase):
+    """Task 3's deferred minor: WireBytesTests covers wire_bytes() itself, but
+    nothing checks that summarise_run's net_cli_wire_bytes / net_peer_wire_bytes keys
+    are wired to the RIGHT @@FINAL fields. E8's entire headline flows through those
+    two keys, so a cli/peer swap - or either key reading the wrong field name -
+    would silently swap which host family a reported figure describes.
+
+    Uses clearly different magnitudes for the client-facing and peer-facing totals
+    (roughly 2000x apart) so that a transposition changes the result by orders of
+    magnitude rather than landing inside a tolerance and passing by accident.
+
+    summarise_run reads @@FINAL lines from mid.log (and any cli*.log present) via
+    read_final_lines(); it does not require ticks-server*.csv to be present at all
+    for these two invariant keys - verified directly (an empty `servers` list, no
+    exception) before relying on that here, so none is written.
+    """
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, ignore_errors=True)
+
+    def _write_mid_log(self, lines):
+        with open(os.path.join(self.directory, "mid.log"), "w") as handle:
+            handle.write("\n".join(lines) + "\n")
+
+    def test_cli_and_peer_totals_are_not_transposed(self):
+        # Client-facing: large. Peer-facing: small. A cli/peer swap - or either
+        # key reading the other's field names - flips which figure is which by
+        # roughly three orders of magnitude, so the assertions below fail hard
+        # rather than by a rounding margin.
+        self._write_mid_log([
+            "@@FINAL role=server id=0 netCliBytes=1000000 netCliPkts=100 "
+            "netPeerBytes=500 netPeerPkts=5",
+            "@@FINAL role=server id=1 netCliBytes=2000000 netCliPkts=200 "
+            "netPeerBytes=700 netPeerPkts=7",
+        ])
+
+        _servers, invariants, _custody = analyse.summarise_run(self.directory)
+
+        # sum(bytes) + 28 * sum(packets), summed across both server lines.
+        expected_cli = (1000000 + 2000000) + 28 * (100 + 200)
+        expected_peer = (500 + 700) + 28 * (5 + 7)
+        self.assertEqual(expected_cli, 3008400)
+        self.assertEqual(expected_peer, 1536)
+
+        self.assertEqual(invariants["net_cli_wire_bytes"], expected_cli)
+        self.assertEqual(invariants["net_peer_wire_bytes"], expected_peer)
+        # Belt and braces against a transposed wiring: the two keys must land on
+        # the magnitude that matches their own field family, not each other's.
+        self.assertNotEqual(
+            invariants["net_cli_wire_bytes"], invariants["net_peer_wire_bytes"]
+        )
+        self.assertGreater(
+            invariants["net_cli_wire_bytes"], invariants["net_peer_wire_bytes"]
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
