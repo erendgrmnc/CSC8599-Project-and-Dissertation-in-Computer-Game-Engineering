@@ -34,6 +34,27 @@ That split is the right instrument, and this plan applies it to the whole remain
 The phases are ordered A → B → C → D by that principle. Two of the orderings are load-bearing and
 argued below (§3.1, §5.1); the rest follows from blast radius.
 
+### 1.1 There is no stored baseline — every phase must make its own
+
+**`runs/` does not exist in this working copy.** It is gitignored (`.gitignore:142`), so no dataset
+the evaluation cites was ever committed: `exp-balance`, `exp-fix4-E4`, `exp-fix4-E7`,
+`exp-bytes-clean`, `exp-capacity-halo`, `exp-capacity-nohalo`, `exp-ap-injection-paced` are all
+absent. The **figures** survive, transcribed into `docs/EVALUATION.md` and the results documents; the
+**per-tick CSVs and `@@FINAL` lines behind them do not**.
+
+Two consequences, and both bind every phase:
+
+1. **Every no-op gate in this plan compares a new run against a baseline that is not on disk.** So
+   each phase begins with **step 0: build current HEAD and run its own baseline**, before any change
+   lands. A gate is only as good as a baseline generated from the commit it is gating against, which
+   makes this a correctness requirement rather than bookkeeping.
+2. **Nothing can be settled by re-analysis.** Any question of the form "do the old numbers still say
+   X if we recompute Y" — E3's drain-artefact ratios, E4's loss against `ho_parity_delta`, E8's
+   modelled bytes — requires a re-run, not a re-read. Where this plan says "check", it means "run".
+
+This does not change the phase order. It adds a fixed cost to the front of each phase and removes
+re-analysis from the menu of cheap options.
+
 ---
 
 ## 2. Phase A — instrumentation and harness
@@ -50,6 +71,21 @@ E8's verdict at one client flips depending on whether traffic is costed at paylo
 payload-plus-headers, and ENet's command coalescing sits between the two. The fix is to stop
 modelling and read what ENet actually sent.
 
+**This does not improve the overhead model — it removes the need for one.** `totalSentData` is
+incremented with the return value of `enet_socket_send` (`enet/protocol.c:1732-1733`), which is the
+byte count actually written to the socket for **one datagram, after ENet has coalesced every queued
+command for that peer into `host->buffers`**, including the ENet protocol header. `totalSentPackets`
+increments once per datagram alongside it. So coalescing — the whole reason the payload and
+payload-plus-header models disagree — is already measured, and real wire cost is:
+
+```
+wire bytes = totalSentData + 28 * totalSentPackets      (IPv4 20 + UDP 8)
+```
+
+The published model added a flat 36 B per *packet*, which is correct only if every packet became its
+own datagram. The gap between that figure and this one is the size of the coalescing effect, and is
+worth reporting as a result in its own right rather than silently replacing the old number.
+
 The decisive structural fact: **snapshot traffic and halo traffic go over separate ENet hosts.**
 Snapshots leave through `mDistributedPacketSenderServer` (a `GameServer` host); halo updates and
 handoffs leave through `mDistributedPhysicsClients`, one `GameClient` host per peer
@@ -62,9 +98,8 @@ needs, with no attribution guesswork.
   leak into headers, preserving the existing forward-declaration discipline.
 - Add to the server `@@FINAL` line: client-facing bytes/packets from the sender-server host, and
   peer-facing bytes/packets summed across the peer links.
-- Teach `analyse.py` to read them, report B/s, and **cross-check against the existing modelled
-  figure** rather than replacing it silently. A disagreement between measured and modelled bytes is
-  itself a result — it is the size of the coalescing effect.
+- Teach `analyse.py` to read them, report B/s, and **report the modelled figure alongside** rather
+  than replacing it silently, for the reason given above.
 
 **Known limit to state in the results:** `totalSentData` is `enet_uint32`, so it wraps after 4 GB —
 about 15 minutes at E8's measured 4.6 MB/s. E8's runs are 20 s, so this is safe, but any longer run
@@ -92,20 +127,50 @@ client. `measure.ps1:148` hardcodes `--clients 1` to the manager and starts a si
   read — that would silently change the I4 command-accounting tally. Match the numbered clients
   explicitly.
 
-### 2.3 Re-runs
+### 2.3 Tick-epoch alignment — an existing mechanism nothing has used
+
+Not a backlog item; found while assessing them, and it belongs here because it is a **flag, not a
+code change**, so it costs runs and nothing else.
+
+`HeadlessRunner.cpp:88-97` implements `--epoch-align-us`: at tick 0 each server spins to the next
+shared boundary on the monotonic clock, so every server's tick 0 lands on the same instant. Its own
+header comment gives the motivation — the game-start broadcast "arrives with a spread of a few
+milliseconds, which at 120 Hz is enough to shift epochs by a tick and make handoff scheduling differ
+between runs".
+
+It landed 2026-08-17, **before** the E1–E8 measurement pass. It defaults to `0` (disabled) in
+`measure.ps1:49` and `run-experiments.ps1:67`, and no experiment document sets it. So the published
+runs were almost certainly taken without it. That cannot be confirmed from the run manifests — they
+record `epochAlignUs`, but they are in the missing `runs/` (§1.1).
+
+This matters because both handoff scheduling (`senderTick + lookahead`) and halo scheduling are
+expressed in the *sender's* tick numbers, and are meaningful to a receiver only if both servers agree
+on the epoch. It is a candidate explanation for part of the ±1 handoff-event variance that the
+reproducibility notes attribute to needing a global tick barrier.
+
+**Work:** none in the servers. Run the Phase A baseline both with and without alignment and compare
+handoff-event variance across repeats. If it tightens, enable it for every subsequent reproducible
+run in this plan and record that in the experiment suite. Note it does **not** address the *drift*
+half of tick-epoch divergence (§6) — only the start-of-run offset.
+
+### 2.4 Re-runs
+
+Step 0 (§1.1): build HEAD and take the baseline these gates compare against.
 
 | Experiment | Configuration | Purpose |
 |---|---|---|
 | E8 | `exp-bytes-clean` as published, at 1 **and** 2 clients | Settle the payload-vs-datagram ambiguity and convert the client-scaling argument from analytical to measured |
-| E3 | as published, with `--drain-seconds 0` | Free: item 5 is already fixed, and this makes E3's absolute counts quotable |
+| E3 | as published, with `--drain-seconds 0` | Item 5 is already fixed, and this makes E3's absolute counts quotable |
+| Epoch alignment | Phase A baseline, `--epoch-align-us` on and off | §2.3 — does alignment tighten run-to-run variance |
 
-Both are 20 s realtime runs at 3 repeats — the cheapest runs in the suite.
+The first two are 20 s realtime runs at 3 repeats — the cheapest in the suite.
 
-### 2.4 Gate
+### 2.5 Gate
 
-A paced `--run-ticks --fixed-step` run must reproduce the current baseline's end state exactly. These
+A paced `--run-ticks --fixed-step` run must reproduce the step-0 baseline's end state exactly. These
 changes should not be able to affect it; the gate is what makes that a verified statement rather than
-an assumption.
+an assumption. Epoch alignment (§2.3) is held at whatever the baseline used — it is being *measured*
+here, so it must not vary inside the gate.
 
 ---
 
@@ -116,6 +181,28 @@ an assumption.
 `runs/exp-fix4-E4` loses 84–703 objects on a workload where the pre-batch baseline (`exp-balance`,
 commit `93e6f21`) was exact. The custody work is a suspect but was explicitly not blamed, because
 three separate behaviour changes landed across the same window.
+
+### 3.0 First establish that there is a regression at all
+
+**Do not start with the bisect.** The premise — that this loss is caused by a code change — has never
+been tested, and there is a cheaper explanation that fits the evidence:
+
+- `measure.ps1:53` defaults `-DrainSeconds` to `-1`, which omits the flag, so the server falls back
+  to its own default of **5 seconds** (`ServerStarter.cpp:222`).
+- Five seconds was already found insufficient for E7, whose residual loss turned out to be
+  **end-of-run truncation of transfers still in flight** — `ho_parity_delta` matched it exactly on
+  every repeat — and was explicitly reported as explained, not as a defect.
+- E4 is the rebalancing workload. Its migration bursts are larger than E7's steady-state handoffs, so
+  it has *more* reason to still be draining at exit, not less.
+- Nobody checked whether E4's −84/−703 matches its own `ho_parity_delta`, and §1.1 means that check
+  cannot be done by re-analysis — the dataset is gone.
+
+**Step 1 is therefore one configuration, not a bisect:** re-run E4 at HEAD with a drain long enough
+that `hoCustody` reads 0 at exit, and compare `conservation_delta` against `ho_parity_delta`. If
+conservation is exact, there is no regression, item 12 closes as a harness artefact, and §3.1–§3.2
+never run. If the loss survives a clean drain, it is real and the bisect below is justified.
+
+This ordering costs one run to potentially delete an entire phase.
 
 ### 3.1 Why this is second, not last
 
@@ -142,6 +229,10 @@ simulation result:
 So the procedure is: build each of the three points, run E4's configuration (`cluster`, 4,000
 objects, 2 servers, 7,200 paced ticks, 3 repeats) at each, and compare `conservation_delta`. That is
 9–12 runs plus three builds, not a binary search over 46 commits.
+
+**Add a fourth point: `93e6f21` itself.** The published comparison is against `exp-balance`, whose
+data no longer exists (§1.1), so the "exact baseline" this bisect is measuring a departure from has
+to be regenerated rather than cited. That makes it 12–15 runs and four builds.
 
 **Expected confounder:** `--drain-seconds` did not exist before `2e7c65e`, so the pre- and
 post-commit runs do not end the same way. Hold the drain explicitly constant where the flag exists,
@@ -186,7 +277,32 @@ this; the AP results document says so explicitly.
 Confirmed by grep: **no latency injection exists anywhere** in the servers, client or harness. This
 is new code, not a flag to expose.
 
-### 4.2 Work
+### 4.2 Precondition: lift the staleness ceiling first
+
+`HALO_STALE_TICKS = 30` (`ServerWorldManager.cpp:944`) retires a halo shadow that has not been
+refreshed for 30 ticks. At the 120 Hz substep that is **250 ms**, and it is a hard ceiling on
+lookahead: a shadow deferred to `senderTick + L` for any `L > 30` is retired before it is ever
+applied, which is exactly how L=32 came to read as unsound in E5 round 1.
+
+The arithmetic makes this binding immediately, not eventually. Latency costs roughly one tick of
+lookahead per 8.33 ms, so:
+
+| injected one-way latency | extra lookahead ticks | L=24 becomes | vs ceiling of 30 |
+|---|---|---|---|
+| 0 ms | 0 | 24 | fits |
+| 25 ms | ~3 | 27 | fits |
+| 50 ms | ~6 | 30 | **at the ceiling** |
+| 100 ms | ~12 | 36 | **outside the envelope** |
+
+So a sweep that injects more than about 50 ms would leave the implementation's envelope and report
+a staleness horizon as a falsification of its own bound — the same misreading E5 round 1 made, at a
+different point on the axis. The E5 results document already names the fix as build-phase work:
+raise `HALO_STALE_TICKS` to track `--halo-lookahead`, or warn when it does not.
+
+**This is the first task of Phase C, not an item in its work list.** Until it is done, the latency
+axis cannot be swept past roughly 50 ms, which is most of the interesting range.
+
+### 4.3 Work
 
 - `--link-latency-ms M` and `--link-jitter-ms J` on the game server. Both must be parsed in
   `ServerStarter.cpp` **and** forwarded in `PhysicsServerMidware/ProgramStart.cpp` — game servers are
@@ -196,13 +312,11 @@ is new code, not a flag to expose.
 - Generalise `MinimumSafeHaloWidth` to carry the latency and frame-jitter terms, such that today's
   expression falls out at `T_L = 0`. It is one function in one place, so the code change is small;
   the cost is entirely in re-validation.
-- Make `HALO_STALE_TICKS` track `--halo-lookahead`, or warn when it does not (see §4.4 warning 2).
-  This is a prerequisite for the sweep, not an optional tidy-up.
 - Delay applies to the server-to-server path at minimum — that is what the halo bound is about.
   Whether to delay the client path too is a plan-level decision, not a design one; if it is included
   it must be separately switchable, because it changes E3 and E8 and not E5.
 
-### 4.3 Gate
+### 4.4 Gate
 
 Two conditions, both hard:
 
@@ -210,12 +324,12 @@ Two conditions, both hard:
 2. The generalised `w_min` returns the **same value** as the current formula at zero latency, checked
    in `tools/InteractionTests` — the bound is pure arithmetic and belongs in the assert harness.
 
-### 4.4 Re-runs, and how to keep them affordable
+### 4.5 Re-runs, and how to keep them affordable
 
 E5's published sweep is 120 runs at zero latency. Crossing a full latency dimension into it would
 triple that. It should not be crossed fully:
 
-- The existing zero-latency sweep stays valid once gate 4.3.1 passes, and is the baseline.
+- The existing zero-latency sweep stays valid once gate 4.4.1 passes, and is the baseline.
 - Add latency only at the lookaheads whose knee is genuinely **bracketed** — L=8, L=16 and L=24,
   whose round-2 knees (3, 4, 6) each sit between a measured failing width and a measured passing
   width. L=2 is not one of them: its knee is only bounded above (≤1) because the width axis bottoms
@@ -247,11 +361,11 @@ tracks the *generalised* floor as latency rises, not merely that a knee exists.
    `--halo-lookahead`, or warn when it does not. **Phase C must do one of those before it sweeps**,
    or it risks reporting an envelope limit as a falsification of its own bound.
 
-### 4.5 Optional companion
+### 4.6 Optional companion
 
 §5 records that `headon` is one synthetic workload — fixed lanes, one speed, perpendicular approach,
 the configuration where the halo's knee is sharpest. An oblique or mixed-speed variant would stress
-the bound harder. This is the natural companion to §4.4 and should be scoped as optional: it widens
+the bound harder. This is the natural companion to §4.5 and should be scoped as optional: it widens
 the claim but is not required to close the latency gap.
 
 ---
@@ -277,15 +391,75 @@ latency injection is the experiment that tests whether that defence survives rea
 
 Both items land together so one re-measurement covers them:
 
-- **Item 7** — `CalculateIncomingObjectOffsetPosition` (`ServerWorldManager.cpp:440`) currently
-  computes the clamp and discards it, incrementing `hoClamp` when it would have moved an object. The
-  body is correct; wiring the result in changes measured handoff behaviour, which is why it was
-  deferred to land with the ownership work rather than as a drive-by.
+- **Item 7** — `CalculateIncomingObjectOffsetPosition` currently computes the clamp at
+  `ServerWorldManager.cpp:2019` and discards it, incrementing `hoClamp` when it would have moved an
+  object. Wiring the result in changes measured handoff behaviour, which is why it was deferred to
+  land with the ownership work rather than as a drive-by. **But the body is not correct, and must be
+  fixed before it is wired in** — see §5.3.
 - **Item 2** — make scheduled release (`--handoff-lookahead > 0`) the default, so release-on-send
   stops being the normal case and the window in which nobody owns an object stops being
   unconditional.
 
-### 5.3 Gate
+### 5.3 The clamp's Z bound contradicts the ownership rule
+
+Found while assessing item 7, and it changes the item from "wire it in" to "fix it, then wire it in".
+
+`CalculateIncomingObjectOffsetPosition` clamps Z with an **inclusive** upper bound:
+
+```cpp
+// Z's upper bound is inclusive, so max is legal and needs no epsilon.
+const float highZ = std::max(mServerBorderData->minZVal, mServerBorderData->maxZVal);
+```
+
+and its header comment (`ServerWorldManager.cpp:2325-2326`) states that the bounds "mirror
+`IsObjectInBorder` exactly - half-open on X (>= min, < max), closed on Z (>= min, <= max)".
+
+**That mirroring claim is stale.** `IsObjectInBorder` now delegates through `GetObjectServer` to
+`NCL::Interaction::OwningServerFor`, which is half-open on **both** axes — `point.z < region.maxZ`,
+with the world's outer maximum closed as the only exception. So on an interior Z seam the clamp
+produces a position that `IsObjectInBorder` rejects: it would place an incoming object on a
+coordinate a *different* server owns. That is precisely the disowned-object failure the ownership
+unification was written to eliminate, reintroduced on the one path that had not yet been unified.
+
+The same staleness appears in `CLAUDE.md`'s audit note, which records that "the body itself is now
+correct (it clamps into the region using bounds that mirror `IsObjectInBorder`)". Both should be
+corrected together.
+
+**Reachability — it is masked at 2 servers and live at 4.** `GameInstance::CalculateServerBorders`
+(`DistributedPhysicsServerDto.cpp:94-137`) builds a 2-D grid: `numCols = ceil(sqrt(serverCount))`,
+`numRows = ceil(serverCount / numCols)`.
+
+| servers | grid | interior Z seam? | clamp's Z bound |
+|---|---|---|---|
+| 2 | 2 × 1 | no — `maxZ == worldMaxZ` | harmless (outer edge is closed) |
+| 4 | 2 × 2 | **yes** | **produces a position owned by another server** |
+
+Every conservation measurement to date ran at 2 servers, which is why nothing has caught it, and why
+it stays invisible for as long as the result is discarded.
+
+**Work:** make the Z bound half-open with the same `INWARD_EPSILON` treatment X already gets, so the
+clamp lands strictly inside the region under `OwningServerFor`'s rule. The world-outer-edge exception
+must be preserved. This belongs in `tools/InteractionTests` — the clamp is pure geometry against
+`RegionOwnership.h`, so the property "the clamped point is owned by this server" is directly
+assertable without a run, at both 2 and 4 server partitions.
+
+### 5.4 Related: the partition changes topology on rebalance
+
+Not a backlog item and not scheduled here, but it interacts with §5.3 and with any Phase D work at 4
+servers, so it is recorded rather than left to be rediscovered.
+
+The **initial** partition is a 2-D grid (§5.3). The **repartition** path emits 1-D X slices only —
+`SystemManager.cpp:386-389` sets every region to the full Z extent, commented "Slices span the whole
+Z extent. A 1-D split is all the forced-repartition flag needs to express". So the first rebalance on
+a 4-server run silently reshapes a 2 × 2 grid into 4 vertical strips, changing every region at once
+rather than moving one border.
+
+E4 ran at 2 servers, where the initial partition is already 1-D, so the two topologies coincide and
+this never bit. Any 4-server rebalancing measurement would hit it, and would be measuring a
+whole-partition reshape rather than the incremental border movement the balancer is described as
+performing.
+
+### 5.5 Gate
 
 The no-op gate applies in an unusual form here, because the point of the change *is* to alter the
 default. Gate on the **old** default instead: at an explicitly passed `--handoff-lookahead 0`, a
@@ -296,7 +470,7 @@ Additionally, `analyse.py`'s `check_custody` reports a non-zero `hoCustody` at e
 failure, and that check must not be weakened to make these runs pass. A run intended to pass the gate
 is drained until `hoCustody` reads 0.
 
-### 5.4 Re-runs
+### 5.6 Re-runs
 
 Full sweep, as approved:
 
@@ -308,7 +482,7 @@ Full sweep, as approved:
 | E2 | Regression — border crossings are the halo's acceptance test, which handoff timing touches |
 
 E3, E6 and E8 are not conservation-sensitive and do not need re-running for this phase, provided the
-Phase D gate (§5.3) passes.
+Phase D gate (§5.5) passes.
 
 ---
 
@@ -332,13 +506,34 @@ described as though it does.
 
 ## 7. Summary
 
+Every phase begins with step 0 from §1.1: build HEAD and generate the baseline its gate compares
+against, because no stored dataset survives.
+
 | Phase | Items closed | Can alter a result? | Re-runs | Gate |
 |---|---|---|---|---|
-| A — instrumentation & harness | 10, 11, E3 caveat, E8 caveat | No | E8 (×2 client counts), E3 | Paced run reproduces baseline exactly |
-| B — attribute E4 regression | 12 | No (no production code) | 3 candidate points × E4 | None |
+| A — instrumentation & harness | 10, 11, E3 caveat, E8 caveat | No | E8 (×2 client counts), E3, epoch-align on/off | Paced run reproduces step-0 baseline exactly |
+| B — attribute E4 regression | 12 | No (no production code) | 1 pre-check; **only if it survives**, 4 points × E4 | None |
 | C — latency & generalised bound | §5 latency, AP §6 finding | Default-off | E5, partial sweep | Zero-latency no-op + arithmetic identity |
 | D — ownership | 2, 7, §6 conditional guarantee | Yes, by design | E1, E2, E4, E7 | Old default reproduces baseline exactly |
 
 The ordering is load-bearing in two places: **B before C and D**, because a bisect window only grows;
 and **C before D**, because latency is what makes the ownership fix measurable. A and B can be worked
 concurrently — A touches instrumentation and the harness, B touches neither.
+
+### 7.1 What the assessment pass changed
+
+This document was revised after verifying each item against the source rather than against the
+documentation describing it. Five things moved:
+
+| Finding | Effect on the plan |
+|---|---|
+| `runs/` is absent — no dataset was ever committed (§1.1) | Every phase gains a step 0; re-analysis is no longer an option anywhere |
+| `totalSentData` is post-coalescing socket bytes (§2.1) | Item 10 removes the overhead model instead of refining it — the strongest value-per-effort item on the list |
+| `--epoch-align-us` exists and no experiment used it (§2.3) | New Phase A experiment costing runs and no code |
+| E4's loss may be drain truncation, never checked (§3.0) | Phase B demoted behind a one-run pre-check that can delete it entirely |
+| The clamp's Z bound contradicts `OwningServerFor` (§5.3) | Item 7 becomes "fix, then wire in"; it is a live defect masked only by the result being discarded, and reachable at 4 servers |
+| `HALO_STALE_TICKS = 30` caps injectable latency at ~50 ms (§4.2) | Promoted from a work-list bullet to Phase C's first task |
+
+Two of these — the missing baselines and the stale clamp bounds — contradict statements in
+`docs/EVALUATION.md` and `CLAUDE.md` respectively. Both of those documents should be corrected as
+part of the phase that acts on them, not separately.
