@@ -195,3 +195,65 @@ real loss of sensitivity: this gate cannot catch a Phase A change whose only eff
 is to perturb halo lateness inside that band. That is a weaker claim than the plan
 originally intended, and both the original failure and the corrected classification
 are stated here rather than papered over.
+
+## Tick-epoch alignment
+
+`--epoch-align-us` (`HeadlessRunner.cpp:88-97`) spins every server's tick 0 onto a
+shared monotonic boundary. It has existed since 2026-08-17 — before the E1–E8
+measurement pass — defaults to 0, and no experiment document sets it, so the
+published runs were taken without it. Both handoff and halo scheduling are
+expressed in the *sender's* tick numbers, which is why it was a candidate cause of
+the ±1 handoff-event variance.
+
+Six runs total: 3 repeats at `--epoch-align-us 0` (`runs/exp-epoch-off`) and 3 at
+`--epoch-align-us 100000` (`runs/exp-epoch-on`), otherwise identical
+(`-Servers 2 -Objects 400 -Workload uniform -Seed 42 -HaloWidth 8 -HaloReliable
+-Sweep ticks -Values "1800"`). All six completed with 2/2 servers reporting a
+clean exit. `analyse.py` printed no `REPRODUCIBILITY WARNING` (custody never
+fired) on either experiment, and `ownership_gap_ticks` fell at 87, 91, 88
+(epoch-off) and 80, 77, 82 (epoch-on) — inside the documented normal high-70s to
+low-90s band, not degradation. All six repeats are therefore **clean**, none
+discarded.
+
+`Select-String -Path runs\exp-epoch-on\*\mid.log -Pattern "Tick epoch aligned to"`
+returned one line per server per aligned run (6 lines total), each pair of
+servers agreeing on the same epoch timestamp within its run:
+
+```
+ticks1800-r1: server 0 and server 1 -> 1122535600000us
+ticks1800-r2: server 0 and server 1 -> 1122568800000us
+ticks1800-r3: server 0 and server 1 -> 1122601800000us
+```
+
+The `epoch-off` logs contain no such line. The flag reached the servers and
+engaged as designed; the comparison below is valid to interpret.
+
+| configuration | hoSent across 3 repeats | hoRecv across 3 repeats |
+|---|---|---|
+| `--epoch-align-us 0` | `80, 83, 80` | `80, 83, 80` |
+| `--epoch-align-us 100000` | `81, 78, 78` | `81, 78, 78` |
+
+(`hoRecv` equals `hoSent` in every repeat on both sides — `ho_parity_delta = 0`,
+`ho_pending = 0`, `ho_scheduled = 0` throughout — so no run ended mid-transfer.)
+
+Both configurations show the same spread: range 3 (80–83 off, 78–81 on), and both
+are centred close together (mean 81.0 off, 79.0 on). The off-triple has two runs
+tied at 80 with one outlier at 83; the on-triple has two runs tied at 78 with one
+outlier at 81 — the same shape, mirrored. Nothing here looks like a tightened
+distribution; if anything the on-triple's raw range is identical to the off-triple's.
+
+**Verdict:** does not tighten. At n=3 the two configurations are statistically
+indistinguishable — the observed spread (range 3 in both) is the same order of
+magnitude in both arms, matching the machine's already-documented load-induced
+run-to-run variance rather than shrinking under alignment. Aligning tick epochs
+did not measurably reduce handoff-event variance in this sample; the ±1-to-±3
+variance documented elsewhere therefore has some other cause (most plausibly the
+tick-to-tick pacing/load jitter this machine already exhibits), and this flag is
+not it. This is a null result from 3-repeat samples on a noisy machine, not proof
+that alignment can never help — a larger sample could still resolve a smaller
+effect than this comparison had power to see — but nothing in this data supports
+turning it on, and it is not being adopted on this evidence.
+
+Note this addresses only the *start-of-run* offset. The drift half of tick-epoch
+divergence — servers falling behind their pacing budget mid-run — is untouched and
+remains as documented in `docs/EVALUATION.md` §5.
