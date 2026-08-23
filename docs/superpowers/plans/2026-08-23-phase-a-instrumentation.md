@@ -1288,14 +1288,34 @@ powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
     -HaloWidth 8 -DrainSeconds 0 -Clients 1
 ```
 
-- [ ] **Step 2: Re-run E8 at two clients**
+- [ ] **Step 2: Re-run E8 at two clients — with the world held constant**
+
+**`--objects N` is per client, not per world.** `ServerWorldManager::CreatePlayerObjects`
+creates N objects for *each* connected client; measured, `objPreseed` reads 400 with one
+client and 800 with two. Every experiment in the suite to date used a single client, so
+the distinction never mattered — here it decides whether the result means anything.
+
+Passing `-Objects 4000 -Clients 2` would compare 4,000 objects at one client against
+**8,000 objects at two**, conflating client scaling with world scaling. It would also
+appear to confirm the hypothesis, because both effects push snapshot traffic the same
+way. Halve the per-client count instead, so both runs simulate 4,000 objects:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
     -Name bytes-2client -Sweep interestRadius -Values "0,25,50,100" -Repeats 3 `
-    -Servers 2 -Objects 4000 -Workload uniform -Seconds 20 `
+    -Servers 2 -Objects 2000 -Workload uniform -Seconds 20 `
     -HaloWidth 8 -DrainSeconds 0 -Clients 2
 ```
+
+**Confirm before analysing** that both experiments report the same world size, or the
+comparison is void:
+
+```powershell
+Select-String -Path runs\exp-bytes-1client\*\mid.log,runs\exp-bytes-2client\*\mid.log -Pattern "objPreseed=\d+" | ForEach-Object { ($_.Line -replace '.*(objPreseed=\d+).*','$1') } | Sort-Object -Unique
+```
+
+Expected: `objPreseed=4000` from both. Anything else means the world was not held
+constant and the client-count result must not be reported.
 
 - [ ] **Step 3: Analyse both**
 
