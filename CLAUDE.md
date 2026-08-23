@@ -211,9 +211,16 @@ The midware spawns `./DistributedPhysicsServer/EntryPoint.exe` **relative to its
 > `--epoch-align-us N` makes every server spin at tick 0 to the next N-microsecond
 > boundary on the monotonic clock, so all servers start their tick counters on the
 > same instant. The game-start broadcast arrives with a few milliseconds of spread,
-> which at 120 Hz is enough to shift epochs by a tick — and both handoff and halo
-> scheduling are expressed in the sender's tick numbers. It defaults to 0 (off), and
-> every E1–E8 measurement was taken that way.
+> which at 120 Hz is enough to shift epochs by a tick. Halo-band scheduling is
+> expressed in the sender's tick numbers at its default (`--halo-lookahead 4`), so
+> the flag has a real effect there. **Handoff scheduling is not** at the project's
+> own default: `--handoff-lookahead 0` (used by essentially every measurement run)
+> makes `ScheduleOutgoingObject` hand objects off immediately, skipping tick
+> arithmetic entirely, so epoch alignment has no code path to affect handoff
+> counts unless `--handoff-lookahead` is raised above 0 (`ServerWorldManager.cpp:1604-1605`,
+> `ServerStarter.cpp:186-187`). It defaults to 0 (off), and every E1–E8 measurement
+> was taken that way. See `docs/superpowers/results/2026-08-23-A-instrumentation.md`
+> ("Tick-epoch alignment") for the measured comparison and its scope.
 
 **Two run modes, and the choice is methodological.** `--run-seconds N` bounds by wall clock and feeds the loop measured deltas — genuine behaviour under load, but **not reproducible**: tick counts vary with machine load (28.6k–29.4k over nominally identical 60 s runs), and since the border check runs once per *tick*, handoffs land at different simulated times. `--run-ticks N` with `--fixed-step` pins the loop `dt` to the substep length *and* paces each tick to that much real time, so every server stays on one shared clock. End state and conservation then reproduce exactly; handoff *event* counts still vary by ±1, which would need a global tick barrier to remove. Use `--run-ticks` for correctness/conservation experiments and `--run-seconds` with repeats for performance claims.
 

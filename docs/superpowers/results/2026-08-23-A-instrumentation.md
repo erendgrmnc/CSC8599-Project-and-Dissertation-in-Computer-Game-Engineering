@@ -201,9 +201,7 @@ are stated here rather than papered over.
 `--epoch-align-us` (`HeadlessRunner.cpp:88-97`) spins every server's tick 0 onto a
 shared monotonic boundary. It has existed since 2026-08-17 — before the E1–E8
 measurement pass — defaults to 0, and no experiment document sets it, so the
-published runs were taken without it. Both handoff and halo scheduling are
-expressed in the *sender's* tick numbers, which is why it was a candidate cause of
-the ±1 handoff-event variance.
+published runs were taken without it.
 
 Six runs total: 3 repeats at `--epoch-align-us 0` (`runs/exp-epoch-off`) and 3 at
 `--epoch-align-us 100000` (`runs/exp-epoch-on`), otherwise identical
@@ -211,9 +209,10 @@ Six runs total: 3 repeats at `--epoch-align-us 0` (`runs/exp-epoch-off`) and 3 a
 -Sweep ticks -Values "1800"`). All six completed with 2/2 servers reporting a
 clean exit. `analyse.py` printed no `REPRODUCIBILITY WARNING` (custody never
 fired) on either experiment, and `ownership_gap_ticks` fell at 87, 91, 88
-(epoch-off) and 80, 77, 82 (epoch-on) — inside the documented normal high-70s to
-low-90s band, not degradation. All six repeats are therefore **clean**, none
-discarded.
+(epoch-off) and 80, 77, 82 (epoch-on) — inside the **observed** (not previously
+documented anywhere — this phase is what established it) high-70s to low-90s
+range for a healthy run, not degradation. All six repeats are therefore **clean**,
+none discarded.
 
 `Select-String -Path runs\exp-epoch-on\*\mid.log -Pattern "Tick epoch aligned to"`
 returned one line per server per aligned run (6 lines total), each pair of
@@ -226,34 +225,102 @@ ticks1800-r3: server 0 and server 1 -> 1122601800000us
 ```
 
 The `epoch-off` logs contain no such line. The flag reached the servers and
-engaged as designed; the comparison below is valid to interpret.
+engaged as designed.
+
+### The handoff comparison was structurally void, not statistically inconclusive
+
+The original plan compared `hoSent`/`hoRecv` between the two arms:
 
 | configuration | hoSent across 3 repeats | hoRecv across 3 repeats |
 |---|---|---|
 | `--epoch-align-us 0` | `80, 83, 80` | `80, 83, 80` |
 | `--epoch-align-us 100000` | `81, 78, 78` | `81, 78, 78` |
 
-(`hoRecv` equals `hoSent` in every repeat on both sides — `ho_parity_delta = 0`,
-`ho_pending = 0`, `ho_scheduled = 0` throughout — so no run ended mid-transfer.)
+Both arms show the same spread (range 3), which the first pass of this write-up
+read as "cannot distinguish at n=3, noise exceeds any epoch effect." That framing
+was wrong, or at least not the primary explanation. All six runs used the default
+`--handoff-lookahead 0`. At that setting `ScheduleOutgoingObject`
+(`DistributedGameServer/ServerWorldManager.cpp:1604-1605`) never enters the
+tick-scheduling branch at all:
 
-Both configurations show the same spread: range 3 (80–83 off, 78–81 on), and both
-are centred close together (mean 81.0 off, 79.0 on). The off-triple has two runs
-tied at 80 with one outlier at 83; the on-triple has two runs tied at 78 with one
-outlier at 81 — the same shape, mirrored. Nothing here looks like a tightened
-distribution; if anything the on-triple's raw range is identical to the off-triple's.
+```cpp
+if (mHandoffLookaheadTicks <= 0) {
+    HandleOutgoingObject(networkObjectID, newOwnerServerID);
+    return;
+}
+```
 
-**Verdict:** does not tighten. At n=3 the two configurations are statistically
-indistinguishable — the observed spread (range 3 in both) is the same order of
-magnitude in both arms, matching the machine's already-documented load-induced
-run-to-run variance rather than shrinking under alignment. Aligning tick epochs
-did not measurably reduce handoff-event variance in this sample; the ±1-to-±3
-variance documented elsewhere therefore has some other cause (most plausibly the
-tick-to-tick pacing/load jitter this machine already exhibits), and this flag is
-not it. This is a null result from 3-repeat samples on a noisy machine, not proof
-that alignment can never help — a larger sample could still resolve a smaller
-effect than this comparison had power to see — but nothing in this data supports
-turning it on, and it is not being adopted on this evidence.
+— the object is handed off immediately, with no sender/receiver tick arithmetic
+performed anywhere in that path. `ServerStarter.cpp:186-187`, at the exact call
+site that reads `--epoch-align-us`, says the same thing directly: the flag is
+"only meaningful alongside `--handoff-lookahead`". So at the settings this
+experiment used, epoch alignment had **no code path** through which it could
+possibly affect `hoSent`/`hoRecv` — the comparison was structurally void before
+either arm was run, independent of sample size or machine noise. The observed
+range-3-in-both-arms result is consistent with that: there was nothing for the
+flag to change. The n=3 sample-size limitation is real and still applies to
+*any* comparison run on this machine, but it is a secondary caveat here, not the
+reason this particular comparison came back flat.
 
-Note this addresses only the *start-of-run* offset. The drift half of tick-epoch
-divergence — servers falling behind their pacing budget mid-run — is untouched and
-remains as documented in `docs/EVALUATION.md` §5.
+### Salvaged comparison: halo scheduling, which does have a code path
+
+`--halo-lookahead` defaults to **4**, not 0, so halo-band scheduling *is*
+expressed in the sender's tick numbers on every run in this experiment
+(`--halo-width 8 --halo-reliable`, no `--halo-lookahead` override), and epoch
+alignment does have a mechanism by which it could affect it. The six runs already
+recorded `haloLate`, `haloAhead`, `haloObjSent` and `haloObjRecv` per server in
+their `@@FINAL` lines; re-reading those (not a new run) gives:
+
+| repeat | haloLate (srv0, srv1) | haloAhead (srv0, srv1) | haloObjSent (srv0, srv1) | haloObjRecv (srv0, srv1) |
+|---|---|---|---|---|
+| off r1 | 0, 0 | 0, 0 | 22759, 17846 | 17846, 22759 |
+| off r2 | 0, 16 | 0, 0 | 23029, 18478 | 18478, 23029 |
+| off r3 | 0, 0 | 0, 0 | 21997, 17981 | 17981, 21997 |
+| on r1 | 0, 10 | 0, 0 | 21681, 17455 | 17455, 21681 |
+| on r2 | 0, 52 | 0, 0 | 19211, 16457 | 16457, 19211 |
+| on r3 | 11, 11 | 0, 0 | 19135, 15925 | 15925, 19135 |
+
+`haloAhead` was 0 in every server-run in both arms — flat, uninformative at this
+sample size, not evidence of anything.
+
+`haloLate` summed across both servers per run: **off** = 0, 16, 0 (total 16,
+mean 5.3); **on** = 10, 52, 22 (total 84, mean 28.0). Every aligned repeat had a
+non-zero `haloLate` on at least one server; two of three unaligned repeats had
+zero on both servers. The aligned arm's total is more than 5x the unaligned
+arm's. That is a real difference in this data, in the **opposite** direction
+from the original hypothesis — if anything, epoch alignment is associated with
+*more* halo lateness here, not less. All values stay far below the
+hundreds-to-thousands range this project treats as a degraded run, so none of
+these six repeats are being reclassified as degraded on this basis.
+
+`haloObjSent`/`haloObjRecv` (summed across both servers, which by construction
+equals total halo-object volume moved that run): **off** = 40605, 41507, 39978
+(mean 40697, range 1529, ~3.8% of the mean); **on** = 39136, 35668, 35060 (mean
+36621, range 4076, ~11.4% of the mean). The aligned arm moved somewhat less halo
+volume on average and had a wider spread, not a tighter one.
+
+**Read on the halo metrics:** no tightening, and if there is a directional signal
+in this small sample it points toward *more* lateness and *more* spread under
+alignment, not less. I am not treating a 5x difference in a mean-28-vs-mean-5.3
+comparison at n=3 as a confirmed causal effect — both experiments ran
+sequentially on the same noisy machine documented at the top of this phase, and
+ambient load could easily differ between an experiment run first and one run
+second regardless of the flag. But nothing here supports the original
+hypothesis that alignment reduces variance, and this is a genuine measurement
+(the flag has a real code path to these counters), not a structurally void one.
+Restating it plainly: **at n=3 this is inconclusive for a confident causal
+claim, but the data available gives no support for enabling alignment, and a
+plausible reading of it points the other way.**
+
+### The open question
+
+Whether epoch alignment reduces *handoff*-event variance — the original
+hypothesis this task was written to test — remains untested. Testing it
+requires `--handoff-lookahead > 0`, which changes ownership-transfer behaviour
+in its own right (see the §0.7 ownership-gap discussion in `CLAUDE.md`) and
+should be measured together with whichever phase changes the handoff-lookahead
+default, not bolted onto this task.
+
+Note this all addresses only the *start-of-run* offset. The drift half of
+tick-epoch divergence — servers falling behind their pacing budget mid-run — is
+untouched and remains as documented in `docs/EVALUATION.md` §5.
