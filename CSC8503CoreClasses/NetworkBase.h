@@ -175,6 +175,22 @@ public:
 	}
 
 	void ClearPacketHandlers();
+
+	// ENet's own totals for this host: bytes and datagrams actually written to the
+	// socket. totalSentData is incremented with the return value of enet_socket_send
+	// AFTER outgoing commands are coalesced into one datagram (enet/protocol.c:1732),
+	// so these two together measure real wire cost without modelling coalescing at
+	// all - which is what E8's payload-vs-datagram ambiguity came down to.
+	//
+	// Zero when no host exists. A role that never created one still prints @@FINAL,
+	// and that report must not dereference null.
+	//
+	// Both are enet_uint32 and wrap after 4 GB - about 15 minutes at E8's measured
+	// rates. Safe for a 20 s run; a longer run needs these accumulated into 64 bits
+	// during the run rather than read once at exit.
+	unsigned int GetTotalSentData() const;
+	unsigned int GetTotalSentPackets() const;
+	unsigned int GetTotalReceivedData() const;
 protected:
 	NetworkBase();
 	~NetworkBase();
