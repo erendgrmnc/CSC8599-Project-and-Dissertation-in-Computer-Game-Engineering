@@ -1,5 +1,15 @@
 # E8 — bytes, and the Dyconits composition claim
 
+> **Superseded 2026-08-23.** This document's payload+36B/packet overhead model and its "one client"
+> analytical client-count extrapolation are both closed out by
+> `docs/superpowers/results/2026-08-23-A-instrumentation.md` §"E8 re-measured on counted datagrams",
+> which reads ENet's own post-coalescing byte/packet counters instead of modelling them. **The verdict
+> moves, not just tightens**: measured, the claim holds at every radius tested (25, 50, **and 100**) at
+> a single client — the published analysis below could not settle radius 100 under either overhead
+> model. Client count is now measured at 1 and 2 clients rather than extrapolated. `docs/EVALUATION.md`
+> §3 E8 carries the current figures; this document remains the record of what was known on
+> 2026-08-19/20, under the per-packet model this phase replaced.
+
 Date: 2026-08-19 (blocked) / 2026-08-20 (measured)
 Runs: `runs/exp-bytes-clean` (the measurement below). Superseded: `runs/exp-bytes`,
 `runs/exp-bytes-paced`, `runs/exp-halo-diag` (contaminated — see "Retraction").

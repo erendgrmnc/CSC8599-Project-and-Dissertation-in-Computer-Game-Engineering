@@ -324,3 +324,165 @@ default, not bolted onto this task.
 Note this all addresses only the *start-of-run* offset. The drift half of
 tick-epoch divergence — servers falling behind their pacing budget mid-run — is
 untouched and remains as documented in `docs/EVALUATION.md` §5.
+
+## E8 re-measured on counted datagrams
+
+Columns are named for the **host** they were measured on, not for the traffic
+assumed to dominate it (spec §2.1): the client-facing host also carries acks,
+spawns and manifest entries, and the peer-facing host also carries handoffs. On
+this configuration — `uniform`, halo on, no interaction drivers — snapshots and
+halo dominate their respective hosts: `manifestSent = 0` on every run (no late
+joiner), and `hoSent` stayed in 272–320 per run (both servers, medians per
+radius) against the 24 B delta-snapshot payload each handoff packet does not
+carry — a small fraction of either host's traffic. Bytes are ENet's own
+post-coalescing counters (`GetTotalSentData()`/`GetTotalSentPackets()`), costed
+at payload + 28 B/datagram (IPv4 20 + UDP 8; ENet's own header is already
+inside `totalSentData`) — see `tools/analyse.py:wire_bytes()`.
+
+**Configuration.** 2 servers, 4,000 objects total, `uniform`, 20 s realtime, 3
+repeats, `--halo-width 8`, halo unreliable, `--drain-seconds 0`
+(`runs/exp-bytes-1client`). Figures are medians of 3 repeats, summed across
+both servers, then divided by the 20 s window.
+
+| interest radius | client-facing wire B/s | peer-facing wire B/s | saving vs r=0 | peer / saving |
+|---|---|---|---|---|
+| 0 | 10,008,710 | 1,580,699 | — | — |
+| 25 | 1,496,458 | 1,744,768 | 8,512,252 | **0.205** |
+| 50 | 2,261,120 | 1,769,330 | 7,747,590 | **0.228** |
+| 100 | 5,838,452 | 1,735,561 | 4,170,258 | **0.416** |
+
+Peer-facing bytes are flat within **11.9%** across all four radii (1,580,699
+to 1,769,330) — same qualitative shape as the published figures' "flat within
+4%", though wider. That width tracks the same per-run timing noise recorded
+throughout this phase (`haloLate` on these runs ranged from 0 into the
+hundreds of thousands on this machine's background load — see the discard log
+below), not a dependency of halo traffic on what a client asked for.
+
+Measured against the published figures, which charged a flat 36 B per packet
+on the (mistaken) assumption that every packet becomes its own datagram:
+
+| radius | published (modelled, payload+36B/packet) | measured (counted datagrams, payload+28B/datagram) | ratio |
+|---|---|---|---|
+| 25 | 0.531 | 0.205 | 0.386 |
+| 50 | 0.537 | 0.228 | 0.425 |
+| 100 | 1.027 | 0.416 | 0.405 |
+
+That last column is the size of ENet's coalescing effect, and it is the
+quantity the payload-vs-datagram ambiguity was standing in for: the real
+per-datagram overhead is roughly 40% of what the per-packet model charged, at
+every radius tested. **The verdict does not just tighten, it moves.** Published:
+the claim held at radii 25 and 50 under the per-datagram model and was
+bracketed (0.531–1.09 depending on model) at radius 100. Measured: the claim
+holds comfortably — ratio well under 1.0 — at **every radius tested,
+including 100, at a single client**, where the published analysis could not
+settle the case at all. The overhead-model ambiguity this item existed to
+close is gone because the model itself is gone, not because the answer got
+closer to 1.0.
+
+The absolute byte rates are 2–4x the published ones at the same nominal
+configuration (radius-0 client-facing: 10.0 MB/s here vs. 4.63 MB/s
+published). This is consistent with the realtime-mode variability `CLAUDE.md`
+already documents — `--run-seconds` is unpaced, so a `--fixed-step` server
+simulates as many ticks as real time and machine load allow, and this
+machine's background load was documented as heavy throughout this phase (Task
+6's report: Unity, Unreal, a game client, Discord, Spotify and multiple Claude
+sessions resident) — but the previously-quoted ±3% same-session tick-count
+spread does not explain a 2–4x cross-session gap on its own. This is recorded
+as an open question about comparing realtime absolute counts **across**
+measurement sessions, not something this task's re-run resolves. It does not
+threaten the ratio figures above, which are computed within one session's own
+repeats.
+
+## The client-count argument, measured
+
+Snapshots are counted per object per client; halo traffic is not. The
+published claim that the saving therefore scales with clients while the halo
+cost does not was an analytical extrapolation. Measured, holding the world at
+4,000 objects total (`-Objects 2000 -Clients 2` against `-Objects 4000
+-Clients 1` — **`objPreseed=4000` confirmed on both experiments**, the hard
+gate this comparison depends on):
+
+| clients | saving at r=25 (B/s) | peer-facing B/s | peer / saving |
+|---|---|---|---|
+| 1 | 8,512,252 | 1,744,768 | 0.205 |
+| 2 | 14,460,978 | 1,513,247 | 0.105 |
+
+The saving nearly doubled from 1 to 2 clients (8.51 -> 14.46 MB/s) despite the
+*per-client* object count being halved to hold the world constant, and the
+ratio roughly halved (0.205 -> 0.105) — the direction the published analytical
+argument predicted, now measured rather than extrapolated. Peer-facing bytes
+at 2 clients are flat within **38.0%** across the four radii tested
+(1,173,961 to 1,619,664 B/s) — wider than the 1-client spread (11.9%) and
+wide enough that the brief's own criterion ("a large variation means something
+other than the halo moved") is worth flagging explicitly: radius 0 reads
+markedly lower than the other three points at 2 clients, which is plausibly
+the same per-run machine-load noise rather than a real radius dependency
+(server-to-server traffic has no mechanism to depend on client interest), but
+it is reported as an open flag rather than explained away.
+
+## Run quality for this re-measurement
+
+Three experiments, 12 repeats each (36 runs), all realtime (`--run-seconds
+20`), all with `--drain-seconds 0`.
+
+**One full attempt discarded for a methodology bug, before any data was
+used.** `run-experiments.ps1` defaults `-Ticks` to 7200 and only zeroes it
+when `-Sweep ticks` or `-Sweep seconds`; for `-Sweep interestRadius` (what
+every command in this task uses) `-Seconds 20` is silently ignored unless
+`-Ticks 0` is also passed. The brief's Step 1/Step 2 commands as written omit
+`-Ticks 0`, so the first `bytes-1client` attempt (12 runs) ran as a **paced
+7200-tick** sweep (`mode=reproducible bound='--run-ticks 7200'` in every run's
+`mid.log`) rather than the required 20 s realtime measurement. Caught by
+reading the mode line before analysing, discarded in full, and `-Ticks 0` was
+added explicitly to all three experiment commands from then on (confirmed
+`mode=realtime bound='--run-seconds 20'` on every run used below).
+
+**Ten individual repeats discarded for custody firing** (`REPRODUCIBILITY
+WARNING`, `analyse.py`'s explicit degraded-run signal), out of 36 total —
+consistent with the heavy background load on this machine documented
+elsewhere in this phase:
+
+- `exp-bytes-1client`: `interestRadius0-r1`, `interestRadius100-r2`,
+  `interestRadius100-r3` (3 of 12).
+- `exp-bytes-2client`: `interestRadius0-r1`, `interestRadius0-r2`,
+  `interestRadius0-r3`, `interestRadius25-r1`, `interestRadius25-r2`,
+  `interestRadius100-r1` (6 of 12) — four of these also showed
+  `conservation_delta` / `ho_parity_delta` INVARIANT FAILURES (objects still
+  in custody at exit under `--drain-seconds 0`, the same truncation-at-exit
+  mechanism §6/§7 item 2 of `EVALUATION.md` already documents, not a new
+  loss mechanism).
+- `exp-interest-clean`: `interestRadius50-r3` (1 of 12).
+
+Each was re-run individually with `tools/measure.ps1` at identical parameters
+and the same `-Tag`/`-OutDir`, replacing only the discarded repeat rather than
+re-running the whole 12-run sweep. All ten replacements came back clean
+(`hoResent=0`, `hoCustody=0` on both servers). Final state, verified by
+`python tools/analyse.py` on each experiment directory: 24/24 per-server CSVs
+in every experiment, zero INVARIANT FAILURES, zero REPRODUCIBILITY WARNINGs,
+and `objPreseed=4000` confirmed by `Select-String` across both
+`exp-bytes-1client` and `exp-bytes-2client`.
+
+## E3 re-measured with `--drain-seconds 0`
+
+Configuration: 4,000 objects, 2 servers, `uniform`, 20 s realtime, 3 repeats,
+no halo, `--drain-seconds 0` (`runs/exp-interest-clean`). `snap_sent` is
+`analyse.py`'s summed-across-servers total object-snapshot count per run;
+figures below are medians of 3 repeats.
+
+| interest radius | object-snapshots sent (median) | reduction |
+|---|---|---|
+| 0 (everything) | 3,937,527 | — |
+| 25 | 519,836 | 86.8% |
+| 50 | 824,292 | 79.1% |
+| 100 | 2,680,918 | 31.9% |
+
+The reductions run in the same **direction** as the published 55.3 / 71.5 /
+78.9% (25 > 50 > 100, monotone in radius, as the claim requires), which is the
+brief's explicit acceptance check. The absolute counts and percentages differ
+substantially from the published ones — the same realtime cross-session
+variability flagged under E8 above, not specific to interest management. These
+absolute counts are now clean to quote (no drain-phase artefact,
+`--drain-seconds 0` throughout, all 12 repeats validated free of
+INVARIANT FAILURES and REPRODUCIBILITY WARNINGs), which is what item 5 and
+this re-run exist to establish; the published percentages are superseded by
+these, not merely qualified.

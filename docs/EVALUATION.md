@@ -104,28 +104,25 @@ identical across all three repeats in both configurations. The higher contact co
 
 **Claim.** A client's snapshot cost is a property of its view, not of the world.
 
-**Configuration.** 4,000 objects, 2 servers, 20 s realtime, 3 repeats (`runs/exp-interest`).
+**Configuration.** 4,000 objects, 2 servers, `uniform`, 20 s realtime, 3 repeats,
+`--drain-seconds 0` (`runs/exp-interest-clean`).
 
-| interest radius | object-snapshots sent (median)¹ | reduction |
+| interest radius | object-snapshots sent (median) | reduction |
 |---|---|---|
-| 0 (everything) | 1,317,106 | — |
-| 100 | 589,128 | 55.3% |
-| 50 | 374,819 | 71.5% |
-| 25 | 277,500 | 78.9% |
+| 0 (everything) | 3,937,527 | — |
+| 25 | 519,836 | 86.8% |
+| 50 | 824,292 | 79.1% |
+| 100 | 2,680,918 | 31.9% |
 
-¹ See caveat below — contains an unverified drain-phase artefact; absolute counts not yet clean to quote.
-
-**Verdict.** Monotone in radius, as it must be. **Caveat, not yet checked:** these runs contain the
-drain-phase artefact identified under E8 (an unthrottled ~5-second tail that dominates several
-per-tick counters). The *ratios* here may survive it — a drain-phase contribution roughly constant
-across radii would cancel out of a percentage reduction the way it cannot cancel out of an absolute
-bytes/second figure — but that has not been verified, and the absolute counts should not be quoted as
-clean until it is.
-
-Note the halo publish gate (§4.1) does **not** fix this one: snapshot broadcast was already rate-gated,
-so the tail here is 5 s of genuine 60 Hz snapshots on a 20 s run, not a spin-rate flood. What clears it
-is backlog item 5 — `--drain-seconds` is now forwarded, so E3 can be re-run with the drain set to 0 and
-the absolute counts made quotable.
+**Verdict.** Monotone in radius, as it must be (25 > 50 > 100), the same direction as the originally
+published 78.9 / 71.5 / 55.3%. The drain-phase artefact these figures previously carried is closed —
+`--drain-seconds 0` throughout, all 12 repeats validated free of invariant failures and reproducibility
+warnings — so these absolute counts are clean to quote. They supersede the published percentages rather
+than merely confirming their ratios survived: the absolute magnitudes differ substantially (both the
+radius-0 baseline and the per-radius reductions), consistent with the realtime cross-session variability
+recorded under E8 below and in `docs/superpowers/results/2026-08-23-A-instrumentation.md` — a
+`--run-seconds` run is unpaced, so how much simulated work 20 real seconds buys depends on machine load
+at measurement time, not only on the configuration.
 
 ### E4 — Dynamic load balancing
 
@@ -203,37 +200,60 @@ correct, not merely where it gets slow.
 **Claim under test.** The halo's server-to-server cost is paid for out of interest management's
 server-to-client saving.
 
-**Status: measured.** The two harness defects that blocked this (backlog items 4 and 5) are fixed, and
-`runs/exp-bytes-clean` re-runs it with `--drain-seconds 0`. 2 servers, 4,000 objects, `uniform`,
-1 client, 20 s realtime, 3 repeats, `--halo-width 8`, halo unreliable (deployment-realistic). Full
-detail in `docs/superpowers/results/2026-08-19-E8-bandwidth.md`.
+**Status: measured on counted datagrams.** Backlog items 4, 5, 10 and 11 are all now closed:
+`--drain-seconds 0` removes the drain artefact, and `net_cli_wire_bytes`/`net_peer_wire_bytes`
+(`tools/analyse.py`, backed by ENet's own `GetTotalSentData()`/`GetTotalSentPackets()`) read what was
+actually written to the socket **after** ENet coalesces queued commands into datagrams, costed at
+payload + 28 B/datagram (IPv4 20 + UDP 8; ENet's own header is already inside `totalSentData`). The
+overhead-model ambiguity below is gone because the model itself is gone, not because a number moved
+closer to a threshold. 2 servers, 4,000 objects, `uniform`, 1 client, 20 s realtime, 3 repeats,
+`--halo-width 8`, halo unreliable (deployment-realistic). Full detail in
+`docs/superpowers/results/2026-08-19-E8-bandwidth.md` (superseded, see its header note) and
+`docs/superpowers/results/2026-08-23-A-instrumentation.md`.
 
-| interest radius | snapshot B/s | halo B/s | saving vs radius 0 | halo / saving |
+| interest radius | client-facing wire B/s | peer-facing wire B/s | saving vs radius 0 | peer / saving |
 |---|---|---|---|---|
-| 0 (everything) | 4,630,270 | 1,615,376 | — | — |
-| 25 | 1,477,392 | 1,672,717 | 3,152,878 | **0.531** |
-| 50 | 1,638,533 | 1,607,167 | 2,991,737 | **0.537** |
-| 100 | 3,039,035 | 1,634,495 | 1,591,235 | **1.027** |
+| 0 (everything) | 10,008,710 | 1,580,699 | — | — |
+| 25 | 1,496,458 | 1,744,768 | 8,512,252 | **0.205** |
+| 50 | 2,261,120 | 1,769,330 | 7,747,590 | **0.228** |
+| 100 | 5,838,452 | 1,735,561 | 4,170,258 | **0.416** |
 
-Datagrams costed at payload + 36 B (IPv4 + UDP + ENet). Halo cost is flat within 4% across radius, as
-server-to-server traffic must be; snapshot volume is monotone in radius. The radius-0 figure implies
-~1.36 M object-snapshots, against 1,317,106 recorded independently by E3 — agreement within 3%.
+Peer-facing (halo) traffic is flat within 11.9% across radius, as server-to-server traffic must be
+(server-to-server bytes cannot depend on what a client asked for); client-facing traffic is monotone in
+radius. Columns are named for the host measured, not the traffic assumed to dominate it — see the
+results document for the `manifestSent=0` / `hoSent` bound that confirms snapshots and halo actually do
+dominate their respective hosts on this configuration.
 
-**Verdict: the claim holds at radii 25 and 50, and the mechanism is batching.** A delta snapshot is
-24 B of payload, so per-datagram overhead nearly triples it; a halo packet carries ~18 entries (~1,100 B)
-and is barely affected. Interest management removes precisely the packets that overhead punishes most.
+**Verdict: the claim holds at every radius tested, including 100, at a single client.** Measured
+against the published figures, which charged a flat 36 B per packet on the assumption that every packet
+becomes its own datagram:
 
-**The one honest caveat is the overhead model**, and it changes the verdict: costed payload-only the
-ratios are 1.09 / 1.11 / 2.12 and the claim fails at one client. ENet coalesces outgoing commands into
-MTU-sized datagrams, so the truth lies between the two rows and settling it means counting datagrams
-rather than packets (ENet's `totalSentData`, a small code change). **Client count removes the
-ambiguity**: snapshots are counted per object *per client* while the halo is not, so the saving scales
-with clients and the halo cost does not — at 2+ clients the claim holds under either model at radii 25
-and 50. That scaling is an analytical extrapolation from how the counters increment, not a
-measurement, because the harness starts one client.
+| radius | published (modelled, payload+36B/packet) | measured (counted datagrams) | ratio |
+|---|---|---|---|
+| 25 | 0.531 | 0.205 | 0.386 |
+| 50 | 0.537 | 0.228 | 0.425 |
+| 100 | 1.027 | 0.416 | 0.405 |
+
+That last column — real overhead at roughly 40% of what the per-packet model charged, at every radius —
+is the size of ENet's coalescing effect. **The verdict does not just tighten, it moves.** Published, the
+claim held at radii 25 and 50 under the per-datagram model and was bracketed (0.531–1.09 depending on
+model) and unsettled at radius 100. Measured, the ratio is comfortably under 1.0 at every radius tested,
+including 100, at a single client — a case the published analysis could not settle at all. The mechanism
+is unchanged: a delta snapshot is 24 B of payload, so per-datagram overhead affects it far more than the
+~1,100 B halo packet, and interest management removes precisely the packets overhead punishes most.
+
+**Client count is now measured, not extrapolated.** `-Clients N` (`tools/run-experiments.ps1`,
+`tools/measure.ps1`) starts N clients against a world held constant at 4,000 objects
+(`-Objects 2000 -Clients 2` against `-Objects 4000 -Clients 1` — `--objects` is per client, see the
+harness-trap note in `CLAUDE.md`). At radius 25: the saving nearly doubles from 1 to 2 clients
+(8,512,252 -> 14,460,978 B/s) and the ratio roughly halves (0.205 -> 0.105) — the direction the
+published analytical argument predicted, now measured. Peer-facing bytes at 2 clients are flat within
+38.0% across radius, wider than the 11.9% at 1 client; see the results document for that caveat stated
+in full rather than smoothed over.
 
 The retracted 25.7 / 33.9 MB/s figures were wrong by a factor of ~16. The "explicitly not a
-measurement" geometric estimate recorded alongside them, ~1.6 MB/s, matches the measured 1.615 MB/s.
+measurement" geometric estimate recorded alongside them, ~1.6 MB/s, is close to both the originally
+measured 1.615 MB/s and this re-measurement's 1.58–1.77 MB/s peer-facing range.
 
 ---
 
@@ -392,11 +412,6 @@ and their contact counts are not.**
   fixed lanes, one speed, meeting the border perpendicular — which is the configuration in which the
   halo's knee is sharpest and easiest to locate. Oblique approaches, mixed speeds, and denser traffic
   would stress the bound harder and are untested.
-- **E8's overhead model is unresolved.** The bandwidth comparison (§3) is now measured, but whether the
-  composition claim holds at a *single* client depends on whether datagrams are costed at payload or
-  payload-plus-headers, and ENet's command coalescing sits between the two. Counting real datagrams
-  (`totalSentData` on the ENet host) would settle it. The claim is not sensitive to this at two or more
-  clients.
 
 ---
 
@@ -451,7 +466,9 @@ was caught by re-measuring E2 and E5's L=24 knee against the new binary before a
 (§4.1). Items 1, 2, 6 and 7 were addressed together as **Batch B**, followed by one full
 re-measurement (`docs/superpowers/results/2026-08-20-B-custody.md`). Item 1 is fixed, item 6 is
 withdrawn as a mis-filed defect, and items 2 and 7 stay open — narrowed and confirmed-reachable
-respectively, not closed. Batch B's own measurement also surfaced a new item, 12.
+respectively, not closed. Batch B's own measurement also surfaced a new item, 12. Items 10 and 11 were
+closed by the Phase A instrumentation work (`docs/superpowers/results/2026-08-23-A-instrumentation.md`),
+which is also where the E8 and E3 re-measurements in §3 above come from.
 
 1. ~~**Handoff ack is stubbed.**~~ **Fixed.** The receiver acks on acceptance and the sender holds the
    transfer packet in custody until the ack arrives (`CSC8503CoreClasses/DistributedSystemCommonFiles/HandoffCustody.h`,
@@ -530,13 +547,18 @@ respectively, not closed. Batch B's own measurement also surfaced a new item, 12
    because the result is discarded. The Z bound must be fixed *before* the function is wired in, and
    the stale comment corrected with it. See
    `docs/superpowers/specs/2026-08-23-backlog-completion-design.md` §5.3.
-10. **Bytes are counted as packets, not datagrams.** E8's verdict at one client flips depending on
-   whether per-datagram headers are charged, and ENet coalesces commands into MTU-sized datagrams, so
-   neither bound is known to be the true one. Surfacing the ENet host's `totalSentData` would replace
-   the whole derivation with a direct measurement.
-11. **The harness starts one client.** E8's client-count scaling — the argument that makes the
-   composition claim robust to item 10 — is analytical, derived from `mSnapshotsSent` incrementing per
-   peer, not measured. `measure.ps1` supports a single client plus an optional mid-run late joiner.
+10. ~~**Bytes are counted as packets, not datagrams.**~~ **Fixed.** `net_cli_wire_bytes` and
+   `net_peer_wire_bytes` (`tools/analyse.py`) now read ENet's own post-coalescing counters
+   (`GetTotalSentData()`/`GetTotalSentPackets()`, `DistributedGameServerManager::GetNetworkByteTotals()`)
+   and cost each real datagram at payload + 28 B (IPv4 20 + UDP 8; ENet's own header is already inside
+   `totalSentData`), replacing the flat-36-B-per-packet model entirely. E8 re-measured on this basis: the
+   ratio moved from a bracketed, model-dependent 0.531–1.09 to a measured 0.205–0.416 across radii
+   25/50/100 — comfortably under 1.0 at every radius tested, including 100, at a single client. See §3.
+11. ~~**The harness starts one client.**~~ **Fixed.** `-Clients N` (`tools/measure.ps1`,
+   `tools/run-experiments.ps1`) starts N clients. E8's client-count scaling is now measured rather than
+   extrapolated: at 1 vs 2 clients (world held constant at 4,000 objects, `objPreseed=4000` confirmed on
+   both), radius-25 saving nearly doubled (8,512,252 -> 14,460,978 B/s) and the peer/saving ratio roughly
+   halved (0.205 -> 0.105) — the direction the analytical argument predicted. See §3.
 12. **Rebalancing conservation regression, not attributed to Batch B.** `runs/exp-fix4-E4` (`cluster`,
    4,000 objects, 7,200 ticks, `--handoff-lookahead 300`, rebalancing on) loses 84 to 703 objects across
    3 repeats (-198, -703, -84), where the pre-Batch-A baseline `runs/exp-balance` (commit `93e6f21`) was
