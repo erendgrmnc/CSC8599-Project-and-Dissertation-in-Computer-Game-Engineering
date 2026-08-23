@@ -43,6 +43,19 @@ namespace NCL {
 			// needed for a reproducible run, not for a deployment.
 			void SetHaloReliable(bool reliable) { mHaloReliable = reliable; }
 
+			// Per-host ENet totals, split by what each host family carries. The
+			// sender server talks to CLIENTS (snapshots, spawns, acks); the peer
+			// links talk to other SERVERS (halo, handoffs). E8 needs exactly that
+			// split, and here it falls out of the topology instead of being
+			// attributed after the fact.
+			struct NetworkByteTotals {
+				unsigned int clientBytes = 0;
+				unsigned int clientPackets = 0;
+				unsigned int peerBytes = 0;
+				unsigned int peerPackets = 0;
+			};
+			NetworkByteTotals GetNetworkByteTotals() const;
+
 			DistributedGameServerManager(int serverID, int gameInstanceID,  const std::string& serverBordersStr);
 			~DistributedGameServerManager();
 

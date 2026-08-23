@@ -904,6 +904,28 @@ bool DistributedGameServer::DistributedGameServerManager::HasPeerLink(int target
 	return false;
 }
 
+NCL::DistributedGameServer::DistributedGameServerManager::NetworkByteTotals
+DistributedGameServer::DistributedGameServerManager::GetNetworkByteTotals() const {
+	NetworkByteTotals totals;
+
+	if (mDistributedPacketSenderServer != nullptr) {
+		totals.clientBytes = mDistributedPacketSenderServer->GetTotalSentData();
+		totals.clientPackets = mDistributedPacketSenderServer->GetTotalSentPackets();
+	}
+
+	// Summed, not per-peer: the claim under test is this server's total
+	// server-to-server cost, and a per-link breakdown would not change it.
+	for (const auto* connection : mDistributedPhysicsClients) {
+		if (connection == nullptr || connection->client == nullptr) {
+			continue;
+		}
+		totals.peerBytes += connection->client->GetTotalSentData();
+		totals.peerPackets += connection->client->GetTotalSentPackets();
+	}
+
+	return totals;
+}
+
 // Powers of ten rather than a timer: a link that comes back goes quiet on its own,
 // and one that stays down still leaves a record of how bad it got without writing a
 // line per object per tick.
