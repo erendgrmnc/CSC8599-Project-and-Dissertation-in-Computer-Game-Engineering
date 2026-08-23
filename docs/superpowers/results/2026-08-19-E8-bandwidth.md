@@ -11,11 +11,15 @@
 > of packets makes the ratio *worse*, not better — coalescing means less overhead than the flat 36 B/
 > packet model below charged, so a smaller saving and a higher ratio (confirmed directly: applying the
 > retired model to the re-measurement's own counts costs the ratio ×1.7-1.75 at every radius). The
-> verdict still holds on the re-measured build only because that build also emits 3.6x more
-> object-snapshots than this one did, for a reason that is itself unexplained (tracked as
-> `docs/EVALUATION.md` §7 item 13) — not because measuring datagrams instead of packets is inherently
-> favourable to the claim.** `docs/EVALUATION.md` §3 E8 carries the current figures; this document
-> remains the record of what was known on 2026-08-19/20, under the per-packet model this phase replaced.
+> verdict survives fully on its own merits at radii 25 and 50 (the counterfactual against this
+> document's own throughput still holds there, 0.994 and 0.940), and only at radius 100 does it depend
+> on the re-measured build: that build emits more object-snapshots than this one did, but not uniformly
+> — 3.6x at radius 0, only 1.36x at radius 25 — plus a second, equally unexplained change in interest
+> management's own reduction fraction (68.1% here -> 87.9% there). Why either changed between builds is
+> open (tracked as `docs/EVALUATION.md` §7 item 13) — not because measuring datagrams instead of packets
+> is inherently favourable to the claim, and not uniformly across radii.** `docs/EVALUATION.md` §3 E8
+> carries the current figures; this document remains the record of what was known on 2026-08-19/20,
+> under the per-packet model this phase replaced.
 
 Date: 2026-08-19 (blocked) / 2026-08-20 (measured)
 Runs: `runs/exp-bytes-clean` (the measurement below). Superseded: `runs/exp-bytes`,

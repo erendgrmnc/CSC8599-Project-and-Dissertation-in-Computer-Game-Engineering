@@ -119,15 +119,24 @@ identical across all three repeats in both configurations. The higher contact co
 | 100 | 2,680,918 | 31.9% | **46.3%** | 55.3% |
 
 **Verdict.** Monotone in radius in both columns, as it must be (25 > 50 > 100), the same direction as
-the originally published 78.9 / 71.5 / 55.3%. `--drain-seconds 0` throughout removes the drain-phase
-artefact these figures previously carried, but that does not make the raw column unconditionally
-"clean to quote": a `--run-seconds` run is unpaced, so a 20 s window's raw total is a property of the
-machine at that minute (this session's r=0 server ticked 3,425 times in its 20 s window; a different
-session would tick a different amount), while snapshots-per-tick is the configuration-invariant
-quantity and is reported alongside for that reason. The gap between the two is largest exactly at the
-heaviest, most tick-starved point: radius 100 differs by **14.4 percentage points** between raw (31.9%)
-and tick-normalised (46.3%), and radius 100 is also the row that diverges most from the published
-55.3%. Report both columns rather than treating either alone as settled.
+the originally published 78.9 / 71.5 / 55.3%, and the claim is well supported: at radius 25 the
+reduction is **86.8% raw / 89.7% tick-normalised — both above the published 78.9%** — meaning a client
+watching a 25-unit radius receives roughly one-eighth of the world's snapshot traffic. The
+tick-normalised figures **beat** the published percentages at radii 25 and 50 (89.7% vs 78.9%; 83.6%
+vs 71.5%); only radius 100 falls short of its published figure (46.3% vs 55.3%), and even there
+interest management still removes close to half the traffic. The caveats below qualify the precision
+of the absolute figures and the radius-100 magnitude specifically — they do not put the qualitative
+result in question.
+
+`--drain-seconds 0` throughout removes the drain-phase artefact these figures previously carried, but
+that does not make the raw column unconditionally "clean to quote": a `--run-seconds` run is unpaced,
+so a 20 s window's raw total is a property of the machine at that minute (this session's r=0 run ticked
+3,425 times, summed across both servers, in its 20 s window; a different session would tick a
+different amount), while snapshots-per-tick is the configuration-invariant quantity and is reported
+alongside for that reason. The gap between the two is largest exactly at the heaviest, most
+tick-starved point: radius 100 differs by **14.4 percentage points** between raw (31.9%) and
+tick-normalised (46.3%), and radius 100 is also the row that diverges most from the published 55.3%.
+Report both columns rather than treating either alone as settled.
 
 **Cross-check restored, and it now fails on raw counts.** The published document carried an
 independent cross-check: the radius-0 figure implied ~1.36 M object-snapshots, against 1,317,106
@@ -140,6 +149,18 @@ counts, with E8 (the heavier configuration) higher**, the wrong direction for tw
 **2.8%**. The two runs simply ticked a different number of times inside their respective windows;
 per-tick throughput was consistent, which is what a within-machine cross-check actually tests.
 
+That 2.8% figure **pools ticks across both servers**, which §2 above states this document never does
+("summing or averaging ticks across servers would weight whichever server ticked more"). It is
+knowingly set aside here, not overlooked: E3's own r=0 run ticked its two servers 2,190 and 1,235
+times (1.77:1, unusually asymmetric — every other radius in this experiment ticked close to evenly),
+so the pooled figure partly reflects that imbalance. Per server the cross-check is **0.6% on server 0**
+(1,108 vs 1,102 snapshots/tick) and **8.0% on server 1** (1,223 vs 1,132) — both still close, so no
+conclusion above changes, but the 2.8% headline number is tighter than either individual server, not a
+neutral average of them. A robustness check (rescaling server 1 to server 0's tick rate) moves the r=0
+normaliser from 1,150 to ~1,164 snapshots/tick, a 1.3% shift — again nothing that moves a verdict, but
+recorded because §2's rule is being deliberately, not silently, set aside for this one cross-machine
+comparison, where per-server figures don't have a natural way to combine.
+
 **Not all repeats were captured in one continuous session.** File timestamps show the original
 `exp-interest-clean` sweep ran 18:28:33-18:32:53, covering only radius 0 (r1-r3), radius 25 (r1-r3) and
 radius 50 (r1-r2). The remaining four repeats — radius 100 (r1, r2, r3) and radius 50 (r3) — were
@@ -150,17 +171,23 @@ at 19:03) is divided against a radius-0 denominator measured 34 minutes earlier 
 within-session comparison, which is the property every other ratio in this table leans on — and
 radius 100 is exactly the row that diverges most from the published figure.
 
-**Ten of the 36 repeats measured across this phase's three experiments (both E8 client counts and E3)
-were discarded for custody firing and individually re-run**; one of those ten was one of E3's own 12
-repeats. Full list in `docs/superpowers/results/2026-08-23-A-instrumentation.md`. The discard
-criterion is not neutral: custody fires under load, load depresses tick rate, and tick rate sets
-snapshot volume, so discarding custody-firing runs preferentially discards **low-throughput** runs.
-That raises the radius-0 baseline, raises the reduction percentages above, and (in E8) lowers the
-peer/saving ratios reported below — a bias toward every claim this discard pass touched, not against
-it. These absolute counts supersede the published percentages rather than merely confirming their
-ratios survived; the magnitudes differ substantially for the reasons above, plus an unexplained
-snapshot-throughput change between measurement sessions that is not attributable to tick-rate
-variability — recorded as an open item under E8 (§7 item 13).
+**A discard-bias caveat, correctly scoped.** Ten of the 36 repeats across this phase's three
+experiments (both E8 client counts and E3) were discarded for custody firing and individually re-run —
+full list in `docs/superpowers/results/2026-08-23-A-instrumentation.md`. The general argument that this
+biases results toward the claim (custody fires under load, load depresses tick rate, tick rate sets
+snapshot volume, so discarding custody-firing runs preferentially discards low-throughput runs) is
+**materially true only for `exp-bytes-2client` radius 0**, where all three repeats are replacements
+(stated where that comparison is used, §3 E8 below). It does **not** apply to E3 itself: E3's one
+discarded repeat, `interestRadius50-r3`, is a radius-**50** replacement, so it can only move the
+radius-50 numerator — and a higher-throughput replacement there would *lower* the radius-50 reduction,
+not raise it. Nor does it apply to `exp-bytes-1client`'s radius-0 baseline used in the cross-check
+above: only one of its three r=0 repeats (`r0-r1`, one of 3 of 12 discarded in that experiment) was
+replaced, medians are used throughout, and that replacement is the **lowest**-ticksum run in its
+radius, so it cannot have raised the baseline. These absolute counts supersede the published
+percentages rather than merely confirming their ratios survived; the magnitudes differ substantially
+in part for the reasons above, and in part from an unexplained snapshot-throughput change between
+measurement sessions that is not attributable to tick-rate variability — recorded as an open item
+under E8 (§7 item 13).
 
 ### E4 — Dynamic load balancing
 
@@ -244,9 +271,11 @@ closed. Item 10 is closed in the sense that mattered — `net_cli_wire_bytes`/`n
 actually written to the socket **after** ENet coalesces queued commands into datagrams, costed at
 payload + 28 B/datagram (IPv4 20 + UDP 8; ENet's own header is already inside `totalSentData`), and the
 overhead-model ambiguity is gone because the model itself is gone. **What is not true is that counting
-datagrams improved the verdict.** It made the ratio worse (below); the claim survives only because this
-build also emits 3.6x more snapshots than the build the published figures came from, a change that is
-itself unexplained (item 13). 2 servers, 4,000 objects, `uniform`, 1 client, 20 s realtime, 3 repeats,
+datagrams improved the verdict.** It made the ratio worse (below); the claim survives because this
+build's snapshot throughput is higher than the published build's — most sharply at radius 0 (3.6x),
+least at radius 25 (1.36x) — compounded by a second, independent change in interest management's own
+reduction fraction (68.1% published -> 87.9% here). Neither change is explained (item 13). 2 servers,
+4,000 objects, `uniform`, 1 client, 20 s realtime, 3 repeats,
 `--halo-width 8`, halo unreliable (deployment-realistic). Full detail in
 `docs/superpowers/results/2026-08-19-E8-bandwidth.md` (superseded, see its header note) and
 `docs/superpowers/results/2026-08-23-A-instrumentation.md`.
@@ -259,14 +288,26 @@ itself unexplained (item 13). 2 servers, 4,000 objects, `uniform`, 1 client, 20 
 | 100 | 5,838,452 | 1,735,561 | 4,170,258 | **0.416** |
 
 Client-facing traffic is monotone in radius. Peer-facing (halo) traffic reads flat within 11.9% across
-radius (1,580,699–1,769,330 B/s), the direction server-to-server traffic must show since it cannot
-depend on what a client asked for — but at n=3 this check has little discriminating power: the
-within-radius repeat spread at r=0 alone is 32% (26.9–35.5 M B across the three repeats), wider than
-the 11.9% cross-radius spread of medians it is offered as evidence for. Treat it as uninformative at
-this sample size rather than as confirmation — the 2-client data below settles independence properly,
-with a mechanism. Columns are named for the host measured, not the traffic assumed to dominate it — see
-the results document for the `manifestSent=0` / `hoSent` bound that confirms snapshots and halo
-actually do dominate their respective hosts on this configuration.
+radius on raw B/s (1,580,699–1,769,330), but that raw comparison has little discriminating power at
+n=3: the within-radius repeat spread at r=0 alone is 32% (26.9–35.5 M B across the three repeats),
+wider than the 11.9% cross-radius spread of medians it would otherwise be offered as evidence for.
+Normalising per tick — the same correction applied to the 2-client data below — removes that noise
+instead of merely naming it:
+
+| radius | peer B/tick |
+|---|---|
+| 0 | 7,886 |
+| 25 | 7,952 |
+| 50 | 8,068 |
+| 100 | 8,074 |
+
+**2.4% spread** — tighter than the published "flat within 4%", and the single cleanest demonstration
+of halo/radius independence produced anywhere in this phase. This is the primary evidence for
+independence at one client, with the 2-client per-tick result below supporting it; the raw
+11.9%-vs-32% comparison is retired as uninformative rather than kept as the headline check. Columns
+are named for the host measured, not the traffic assumed to dominate it — see the results document for
+the `manifestSent=0` / `hoSent` bound that confirms snapshots and halo actually do dominate their
+respective hosts on this configuration.
 
 **Counting real datagrams made the ratio worse, not better.** A prior pass through this evidence
 attributed the published-to-measured drop entirely to "the size of ENet's coalescing effect" — that
@@ -292,11 +333,39 @@ with the snapshot-throughput change below: at radius 0, `snapSent` 2,415,460 aga
 68 B the old per-packet model charged**. Counted-vs-modelled total bytes: **0.601 / 0.745 / 0.656 /
 0.623** across radii 0/25/50/100. That is what coalescing is worth on this workload.
 
-**The published->measured move (0.531 -> 0.205 at radius 25) is the product of two opposing effects.**
-The ×1.72 penalty above, against the claim; and a **×0.23** factor from this session measuring **3.6x
-higher snapshot throughput** than the published session did, for the claim (1.72 x 0.23 ~= 0.40, the
-ratio of 0.205/0.531). Isolating a like-for-like comparison — this run's measured wire-bytes-per-
-snapshot, applied to the *published* run's implied snapshot counts rather than this session's own:
+**That asymmetry is also the answer to the reader's actual question — why the claim is true at all, not
+just why the ratio moved.** Snapshots coalesce far more than halo packets do: 26.9 snapshots share a
+datagram (40.9 B real wire against 32 B of payload — a **1.28x inflation**), while halo packets
+coalesce only about 1.03:1 (16,186 datagrams carrying 16,746 halo packets; roughly 1,124 B real wire
+against ~1,096 B of payload — a **1.03x inflation**). Interest management removes the smallest, most
+numerous, most heavily marked-up packets; the halo's few large packets are barely marked up at all.
+That is weaker than the pre-instrumentation description ("a delta snapshot is 24 B of payload, so
+per-datagram overhead nearly triples it") — the real inflation is 1.28x, nowhere near 3x — but it is
+the same direction, still asymmetric, and it is the mechanism the claim survives on.
+
+**The published->measured move (0.531 -> 0.205 at radius 25) is the product of three effects, not
+two** — and describing the throughput change as a single "3.6x" figure, as an earlier version of this
+document did, presented a radius-0 number as if it applied everywhere. Per radius, this build's
+snapshot throughput against the published session's:
+
+| radius | this build / published, snapshots/s |
+|---|---|
+| 0 | 3.60x |
+| 25 | **1.36x** |
+| 50 | 2.10x |
+| 100 | 3.08x |
+
+A uniform 3.6x would predict roughly a ×0.29 factor at radius 25; the observed factor is ×0.23. The
+missing ~×0.78 is a second, independent change: interest management's own reduction fraction, measured
+inside this same E8 run, moved from **68.1% published** (1,477,392 / 4,630,270 snapshots removed at
+radius 25) to **87.9% here** (590,953 / 4,897,037). So three factors compose the 0.531 -> 0.205 move:
+the ×1.72 penalty from counting datagrams (against the claim), the throughput rise (for the claim, and
+radius-dependent as shown above), and this reduction-fraction shift (also for the claim, and just as
+unexplained as the throughput change — both are tracked together in item 13 below).
+
+Isolating a like-for-like comparison — this run's measured wire-bytes-per-snapshot, applied to the
+*published* run's implied snapshot counts rather than this session's own (unaffected by the correction
+above; it was already built the right way):
 
 | radius | published (36 B model) | counted datagrams at published throughput |
 |---|---|---|
@@ -305,18 +374,26 @@ snapshot, applied to the *published* run's implied snapshot counts rather than t
 | 100 | 1.027 (unsettled) | **1.839** — fails |
 
 (If anything this is optimistic for the claim: coalescing is weaker at lower snapshot rates, so the
-true published-throughput figures are plausibly higher still.)
+true published-throughput figures are plausibly higher still. This counterfactual also pairs the
+published run's *modelled* halo numerator with this run's *counted* denominator — a small, ~0.8%
+effect, that would move the radius-25 figure from 0.994 to roughly 0.986 if counted consistently; too
+small to change the "marginal" reading.)
 
 **Verdict: the claim holds at every radius tested, including 100, at a single client, on this build —
-and it holds despite a ×1.7 penalty from counting real datagrams, only because this build emits 3.6x
-more object-snapshots for the same halo cost than the build the published figures were measured
-against.** That is a build-scoped result, not a strengthened-by-instrumentation one; whether it would
-still hold on the published build is untested, and the counterfactual above suggests it would be
-marginal at radii 25/50 and fail at 100. Why snapshot throughput moved 3.6x between builds is itself
-unexplained and is **not** tick-rate variability: the peer-facing/halo column, which depends only on
-tick rate, agrees with the published session to within 2.2% (see item 13 for the full argument). This
-closes backlog item 10 honestly — the overhead-model ambiguity is gone because the model is gone, and
-the claim survives on this build, but not because counting datagrams "improved" anything.
+and the dependence on this build's changes is not uniform across radii.** At radii 25 and 50 the
+counterfactual above shows the claim would likely still hold on the published build (0.994, 0.940 —
+both under 1.0, if barely), so the comfortably-under-1.0 measured figures there (0.205, 0.228) are real
+improvement, not a rescue. **Radius 100 is different**: published was unsettled, and the counterfactual
+at published throughput fails outright (1.839) — only this build's higher throughput and higher
+reduction fraction bring it to a comfortable 0.416. So "the claim survives only because of a
+build-scoped change" is accurate specifically **at radius 100**, not as a description of the whole
+verdict. This is a build-scoped result either way, not a strengthened-by-instrumentation one; whether
+the published build would match exactly is untested. Why throughput and reduction fraction moved
+between builds is itself unexplained and is **not** tick-rate variability: the peer-facing/halo column,
+which depends only on tick rate, agrees with the published session to within 2.2% (see item 13 for the
+full argument). This closes backlog item 10 honestly — the overhead-model ambiguity is gone because the
+model is gone, and the claim survives on this build, but not because counting datagrams "improved"
+anything.
 
 **Client count is now measured, not extrapolated.** `-Clients N` (`tools/run-experiments.ps1`,
 `tools/measure.ps1`) starts N clients against a world held constant at 4,000 objects
@@ -339,11 +416,17 @@ it accumulates fewer ticks in the 20 s window than the other three radii:
 | 50 | 4,388 | 1,619,664 | 7,382 |
 | 100 | 3,996 | 1,399,455 | 7,004 |
 
-Normalised per tick, the spread is **10.3%**, not 38.0%. Halo/radius independence — the mechanism
-E8's whole claim rests on — holds. And because the r=0 denominator itself under-accumulates ticks from
-the same effect, the saving at radius 25 is *understated* relative to what an equal-tick-rate
-comparison would show, which means the measured **0.105 two-client ratio is conservative** — a point in
-the claim's favour, recorded here rather than left as an unresolved flag.
+Normalised per tick, the spread is **10.3%** (9.6% if peer bytes and ticksum are paired per-repeat
+rather than each taken as the median across repeats — a pairing note, not a different conclusion), not
+38.0%. Halo/radius independence — the mechanism E8's whole claim rests on — **holds, by the same
+standard the 1-client data above is judged by**: this 10.3% residual is **no larger than its own
+within-radius repeat spread at r=0** (10.2%: 6,953 / 7,660 / 7,554 B/tick) — the identical
+sample-size argument that retires the raw 1-client comparison as uninformative says this residual is
+consistent with pure independence, not merely "small enough to call conservative." Separately, and
+still true on its own: because the r=0 denominator under-accumulates ticks from the same tick-rate
+effect, the saving at radius 25 is *understated* relative to what an equal-tick-rate comparison would
+show, so the measured **0.105 two-client ratio is conservative** on top of that — a point in the
+claim's favour, recorded here rather than left as an unresolved flag.
 
 The retracted 25.7 / 33.9 MB/s figures were wrong by a factor of ~16. The "explicitly not a
 measurement" geometric estimate recorded alongside them, ~1.6 MB/s, is close to both the originally
@@ -506,6 +589,14 @@ and their contact counts are not.**
   fixed lanes, one speed, meeting the border perpendicular — which is the configuration in which the
   halo's knee is sharpest and easiest to locate. Oblique approaches, mixed speeds, and denser traffic
   would stress the bound harder and are untested.
+- **E8's bandwidth verdict is build-scoped, and absolute realtime byte/snapshot counts do not compare
+  across measurement sessions.** §3 E8 holds on the commit it was measured on (`2060f55`); whether it
+  holds on the published commit (`02e306b`) is untested, and the counterfactual there shows radius 100
+  specifically would not hold without this build's throughput and reduction-fraction changes. Those
+  changes are open and unexplained (§7 item 13), confirmed not to be tick-rate variability, so a reader
+  should not treat the 10.0 MB/s vs. 4.63 MB/s radius-0 client-facing gap, or any other absolute
+  realtime rate, as comparable **across** sessions on this evidence — only the ratio figures computed
+  within one session's own repeats are load-bearing.
 
 ---
 
@@ -563,8 +654,9 @@ withdrawn as a mis-filed defect, and items 2 and 7 stay open — narrowed and co
 respectively, not closed. Batch B's own measurement also surfaced a new item, 12. Items 10 and 11 were
 closed by the Phase A instrumentation work (`docs/superpowers/results/2026-08-23-A-instrumentation.md`),
 which is also where the E8 and E3 re-measurements in §3 above come from. That same re-measurement
-opened item 13: an unexplained 3.6x change in E8's snapshot throughput between the published commit and
-this one, shown not to be tick-rate variability.
+opened item 13: an unexplained, radius-dependent change in E8's snapshot throughput (3.6x at radius 0,
+1.36x-3.08x elsewhere) between the published commit and this one, plus a second, equally unexplained
+shift in interest management's own reduction fraction — shown not to be tick-rate variability.
 
 1. ~~**Handoff ack is stubbed.**~~ **Fixed.** The receiver acks on acceptance and the sender holds the
    transfer packet in custody until the ack arrives (`CSC8503CoreClasses/DistributedSystemCommonFiles/HandoffCustody.h`,
@@ -652,10 +744,13 @@ this one, shown not to be tick-rate variability.
    coalescing means less overhead than the per-packet model charged, so a smaller saving and a higher
    ratio; applied to this run's own counts, counting costs the ratio ×1.7–1.75 at every radius (§3). The
    measured ratio (0.205–0.416 across radii 25/50/100, comfortably under 1.0 including radius 100) holds
-   only because this build also emits 3.6x more snapshots than the build the published 0.531–1.027
-   figures came from — an unexplained change tracked separately as item 13, not part of what this item
-   closes. What this item closes is the overhead-model ambiguity itself: the model is gone, replaced by
-   a direct read of what ENet wrote to the socket. See §3 for the full decomposition.
+   at radii 25/50 largely on its own merits (the counterfactual at published throughput is still under
+   1.0 there) and at radius 100 only because this build emits more snapshots than the build the
+   published 0.531–1.027 figures came from — 3.6x at radius 0, but radius-dependent (1.36x-3.6x, §3) —
+   plus a second, equally unexplained shift in interest management's own reduction fraction. Both are
+   tracked separately as item 13, not part of what this item closes. What this item closes is the
+   overhead-model ambiguity itself: the model is gone, replaced by a direct read of what ENet wrote to
+   the socket. See §3 for the full decomposition.
 11. ~~**The harness starts one client.**~~ **Fixed.** `-Clients N` (`tools/measure.ps1`,
    `tools/run-experiments.ps1`) starts N clients. E8's client-count scaling is now measured rather than
    extrapolated: at 1 vs 2 clients (world held constant at 4,000 objects, `objPreseed=4000` confirmed on
@@ -665,24 +760,37 @@ this one, shown not to be tick-rate variability.
    spread (38.0% raw) is a per-tick-rate effect, not noise: normalised to B/tick it is 10.3%, halo/radius
    independence holds, and because the r=0 baseline itself under-accumulates ticks from the same effect,
    the 0.105 ratio is conservative rather than an open question. See §3.
-13. **Open — a 3.6x change in E8's snapshot throughput between the published commit and this phase's
-   re-measurement, not tick-rate variability.** Client-facing byte rates measured in this phase are 2–4x
-   the published ones at the same nominal configuration (radius-0 client-facing: 10.0 MB/s here vs.
-   4.63 MB/s published), and the underlying object-snapshot volume is 3.6x higher. The obvious
-   explanation — an unpaced `--run-seconds` run simulating a different amount of work depending on
-   machine load — is refuted by the peer-facing (halo) column in the same tables: published halo
-   throughput was 1,615,376 B/s, re-measured 1,580,699 B/s, **within 2.2%**; implied halo packets/s were
-   1,438 published, 1,432 re-measured, **within 0.4%**. The halo band publishes once per tick and its own
-   cost model is accurate to ~1% against the counted figures (17.8 entries/packet; 1,096 B counted vs
-   1,096 B modelled payload, 27 B vs 36 B header) — so halo throughput is a direct, accurate proxy for
-   tick rate, and it says tick rate is essentially unchanged between the two sessions. A near-identical
-   tick rate cannot produce a 3.6x change in snapshot volume, so something in the **snapshot path**
-   itself changed between the published commit `02e306b` and this phase's `2060f55` — roughly 18 core
-   commits, including custody, halo scheduling, a halo performance fix and a peer-link rebuild. This is
-   recorded here as an **open, unexplained behavioural change**, not as measurement noise, and it is why
-   §3's E8 verdict is stated as build-scoped rather than as a straightforward improvement. The resolving
-   experiment is a single `--run-seconds 20` sweep at commit `02e306b`, using this phase's counted-
-   datagram instrumentation (which did not exist at that commit) — that one run would settle items 10
+13. **Open — a snapshot-throughput change (not tick-rate variability), plus a second, distinct change in
+   interest management's own reduction fraction — both between the published commit and this phase's
+   re-measurement.** Client-facing byte rates measured in this phase are 2-4x the published ones at the
+   same nominal configuration (radius-0 client-facing: 10.0 MB/s here vs. 4.63 MB/s published). The
+   underlying object-snapshot throughput change is **not uniform across radii** — 3.6x at radius 0, but
+   only 1.36x at radius 25, 2.10x at radius 50 and 3.08x at radius 100 (§3) — an earlier version of this
+   item described it as a flat 3.6x, which was a radius-0 figure presented as global. The obvious
+   explanation for any of this — an unpaced `--run-seconds` run simulating a different amount of work
+   depending on machine load — is refuted by the peer-facing (halo) column in the same tables: published
+   halo throughput was 1,615,376 B/s, re-measured 1,580,699 B/s, **within 2.2%**; implied halo packets/s
+   were 1,438 published, 1,432 re-measured, **within 0.4%**. The halo band publishes once per tick and
+   its own cost model is accurate to ~1% against the counted figures (17.8 entries/packet; 1,096 B
+   counted vs 1,096 B modelled payload, 27 B vs 36 B header) — so halo throughput is a direct, accurate
+   proxy for tick rate, and it says tick rate is essentially unchanged between the two sessions. A
+   near-identical tick rate cannot produce a 3.6x change in snapshot volume, so something in the
+   **snapshot path** itself changed between the published commit `02e306b` and this phase's `2060f55` —
+   roughly 18 core commits, including custody, halo scheduling, a halo performance fix and a peer-link
+   rebuild.
+
+   **A second, equally unexplained factor sits alongside the throughput change**: at radius 25, a
+   uniform 3.6x throughput rise would predict a ×0.29 factor on the published->measured ratio move: the
+   observed factor is ×0.23. The residual ~×0.78 is interest management's own reduction fraction inside
+   this E8 run moving from **68.1% published** (1,477,392 / 4,630,270) to **87.9% here** (590,953 /
+   4,897,037) — a change with no more explanation than the throughput shift, and tracked here alongside
+   it rather than separately.
+
+   This is recorded here as an **open, unexplained behavioural change**, not as measurement noise, and
+   it is why §3's E8 verdict is stated as build-scoped rather than as a straightforward improvement,
+   with that dependence load-bearing specifically at radius 100 (§3). The resolving experiment is a
+   single `--run-seconds 20` sweep at commit `02e306b`, using this phase's counted-datagram
+   instrumentation (which did not exist at that commit) — that one run would settle items 10
    and this one together. Investigating it further was out of scope for this task.
 12. **Rebalancing conservation regression, not attributed to Batch B.** `runs/exp-fix4-E4` (`cluster`,
    4,000 objects, 7,200 ticks, `--handoff-lookahead 300`, rebalancing on) loses 84 to 703 objects across
@@ -706,6 +814,7 @@ this one, shown not to be tick-rate variability.
 Batch B's own measurement opened item 12, the rebalancing regression, which still needs a bisect.
 
 **E8 has since been re-run** (`runs/exp-bytes-1client`, `runs/exp-bytes-2client`) and is reported in
-§3. It closes items 10 and 11 above, and — because the two builds' snapshot throughput differs 3.6x for
-a reason tick rate cannot explain — opens item 13, an unexplained behavioural change left honestly
-unresolved rather than filed as noise.
+§3. It closes items 10 and 11 above, and — because the two builds' snapshot throughput differs by a
+radius-dependent factor (up to 3.6x) that tick rate cannot explain, alongside a second unexplained
+shift in interest management's own reduction fraction — opens item 13, left honestly unresolved rather
+than filed as noise.
