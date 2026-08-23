@@ -41,6 +41,41 @@ class PredictedHaloFloorTests(unittest.TestCase):
             analyse.predicted_halo_floor(4, substep_hz=0)
 
 
+class WireBytesTests(unittest.TestCase):
+    """ENet's counters are per DATAGRAM, taken after it coalesces a peer's queued
+    commands. E8's published figures charged a flat 36 B per PACKET, which is only
+    correct if every packet became its own datagram - and whether it did was exactly
+    the open question. Charging per datagram removes the question.
+    """
+
+    def test_headers_are_charged_per_datagram(self):
+        # 10 datagrams carrying 1,000 bytes of ENet-level payload between them.
+        self.assertEqual(analyse.wire_bytes(1000, 10), 1000 + 280)
+
+    def test_no_datagrams_costs_nothing(self):
+        self.assertEqual(analyse.wire_bytes(0, 0), 0)
+
+    def test_coalescing_shows_up_as_a_lower_header_charge(self):
+        # Identical payload; coalesced 10:1. Only the header term moves, and it
+        # moves by exactly the datagrams saved.
+        uncoalesced = analyse.wire_bytes(1000, 100)
+        coalesced = analyse.wire_bytes(1000, 10)
+        self.assertEqual(uncoalesced - coalesced, 28 * 90)
+
+    def test_the_enet_header_is_not_charged_twice(self):
+        # totalSentData already includes ENet's own protocol header, so only IPv4
+        # (20) and UDP (8) are added. If this becomes 36 someone has re-added it.
+        self.assertEqual(analyse.wire_bytes(0, 1), 28)
+
+    def test_a_negative_total_is_rejected_rather_than_summed(self):
+        # Both counters are unsigned in ENet, so a negative here means the @@FINAL
+        # line was misparsed - which must fail loudly, not produce a smaller number.
+        with self.assertRaises(ValueError):
+            analyse.wire_bytes(-1, 10)
+        with self.assertRaises(ValueError):
+            analyse.wire_bytes(10, -1)
+
+
 class FindKneeTests(unittest.TestCase):
 
     def test_clean_step_returns_the_first_zero(self):
