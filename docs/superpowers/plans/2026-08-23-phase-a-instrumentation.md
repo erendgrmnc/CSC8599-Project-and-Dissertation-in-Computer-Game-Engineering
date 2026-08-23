@@ -1194,12 +1194,14 @@ explanation for, and recorded either way."
 
 ---
 
-### Task 8: Correct two stale claims in SPATIAL-PARTITIONING.md
+### Task 8: Correct three stale claims, measured false during this phase
 
-Both are stale today, independent of anything Phase A changes. They land here because Phase A is the phase with no blast radius (spec §2.5).
+Two are stale independently of anything Phase A changes. The third was **measured false by
+this phase's own runs**, which is why it lands here rather than in the spec's original list.
 
 **Files:**
 - Modify: `docs/SPATIAL-PARTITIONING.md:7`, `:50`, and the summary table row
+- Modify: `CLAUDE.md:218` (the reproducibility claim — see Step 6 below)
 
 **Interfaces:**
 - Consumes: nothing. Produces: nothing. Purely documentation.
@@ -1247,11 +1249,28 @@ Select-String -Path docs\SPATIAL-PARTITIONING.md -Pattern "150|scaffold|stub|TOD
 
 Expected: only the corrected text and the summary-table row. Any other hit is another instance of the same staleness — fix it in this commit.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Correct the reproducibility claim in CLAUDE.md**
+
+`CLAUDE.md:218` currently reads, of `--run-ticks` with `--fixed-step`:
+
+> End state and conservation then reproduce exactly; handoff *event* counts still vary by ±1,
+> which would need a global tick barrier to remove.
+
+Both halves are contradicted by this phase's measurements. Replace that sentence with:
+
+```markdown
+Conservation then reproduces exactly — the world total is identical on every run — but **end state does not**. Measured 2026-08-23 across four clean runs at an identical commit, seed and configuration: `contacts` varied ~1%, `snapSent` ~1.5%, halo object counts ~10%, and the per-server object split moved between 201/199 and 200/200. Handoff *event* counts vary by more than the ±1 previously claimed here: `hoSent` ranged 78–83 across six runs. A set of counters IS stable across clean runs and is what `tools/gate-compare.py` pins; see `docs/superpowers/specs/2026-08-23-backlog-completion-design.md` §1.3 for the full field-by-field breakdown and for what a verification gate can therefore check.
+```
+
+Keep the rest of that paragraph — the `--run-seconds` description and the closing
+"use `--run-ticks` for correctness/conservation experiments" guidance — unchanged. The
+guidance is still right; only the strength of the reproducibility claim was wrong.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add docs/SPATIAL-PARTITIONING.md
-git commit -m "docs: correct two stale claims in SPATIAL-PARTITIONING
+git add docs/SPATIAL-PARTITIONING.md CLAUDE.md
+git commit -m "docs: correct three stale claims, two long-standing and one measured false
 
 World bounds have been a --world flag since E1's locality sweep needed
 to grow the world with the server count; the doc still described a fixed
