@@ -55,6 +55,25 @@ Two consequences, and both bind every phase:
 This does not change the phase order. It adds a fixed cost to the front of each phase and removes
 re-analysis from the menu of cheap options.
 
+### 1.2 A phase is not done until the documents it invalidates are corrected
+
+Each phase below carries a **Documentation to correct** subsection listing the specific claims that
+phase falsifies, with the file and the claim named. Those are tasks, not reminders: a phase that
+lands its code and leaves the prose asserting the old behaviour has moved the defect rather than
+fixed it.
+
+This is not hypothetical bookkeeping in this repository. `CLAUDE.md` carries a standing
+"Verified-state warnings" section that exists **only** because documentation repeatedly drifted from
+the code, and the assessment behind this revision found three more instances: `CLAUDE.md` asserting
+the incoming-offset body was correct when it is not (§5.3), `docs/EVALUATION.md` describing figures
+as traceable to run directories that were never committed (§1.1), and
+`docs/SPATIAL-PARTITIONING.md` describing a function by a name it no longer has, at line numbers it
+no longer occupies, in a state it is no longer in (§2.5, §5.5). The first two are corrected as of
+2026-08-23; the rest are scheduled into the phase that touches the relevant code.
+
+The rule: **the doc correction lands in the same change as the code, not in a follow-up pass.** A
+follow-up pass is what produced the backlog of stale claims in the first place.
+
 ---
 
 ## 2. Phase A — instrumentation and harness
@@ -165,7 +184,27 @@ Step 0 (§1.1): build HEAD and take the baseline these gates compare against.
 
 The first two are 20 s realtime runs at 3 repeats — the cheapest in the suite.
 
-### 2.5 Gate
+### 2.5 Documentation to correct
+
+Two of these are stale *today*, independent of anything Phase A changes, and are included here
+because Phase A is the phase with no blast radius — the cheapest place to land a prose fix.
+
+| File | Claim to correct |
+|---|---|
+| `docs/SPATIAL-PARTITIONING.md:7` and its summary table | "The simulated world is a fixed square … **−150 to +150 on each axis**". World bounds are set by `--world` and have been since that flag landed. |
+| `docs/SPATIAL-PARTITIONING.md:50` | The handoff acknowledgement described as "**scaffolded**", "partly stubbed", with the ack a `TODO` and the receive handler "commented out". The ack path is live: the receiver acks on acceptance and the sender holds the transfer in custody until it arrives. |
+| `CLAUDE.md` game-server flag table | `--epoch-align-us` is missing from it entirely (§2.3), despite being parsed in `ServerStarter.cpp:188` and forwarded by the midware. |
+| `docs/superpowers/specs/2026-08-19-experiment-suite.md` | Record whether epoch alignment is on for reproducible runs, once §2.3 has measured it. |
+
+Then, **after** the re-runs land:
+
+| File | Claim to correct |
+|---|---|
+| `docs/EVALUATION.md` §3, E8 | The overhead-model caveat ("whether the composition claim holds at a *single* client depends on whether datagrams are costed at payload or payload-plus-headers") and the §7 item 10 that records it. Both close on measured datagram counts. |
+| `docs/EVALUATION.md` §3, E3 | The "contains an unverified drain-phase artefact; absolute counts not yet clean to quote" footnote, and the caveat paragraph under it. |
+| `docs/EVALUATION.md` §7 item 11 | Closes once the harness runs more than one client. |
+
+### 2.6 Gate
 
 A paced `--run-ticks --fixed-step` run must reproduce the step-0 baseline's end state exactly. These
 changes should not be able to affect it; the gate is what makes that a verified statement rather than
@@ -193,14 +232,21 @@ been tested, and there is a cheaper explanation that fits the evidence:
   **end-of-run truncation of transfers still in flight** — `ho_parity_delta` matched it exactly on
   every repeat — and was explicitly reported as explained, not as a defect.
 - E4 is the rebalancing workload. Its migration bursts are larger than E7's steady-state handoffs, so
-  it has *more* reason to still be draining at exit, not less.
-- Nobody checked whether E4's −84/−703 matches its own `ho_parity_delta`, and §1.1 means that check
-  cannot be done by re-analysis — the dataset is gone.
+  it has *more* reason to still be draining at exit, not less. It also ran at
+  `--handoff-lookahead 300`, which defers every release and so maximises the number of transfers
+  still in flight when the run stops.
+- **`EVALUATION.md` §7 item 12 already records the truncation signature**: "`ho_parity_delta` matches
+  the loss exactly on each repeat and transfers are still held in custody at exit". That is the same
+  evidence which, on E7, was accepted as showing end-of-run truncation rather than an open failure
+  mode. The two are read differently in the same document.
+
+What has *not* been tested is whether a drain long enough to empty custody removes the loss. That is
+the cheapest discriminator available, and it is a run, not an argument.
 
 **Step 1 is therefore one configuration, not a bisect:** re-run E4 at HEAD with a drain long enough
-that `hoCustody` reads 0 at exit, and compare `conservation_delta` against `ho_parity_delta`. If
-conservation is exact, there is no regression, item 12 closes as a harness artefact, and §3.1–§3.2
-never run. If the loss survives a clean drain, it is real and the bisect below is justified.
+that `hoCustody` reads 0 at exit. If conservation goes exact, the loss was in-flight transfers
+truncated by a 5-second drain, item 12 closes as a harness artefact, and §3.1–§3.2 never run. If it
+survives a clean drain, the regression is real and the bisect below is justified.
 
 This ordering costs one run to potentially delete an entire phase.
 
@@ -226,20 +272,44 @@ simulation result:
 | Drain-seconds forwarding | `2e7c65e` (+ `a8a9570` harness) | Changed how a run ends, and in-flight transfers are lost at exit |
 | Custody | `5f0b809` … `58d3b08` | Reclaim and idempotent-arrival paths touch ownership directly |
 
-So the procedure is: build each of the three points, run E4's configuration (`cluster`, 4,000
-objects, 2 servers, 7,200 paced ticks, 3 repeats) at each, and compare `conservation_delta`. That is
-9–12 runs plus three builds, not a binary search over 46 commits.
+The right bisect points are therefore not those commits themselves but the buildable states
+*between* them, which is what `EVALUATION.md` §7 item 12 already proposes — `776115b`, `02e306b` and
+HEAD. In commit order those separate the candidates cleanly:
 
-**Add a fourth point: `93e6f21` itself.** The published comparison is against `exp-balance`, whose
-data no longer exists (§1.1), so the "exact baseline" this bisect is measuring a departure from has
-to be regenerated rather than cited. That makes it 12–15 runs and four builds.
+| Point | Position | Isolates |
+|---|---|---|
+| `93e6f21` | pre-Batch-A, the published `exp-balance` baseline | the reference "exact" run |
+| `776115b` | immediately before `fd98f97` | behaviourally equivalent to the baseline |
+| `02e306b` | after the halo gate and the drain fix, before custody | halo gate + drain, without custody |
+| HEAD | after the custody cluster | everything |
+
+A departure appearing between `776115b` and `02e306b` implicates the halo gate or the drain fix; one
+appearing between `02e306b` and HEAD implicates custody. A fourth point between `fd98f97` and
+`2e7c65e` separates halo from drain, and is only worth building if the first split lands there.
+
+**`93e6f21` must be run, not cited.** The published comparison is against `exp-balance`, whose data
+no longer exists (§1.1), so the "exact baseline" this bisect measures a departure from has to be
+regenerated. Running E4's configuration (`cluster`, 4,000 objects, 2 servers, 7,200 paced ticks, 3
+repeats) at four points is 12 runs and four builds — not a binary search over 46 commits.
+
+Hold the drain constant across all four points at whatever §3.0 established, or this bisect
+re-measures the same truncation it was meant to rule out.
 
 **Expected confounder:** `--drain-seconds` did not exist before `2e7c65e`, so the pre- and
 post-commit runs do not end the same way. Hold the drain explicitly constant where the flag exists,
 and state the asymmetry where it does not, rather than comparing two different run terminations and
 attributing the difference to the code.
 
-### 3.3 Gate
+### 3.3 Documentation to correct
+
+| File | Claim to correct |
+|---|---|
+| `docs/EVALUATION.md` §7 item 12 | Currently ends "That bisect is the next step, not yet done." Replace with the outcome: closed as a drain artefact (§3.0), or the attribution the bisect produced. |
+| `docs/EVALUATION.md` §6 | The paragraph attributing E4's loss to an unisolated cause across the halo-gate / drain-seconds / custody window. |
+| `docs/EVALUATION.md` §7 item 12 | If §3.0 closes it, also reconcile the reading of `ho_parity_delta`: the same signature is currently treated as *explained* for E7 and *unexplained* for E4 in the same document. |
+| New `docs/superpowers/results/` entry | The pre-check and, if it ran, the bisect — recorded like the other batches. |
+
+### 3.4 Gate
 
 None — this phase changes no production code. Its output is an attribution recorded in
 `docs/superpowers/results/`, plus a fix routed to whichever phase owns the cause.
@@ -361,7 +431,18 @@ tracks the *generalised* floor as latency rises, not merely that a knee exists.
    `--halo-lookahead`, or warn when it does not. **Phase C must do one of those before it sweeps**,
    or it risks reporting an envelope limit as a falsification of its own bound.
 
-### 4.6 Optional companion
+### 4.6 Documentation to correct
+
+| File | Claim to correct |
+|---|---|
+| `docs/EVALUATION.md` §5 | The "**No latency injection.** Every measurement runs on a local network with effectively zero link latency" bullet. |
+| `docs/EVALUATION.md` §4 | The soundness condition is stated there as `w_min = v_max * L * dt + 2*r_max`. It becomes the zero-latency special case of the generalised form, and §4 is where the headline correctness result is argued. |
+| `docs/superpowers/results/2026-08-19-E5-soundness.md` | Add the latency dimension's results; do not rewrite the zero-latency rounds, which remain valid. |
+| `docs/superpowers/results/2026-08-21-AP-injection.md` §6 | It predicts exactly this generalisation ("This should appear in the paper as a structural relationship rather than be found by a reviewer"). Record that it was done, and where. |
+| `CLAUDE.md` halo-flags block | Add `--link-latency-ms` / `--link-jitter-ms`, and state the `HALO_STALE_TICKS` ceiling on lookahead (§4.2) — the flag table currently documents the width floor but not the lookahead ceiling. |
+| `docs/superpowers/results/2026-08-19-E5-soundness.md` | Its "Server code is frozen for this evidence" note on the `HALO_STALE_TICKS` fix closes when §4.2 lands. |
+
+### 4.7 Optional companion
 
 §5 records that `headon` is one synthetic workload — fixed lanes, one speed, perpendicular approach,
 the configuration where the halo's knee is sharpest. An oblique or mixed-speed variant would stress
@@ -459,7 +540,22 @@ this never bit. Any 4-server rebalancing measurement would hit it, and would be 
 whole-partition reshape rather than the incremental border movement the balancer is described as
 performing.
 
-### 5.5 Gate
+### 5.5 Documentation to correct
+
+This phase carries the largest documentation debt, because §5.3 is a defect that three separate
+documents currently describe incorrectly.
+
+| File | Claim to correct |
+|---|---|
+| `ServerWorldManager.cpp:2325-2326` | The function's own header comment: "The bounds mirror `IsObjectInBorder` exactly - half-open on X (>= min, < max), closed on Z (>= min, <= max)". False since the ownership unification. **This is the origin of the other two.** |
+| `ServerWorldManager.cpp:2350` | "Z's upper bound is inclusive, so max is legal and needs no epsilon" — the inline justification for the defect itself. |
+| `docs/SPATIAL-PARTITIONING.md:52-54` | Names the function `CalculateIncomingObjectOffsetedPosition` (no such name), cites `ServerWorldManager.cpp:296-314` (now `:2338`), and describes it as having "most of its branches currently commented out, leaving only a Z-axis floor adjustment active" — the pre-rewrite state. |
+| `CLAUDE.md` audit bullet for the offset function | Corrected on 2026-08-23 to say the body is wrong; must be corrected *again* once §5.3 fixes it, to say what it now does. |
+| `docs/EVALUATION.md` §7 item 7 | Closes when the function is fixed and wired in. |
+| `docs/EVALUATION.md` §7 item 2 and §6 | The conditional ownership guarantee — "the atomicity guarantee stays conditional on `--handoff-lookahead > 0`, the non-default case" — changes meaning when that becomes the default. |
+| `docs/SPATIAL-PARTITIONING.md` | Add the partition-topology discontinuity (§5.4): the initial partition is a 2-D grid, repartitioning emits 1-D X slices. Nothing currently documents that they differ. |
+
+### 5.6 Gate
 
 The no-op gate applies in an unusual form here, because the point of the change *is* to alter the
 default. Gate on the **old** default instead: at an explicitly passed `--handoff-lookahead 0`, a
@@ -470,7 +566,7 @@ Additionally, `analyse.py`'s `check_custody` reports a non-zero `hoCustody` at e
 failure, and that check must not be weakened to make these runs pass. A run intended to pass the gate
 is drained until `hoCustody` reads 0.
 
-### 5.6 Re-runs
+### 5.7 Re-runs
 
 Full sweep, as approved:
 
@@ -482,7 +578,7 @@ Full sweep, as approved:
 | E2 | Regression — border crossings are the halo's acceptance test, which handoff timing touches |
 
 E3, E6 and E8 are not conservation-sensitive and do not need re-running for this phase, provided the
-Phase D gate (§5.5) passes.
+Phase D gate (§5.6) passes.
 
 ---
 

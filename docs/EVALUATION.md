@@ -6,8 +6,25 @@ wrong form for evidence. A reader currently has to reconcile eleven documents, s
 correct each other (round 1 vs round 2 of E5, the retracted E8 bandwidth figures, the corrected E7
 capacity numbers). This document presents E1-E8 as one argument: what is claimed, how it was
 measured, what the numbers say, and what they do not show. The specs and results documents stay as
-the primary record; every figure below is transcribed from them, not re-derived, and traceable to a
-run directory under `runs/` or to a named results document.
+the primary record; every figure below is transcribed from them, not re-derived, and named against
+the run directory that produced it or a named results document.
+
+> **The run directories themselves are gone** (recorded 2026-08-23; this paragraph previously
+> described figures as "traceable to a run directory under `runs/`"). `runs/` is gitignored
+> (`.gitignore:142`), so no dataset behind any figure here was ever committed — `exp-locality`,
+> `exp-halo`, `exp-interest`, `exp-balance`, `exp-density`, `exp-capacity-halo`,
+> `exp-capacity-nohalo`, `exp-bytes-clean`, the seven E5 sweep directories, `exp-fix4-E4`,
+> `exp-fix4-E7` and `exp-ap-injection-paced` are all absent from a fresh clone. Every `runs/...`
+> reference below names the configuration that produced a figure; **it does not name a directory a
+> reader can open.** The figures and the per-run detail in the results documents are the surviving
+> record.
+>
+> The consequence is methodological, not cosmetic: **no question about these numbers can be settled
+> by re-analysis.** Anything of the form "do the old runs still say X if we recompute Y" — E3's
+> ratios under the drain artefact (§3), E4's loss against `ho_parity_delta` (§6), E8's modelled
+> bytes (§3) — requires re-running, not re-reading. Sequenced in
+> `docs/superpowers/specs/2026-08-23-backlog-completion-design.md` §1.1, which makes generating a
+> fresh baseline the first step of every phase.
 
 ---
 
@@ -502,6 +519,17 @@ respectively, not closed. Batch B's own measurement also surfaced a new item, 12
    and load-dependent. The fix (wiring the function into the handoff path) stays deferred for the same
    reason as before — it changes measured handoff behaviour, so it belongs with a dedicated change,
    not a drive-by.
+
+   **The function's body is also wrong, not merely unwired** (found 2026-08-23). It clamps Z with an
+   *inclusive* upper bound, and its comment claims the bounds "mirror `IsObjectInBorder` exactly —
+   half-open on X, closed on Z". That was true before the ownership unification; `IsObjectInBorder`
+   now delegates to `OwningServerFor`, which is half-open on **both** axes. So on an interior Z seam
+   the clamp returns a position this server does not own — the disowned-object case the unification
+   exists to prevent. Masked at 2 servers (1-D split, `maxZ == worldMaxZ`, closed-outer-edge
+   exception) and reachable at 4 (`CalculateServerBorders` builds a 2×2 grid); inert today only
+   because the result is discarded. The Z bound must be fixed *before* the function is wired in, and
+   the stale comment corrected with it. See
+   `docs/superpowers/specs/2026-08-23-backlog-completion-design.md` §5.3.
 10. **Bytes are counted as packets, not datagrams.** E8's verdict at one client flips depending on
    whether per-datagram headers are charged, and ENet coalesces commands into MTU-sized datagrams, so
    neither bound is known to be the true one. Surfacing the ENet host's `totalSentData` would replace
