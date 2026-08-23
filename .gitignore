@@ -142,3 +142,6 @@ tools/InteractionTests/cmake_install.cmake
 runs/
 
 __pycache__/
+
+# Subagent-driven development workspace (ledgers, briefs, review packages).
+.superpowers/
