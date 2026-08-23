@@ -21,6 +21,15 @@
 - **`-Values` is a quoted comma-separated string**, never a bare list: `powershell -File` parses `-Values 1,2` as the single value `12`.
 - **New source files must be added to the owning `CMake*.cmake` or `CMakeLists.txt`**, not just to disk.
 - **A phase is not done until the documents it invalidates are corrected** (spec §1.2), in the same change as the code.
+- **`msbuild` is not on PATH on this machine.** Invoke it by full path, quoted:
+  `& "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe"` (verified 17.12.12).
+  A bare `msbuild` fails with "command not found" and is not a build failure — do not diagnose it as one.
+- **The build tree starts cold.** There is no `CMakeCache.txt` and no `deploy/`, so the first
+  configure-and-build is a full build of every vendored library (Recast, Detour, imgui, OpenGL
+  backend). Expect it to take a long time; that is not a hang.
+- **`analyse.py` only accepts experiment directories**, never a single run directory. It requires
+  `experiment.json` plus run subdirectories named `<sweep><value>-r<repeat>`, so every run in this
+  plan goes through `run-experiments.ps1` rather than `measure.ps1` directly.
 
 ---
 
@@ -51,11 +60,11 @@
 Nothing in this plan may be gated against a baseline that does not exist. This task produces it.
 
 **Files:**
-- Create: `runs/phaseA-baseline/` (gitignored output, not committed)
+- Create: `runs/exp-phaseA-baseline/` (gitignored output, not committed)
 - Create: `docs/superpowers/results/2026-08-23-A-instrumentation.md`
 
 **Interfaces:**
-- Produces: a paced, reproducible run directory that Task 6 compares against byte-for-byte, and the commit SHA it was built from.
+- Produces: `runs/exp-phaseA-baseline/FINAL-baseline.txt`, the `@@FINAL role=server` lines Task 6 compares against, and the commit SHA in `experiment.json`.
 
 - [ ] **Step 1: Record the commit the baseline is taken at**
 
@@ -78,30 +87,42 @@ Expected: `deploy/Manager`, `deploy/Midware`, `deploy/Client`, `deploy/Distribut
 
 Paced and reproducible, halo on, so the gate covers the halo path as well as the plain one.
 
+Run through `run-experiments.ps1`, not `measure.ps1`: `analyse.py` only accepts an
+experiment directory (it requires `experiment.json` and run subdirectories matching
+`<sweep><value>-r<repeat>`), and the experiment manifest also records the commit SHA
+and a dirty flag — which is exactly what makes a baseline reproducible.
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\measure.ps1 `
-    -Tag phaseA-baseline -Servers 2 -Objects 400 -Workload uniform `
-    -Ticks 1800 -Seed 42 -HaloWidth 8 -HaloReliable -DrainSeconds 5
+powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
+    -Name phaseA-baseline -Sweep ticks -Values "1800" -Repeats 1 `
+    -Servers 2 -Objects 400 -Workload uniform `
+    -Seed 42 -HaloWidth 8 -HaloReliable -DrainSeconds 5
 ```
 
-Expected: `runs/phaseA-baseline/ticks-server0.csv`, `ticks-server1.csv`, `mid.log`, `cli.log`, `manifest.json`.
+Expected: `runs/exp-phaseA-baseline/experiment.json` and `runs/exp-phaseA-baseline/ticks1800-r1/` containing `ticks-server0.csv`, `ticks-server1.csv`, `mid.log`, `cli.log`, `manifest.json`.
 
 - [ ] **Step 4: Verify the run is clean before trusting it as a baseline**
 
 ```powershell
-python tools\analyse.py runs\phaseA-baseline
+python tools\analyse.py runs\exp-phaseA-baseline
 ```
 
 Expected: exit code 0, two server CSVs found, no invariant failure. A baseline that already fails an invariant is not a baseline — investigate before continuing.
 
 - [ ] **Step 5: Snapshot the exact values the gate will compare**
 
+The filter must be **exactly** the one Task 6 uses. `mid.log` carries forwarded
+server output, so capturing unfiltered `@@FINAL` here and filtering `role=server`
+at the gate would let `Compare-Object` report a difference that is an artefact of
+the filter rather than of the code — discrediting the only check that makes Phase
+A's measurement-only claim verifiable.
+
 ```powershell
-Select-String -Path runs\phaseA-baseline\mid.log -Pattern "@@FINAL" | ForEach-Object { $_.Line } | Out-File -Encoding utf8 runs\phaseA-baseline\FINAL-baseline.txt
-Get-Content runs\phaseA-baseline\FINAL-baseline.txt
+Select-String -Path runs\exp-phaseA-baseline\ticks1800-r1\mid.log -Pattern "@@FINAL role=server" | ForEach-Object { $_.Line } | Out-File -Encoding utf8 runs\exp-phaseA-baseline\FINAL-baseline.txt
+Get-Content runs\exp-phaseA-baseline\FINAL-baseline.txt
 ```
 
-Expected: one `@@FINAL role=server` line per server. These lines are what Task 6 diffs against.
+Expected: one line per server. These lines are what Task 6 diffs against.
 
 - [ ] **Step 6: Open the Phase A results document and record the baseline**
 
@@ -125,7 +146,7 @@ generated rather than cited. Every no-op gate below compares against it.
 | Build | Release, via `tools/build-deploy.ps1` |
 | Invariants | `<paste the analyse.py verdict>` |
 
-`@@FINAL` lines are stored at `runs/phaseA-baseline/FINAL-baseline.txt`.
+`@@FINAL` lines are stored at `runs/exp-phaseA-baseline/FINAL-baseline.txt`.
 ```
 
 - [ ] **Step 7: Commit**
@@ -362,10 +383,10 @@ There is no unit test for this — it needs live hosts. Verify by running.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1
-powershell -ExecutionPolicy Bypass -File tools\measure.ps1 `
-    -Tag netcounters-smoke -Servers 2 -Objects 400 -Workload uniform `
-    -Ticks 600 -Seed 42 -HaloWidth 8 -HaloReliable
-Select-String -Path runs\netcounters-smoke\mid.log -Pattern "@@FINAL" | ForEach-Object { $_.Line }
+powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
+    -Name netcounters-smoke -Sweep ticks -Values "600" -Repeats 1 `
+    -Servers 2 -Objects 400 -Workload uniform -Seed 42 -HaloWidth 8 -HaloReliable
+Select-String -Path runs\exp-netcounters-smoke\ticks600-r1\mid.log -Pattern "@@FINAL role=server" | ForEach-Object { $_.Line }
 ```
 
 Expected: each server line carries all four fields. `netCliBytes` and `netCliPkts` must be **non-zero** (snapshots went to a client), and with `--halo-width 8` on two servers `netPeerBytes` and `netPeerPkts` must be **non-zero** too. All-zero peer figures mean the peer links were never established — a real failure, not a reporting one.
@@ -373,7 +394,7 @@ Expected: each server line carries all four fields. `netCliBytes` and `netCliPkt
 - [ ] **Step 6: Sanity-check the ratio before trusting it**
 
 ```powershell
-Select-String -Path runs\netcounters-smoke\mid.log -Pattern "@@FINAL" | ForEach-Object {
+Select-String -Path runs\exp-netcounters-smoke\ticks600-r1\mid.log -Pattern "@@FINAL role=server" | ForEach-Object {
     if ($_.Line -match "netCliBytes=(\d+).*netCliPkts=(\d+)") {
         "mean datagram payload: {0:N1} bytes" -f ([double]$Matches[1] / [double]$Matches[2])
     }
@@ -509,7 +530,7 @@ In `tools/analyse.py`, inside `summarise_run`, in the `if server_finals:` block 
 - [ ] **Step 6: Verify against the Task 2 smoke run**
 
 ```powershell
-python tools\analyse.py runs\netcounters-smoke
+python tools\analyse.py runs\exp-netcounters-smoke
 ```
 
 Expected: the summary reports `net_cli_wire_bytes` and `net_peer_wire_bytes`, both non-zero, and each strictly greater than the corresponding raw `netCliBytes` / `netPeerBytes` sum (because headers were added). Exit code unchanged from before the edit.
@@ -637,7 +658,7 @@ Expected: OK, all tests passing, including the pre-existing ones.
 - [ ] **Step 5: Verify no regression on a real run**
 
 ```powershell
-python tools\analyse.py runs\phaseA-baseline
+python tools\analyse.py runs\exp-phaseA-baseline
 ```
 
 Expected: identical output to Task 0 Step 4. The baseline has one `cli.log`, which the new pattern still matches.
@@ -739,21 +760,21 @@ And add `-Clients $Clients` to the `measure.ps1` invocation at `:215`, alongside
 - [ ] **Step 7: Verify one client still behaves exactly as before**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\measure.ps1 `
-    -Tag clients-1 -Servers 2 -Objects 400 -Workload uniform `
-    -Ticks 600 -Seed 42 -HaloWidth 8 -HaloReliable
-python tools\analyse.py runs\clients-1
+powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
+    -Name clients-1 -Sweep ticks -Values "600" -Repeats 1 `
+    -Servers 2 -Objects 400 -Workload uniform -Seed 42 -HaloWidth 8 -HaloReliable
+python tools\analyse.py runs\exp-clients-1
 ```
 
-Expected: `runs/clients-1/cli-0.log` exists (not `cli.log`), analyse.py finds exactly one client, invariants pass.
+Expected: `runs/exp-clients-1/ticks600-r1/cli-0.log` exists (not `cli.log`), analyse.py finds exactly one client, invariants pass.
 
 - [ ] **Step 8: Verify two clients**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\measure.ps1 `
-    -Tag clients-2 -Servers 2 -Objects 400 -Workload uniform `
-    -Ticks 600 -Seed 42 -HaloWidth 8 -HaloReliable -Clients 2
-python tools\analyse.py runs\clients-2
+powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
+    -Name clients-2 -Sweep ticks -Values "600" -Repeats 1 `
+    -Servers 2 -Objects 400 -Workload uniform -Seed 42 -HaloWidth 8 -HaloReliable -Clients 2
+python tools\analyse.py runs\exp-clients-2
 ```
 
 Expected: `cli-0.log` and `cli-1.log` both present, both carrying an `@@FINAL role=client` line; invariants pass. Compare the two runs' `netCliBytes`: the two-client run must be substantially **higher**, since snapshots are sent per client. If it is not, the second client never actually received snapshots and the bootstrap is at fault — investigate before continuing, because this is the measurement Task 9 depends on.
@@ -782,16 +803,17 @@ Everything above claims to be measurement-only. This task is what turns that cla
 - Modify: `docs/superpowers/results/2026-08-23-A-instrumentation.md`
 
 **Interfaces:**
-- Consumes: the Task 0 baseline at `runs/phaseA-baseline/FINAL-baseline.txt`.
+- Consumes: the Task 0 baseline at `runs/exp-phaseA-baseline/FINAL-baseline.txt`.
 - Produces: a pass/fail verdict. **No Phase A result may be reported before this passes.**
 
 - [ ] **Step 1: Re-run the exact baseline configuration on the current build**
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1
-powershell -ExecutionPolicy Bypass -File tools\measure.ps1 `
-    -Tag phaseA-gate -Servers 2 -Objects 400 -Workload uniform `
-    -Ticks 1800 -Seed 42 -HaloWidth 8 -HaloReliable -DrainSeconds 5
+powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
+    -Name phaseA-gate -Sweep ticks -Values "1800" -Repeats 1 `
+    -Servers 2 -Objects 400 -Workload uniform `
+    -Seed 42 -HaloWidth 8 -HaloReliable -DrainSeconds 5
 ```
 
 Every parameter must match Task 0 Step 3 exactly. `-Clients` is deliberately omitted so it takes its default of 1, matching the baseline.
@@ -802,8 +824,8 @@ The new `net*` fields did not exist at baseline, so strip them before comparing 
 
 ```powershell
 $strip = { param($line) ($line -replace '\s*net(Cli|Peer)(Bytes|Pkts)=\d+', '').Trim() }
-$base = Get-Content runs\phaseA-baseline\FINAL-baseline.txt | ForEach-Object { & $strip $_ }
-$new  = Select-String -Path runs\phaseA-gate\mid.log -Pattern "@@FINAL role=server" | ForEach-Object { & $strip $_.Line }
+$base = Get-Content runs\exp-phaseA-baseline\FINAL-baseline.txt | ForEach-Object { & $strip $_ }
+$new  = Select-String -Path runs\exp-phaseA-gate\ticks1800-r1\mid.log -Pattern "@@FINAL role=server" | ForEach-Object { & $strip $_.Line }
 Compare-Object $base $new
 ```
 
@@ -814,7 +836,7 @@ If it prints differences, Phase A altered a simulation result. Stop. Do not proc
 - [ ] **Step 3: Confirm the run is independently clean**
 
 ```powershell
-python tools\analyse.py runs\phaseA-gate
+python tools\analyse.py runs\exp-phaseA-gate
 ```
 
 Expected: exit code 0, same verdict as the baseline.
@@ -869,8 +891,8 @@ a measurement."
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
-    -Name epoch-off -Sweep seconds -Values "0" -Repeats 3 `
-    -Servers 2 -Objects 400 -Workload uniform -Ticks 1800 -HaloWidth 8 -HaloReliable
+    -Name epoch-off -Sweep ticks -Values "1800" -Repeats 3 `
+    -Servers 2 -Objects 400 -Workload uniform -Seed 42 -HaloWidth 8 -HaloReliable
 ```
 
 - [ ] **Step 2: Take three repeats with alignment**
@@ -879,8 +901,8 @@ The alignment quantum is 100 ms — comfortably longer than the few-millisecond 
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
-    -Name epoch-on -Sweep seconds -Values "0" -Repeats 3 `
-    -Servers 2 -Objects 400 -Workload uniform -Ticks 1800 -HaloWidth 8 -HaloReliable `
+    -Name epoch-on -Sweep ticks -Values "1800" -Repeats 3 `
+    -Servers 2 -Objects 400 -Workload uniform -Seed 42 -HaloWidth 8 -HaloReliable `
     -EpochAlignUs 100000
 ```
 
