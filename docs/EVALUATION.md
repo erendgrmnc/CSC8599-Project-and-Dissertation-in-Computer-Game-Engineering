@@ -334,10 +334,9 @@ against the within-radius repeat spread), this table's own within-radius spread 
 (radius 0: 7,211/7,886/8,081, 12.1%; radius 25: 10.4%; radius 50: 7.8%; radius 100: 9.2%) — so the 2.4%
 cross-radius spread sits *below* the noise floor, not resolved by it. The result is genuinely better
 than the raw check (normalisation cut radius-0 noise from 32% to 12.1%) and is consistent with
-independence, but it does not have the discriminating power to call it the cleanest demonstration in
-the phase; the 2-client per-tick result below, whose 10.3% residual sits right at (not comfortably
-under) its own within-radius spread, is consistent with independence by the same test but is no
-cleaner a demonstration either. The raw 11.9%-vs-32% comparison
+independence, bounding any radius dependence to ≲10%; the 2-client per-tick result below, whose 10.3%
+residual sits right at (not comfortably under) its own within-radius spread, is consistent with
+independence by the same test but is no cleaner a demonstration either. The raw 11.9%-vs-32% comparison
 is retired as uninformative rather than kept as the headline check. Columns are named for the host
 measured, not the traffic assumed to dominate it — see the results document for the `manifestSent=0` /
 `hoSent` bound that confirms snapshots and halo actually do dominate their respective hosts on this
@@ -397,11 +396,11 @@ inside this same E8 run, from **68.1% published** (radius 25 retained 31.9% of r
 1,477,392 / 4,630,270 B/s, the published table's byte column — proportional to snapshot counts under
 its flat-overhead model) to **87.9% here** (radius 25 retained 12.1% of radius-0 snapshot counts:
 590,953 / 4,897,037) — `3.60 x (0.121 / 0.319) = 1.366`, matching the radius-25 entry in the throughput
-table directly. So the published->measured move at radius 25 is better described as the ×1.72 penalty
-from counting datagrams (against the claim) times the radius-25 throughput change (×1.36, for the
-claim), where that throughput change is itself the compound of two equally unexplained causes — the
-radius-0 throughput rise and the reduction-fraction shift — tracked together in item 13 below, rather
-than three independent multiplicative factors.
+table directly. So the published->measured move at radius 25 is better described as a three-term
+product: ×1.72 (counting datagrams, against the claim) × ×0.29 (radius-0 throughput, i.e. 1/3.60, for
+the claim) × ×0.78 (reduction fraction, for the claim) = **0.389**, against the observed 0.386. The
+last two terms are not independent — they share one unexplained cause — which is why item 13 tracks
+them together, rather than as three independent multiplicative factors.
 
 Isolating a like-for-like comparison — this run's measured wire-bytes-per-snapshot, applied to the
 *published* run's implied snapshot counts rather than this session's own (unaffected by the correction
@@ -422,7 +421,7 @@ small to change the "marginal" reading.)
 **Verdict: the claim holds at every radius tested, including 100, at a single client, on this build.**
 Whether it would also hold on the published build is not established either way, and this document does
 not claim it would. The counterfactual above is **marginal and too close to call at radii 25 and 50**
-(0.994, 0.940 — within about 1% of the 1.0 failure threshold, against a peer-facing column that carries
+(0.994, 0.940 — within 1% and 6% of the threshold respectively, against a peer-facing column that carries
 roughly 10% repeat-to-repeat noise elsewhere in this section, and the estimate is itself optimistically
 biased by an unquantified amount, per the note above) and **fails outright at radius 100** (1.839). A
 figure that close to a threshold, that noisy, and that biased cannot support "likely holds", and this
@@ -785,7 +784,7 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    measured ratio (0.205–0.416 across radii 25/50/100, comfortably under 1.0 including radius 100)
    reflects this build. Whether it would hold on the published build is not established: the
    counterfactual at published throughput is marginal and too close to call at radii 25/50 (0.994,
-   0.940 — within about 1% of the threshold, against ~10% repeat noise, and itself optimistically
+   0.940 — within 1% and 6% of the threshold respectively, against ~10% repeat noise, and itself optimistically
    biased) and fails at radius 100 (1.839, §3). The claim's support comes from this build, where it
    emits more snapshots than the build the published 0.531–1.027 figures came from — 3.6x at radius 0,
    radius-dependent down to 1.36x at radius 25 (§3) — compounding a shift in interest management's own
@@ -824,13 +823,14 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    **A second, equally unexplained factor sits alongside the throughput change**: at radius 25, a
    uniform 3.6x throughput rise would predict a ×0.29 factor on the published->measured ratio move: the
    observed factor is ×0.23. The residual ~×0.78 is interest management's own reduction fraction inside
-   this E8 run moving from **68.1% published** (1,477,392 / 4,630,270) to **87.9% here** (590,953 /
+   this E8 run moving from **68.1% published** (radius 25 retained 31.9% of radius-0 bytes: 1,477,392 /
+   4,630,270 B/s) to **87.9% here** (radius 25 retained 12.1% of radius-0 snapshot counts: 590,953 /
    4,897,037) — a change with no more explanation than the throughput shift, and tracked here alongside
    it rather than separately.
 
    This is recorded here as an **open, unexplained behavioural change**, not as measurement noise, and
-   it is why §3's E8 verdict is stated as build-scoped rather than as a straightforward improvement,
-   with that dependence load-bearing specifically at radius 100 (§3). The resolving experiment is a
+   it is why §3's E8 verdict is stated as build-scoped rather than as a straightforward improvement (§3).
+   The resolving experiment is a
    single `--run-seconds 20` sweep at commit `02e306b`, using this phase's counted-datagram
    instrumentation (which did not exist at that commit) — that one run would settle items 10
    and this one together. Investigating it further was out of scope for this task.

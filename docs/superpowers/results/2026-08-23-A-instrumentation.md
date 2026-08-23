@@ -390,9 +390,8 @@ single cleanest demonstration of halo/radius independence produced anywhere
 in this phase" without reporting that spread; that overclaimed the table's
 discriminating power. What is true: normalisation is a real improvement over
 the raw check (it cut radius-0 noise from 32% to 12.1%), and the result is
-**consistent with independence** — it just cannot be called the cleanest
-demonstration in the phase when its own noise floor exceeds the effect it is
-being offered as evidence for. The 2-client per-tick result below is
+**consistent with independence**, bounding any radius dependence to ≲10%.
+The 2-client per-tick result below is
 consistent with independence by the identical test, with its own residual
 sitting right at (not comfortably under) its own within-radius spread — no
 cleaner a demonstration, but corroborating in the same direction.
@@ -479,11 +478,12 @@ counts under its flat-overhead model) to **87.9% here** (radius 25 retained
 12.1% of radius-0 snapshot counts: 590,953 / 4,897,037) — `3.60 x (0.121 /
 0.319) = 1.366`, matching the radius-25 entry in the throughput table
 directly. So the published->measured move at radius 25 is better described
-as the ×1.72 counting penalty times the radius-25 throughput change (×1.36),
-where that throughput change is itself the compound of two equally
-unexplained causes — the radius-0 throughput rise and the reduction-fraction
-shift — tracked together under `docs/EVALUATION.md` §7 item 13, rather than
-three independent multiplicative factors.
+as a three-term product: ×1.72 (counting datagrams, against the claim) ×
+×0.29 (radius-0 throughput, i.e. 1/3.60, for the claim) × ×0.78 (reduction
+fraction, for the claim) = **0.389**, against the observed 0.386. The last
+two terms are not independent — they share one unexplained cause — which is
+why they are tracked together under `docs/EVALUATION.md` §7 item 13, rather
+than as three independent multiplicative factors.
 
 Isolating the like-for-like comparison — applying this run's measured
 wire-bytes-per-snapshot to the *published* run's implied snapshot counts,
@@ -509,8 +509,8 @@ and 50 under the per-datagram model and was bracketed and unsettled at radius
 radius tested, including 100, at a single client. Whether it would also hold
 on the published build is **not established either way, and is not claimed
 here**: the counterfactual above is **marginal and too close to call at
-radii 25 and 50** (0.994, 0.940 — within about 1% of the 1.0 failure
-threshold, against a peer-facing column carrying roughly 10% repeat-to-repeat
+radii 25 and 50** (0.994, 0.940 — within 1% and 6% of the threshold
+respectively, against a peer-facing column carrying roughly 10% repeat-to-repeat
 noise elsewhere in this section, and itself optimistically biased by an
 unquantified amount per the note above) and **fails outright at radius 100**
 (1.839). A figure that close to a threshold, that noisy, and that biased

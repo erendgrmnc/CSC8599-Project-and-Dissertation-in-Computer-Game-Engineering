@@ -13,7 +13,7 @@
 > the retired model to the re-measurement's own counts costs the ratio ×1.7-1.75 at every radius).
 > Whether the verdict would also hold on *this* (published) build is not established either way: the
 > counterfactual against this document's own throughput is marginal and too close to call at radii 25
-> and 50 (0.994, 0.940 — within about 1% of the 1.0 failure threshold, against a peer column carrying
+> and 50 (0.994, 0.940 — within 1% and 6% of the threshold respectively, against a peer column carrying
 > roughly 10% repeat-to-repeat noise, and itself optimistically biased by an unquantified amount) and
 > fails outright at radius 100 (1.839). That does not support "likely holds," and this note does not
 > claim it. **The claim's support comes from the re-measured build, at every radius, not from an
