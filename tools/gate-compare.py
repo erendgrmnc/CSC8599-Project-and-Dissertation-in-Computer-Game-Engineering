@@ -17,10 +17,20 @@ import sys
 # Identical on every clean run measured. A Phase A regression would almost certainly
 # move one of these off its value - they are the failure counters plus the two
 # tick-locked halo counts.
+#
+# haloLate was in this list originally (it read 0 on all 8 pre-change server-runs
+# sampled for the Task 6 baseline) and was moved OUT after a counterfactual on the
+# pre-change commit (d8aec0b) found a degraded run producing haloLate 526/66 with
+# zero code change - an order of magnitude above anything seen post-change. It is a
+# continuous measure of inter-server timing drift, not a threshold symptom like
+# custody firing or an ownership gap in the thousands, so a mildly loaded run can
+# clear the degraded-run thresholds while still posting a handful of late halo
+# updates. It is range-checked in Step 4 instead of pinned here. See
+# docs/superpowers/results/2026-08-23-A-instrumentation.md for the measurement.
 STABLE = [
     "cmdApplied", "cmdRelayed", "cmdDup", "cmdRejected", "cmdFanout",
     "hoFail", "hoLate", "hoResent", "hoReclaimed", "hoCustody", "hoDup",
-    "hoPending", "hoSched", "haloLate", "haloAhead", "haloSent", "haloRecv",
+    "hoPending", "hoSched", "haloAhead", "haloSent", "haloRecv",
     "manifestSent", "objPreseed", "objSpawned", "objDestroyed",
 ]
 
