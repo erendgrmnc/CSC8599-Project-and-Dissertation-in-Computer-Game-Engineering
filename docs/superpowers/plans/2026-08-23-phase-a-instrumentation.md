@@ -16,7 +16,7 @@
 - **There is no stored baseline.** `runs/` is gitignored and empty (spec §1.1), so Task 1 does not start until Task 0 has produced one.
 - **Every measurement run passes `--fixed-step` and `--seed`.** Without both, servers under different load integrate with different `dt` and figures are not comparable.
 - **`--handoff-delay-ticks` must be 0 for any measurement run.** It is fault injection.
-- **Measurement runs use a Release build.** Debug duration figures are annotated "not quotable" throughout the results documents. Counts are build-independent; durations are not.
+- **Measurement runs use a Release build, and `build-deploy.ps1` defaults to Debug** — always pass `-Config Release` explicitly. Debug duration figures are annotated "not quotable" throughout the results documents. Counts are build-independent; durations are not.
 - **Repeats are 3, and the reported figure is the median across them** (`analyse.py` does this).
 - **`-Values` is a quoted comma-separated string**, never a bare list: `powershell -File` parses `-Values 1,2` as the single value `12`.
 - **New source files must be added to the owning `CMake*.cmake` or `CMakeLists.txt`**, not just to disk.
@@ -78,7 +78,7 @@ Expected: a clean working tree. If it is not clean, stop and commit or stash fir
 - [ ] **Step 2: Build and stage all four roles in Release**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1
+powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1 -Config Release
 ```
 
 Expected: `deploy/Manager`, `deploy/Midware`, `deploy/Client`, `deploy/DistributedPhysicsServer` each containing `EntryPoint.exe`.
@@ -382,7 +382,7 @@ Expected: all three link with no errors.
 There is no unit test for this — it needs live hosts. Verify by running.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1
+powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1 -Config Release
 powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
     -Name netcounters-smoke -Sweep ticks -Values "600" -Repeats 1 `
     -Servers 2 -Objects 400 -Workload uniform -Seed 42 -HaloWidth 8 -HaloReliable
@@ -795,82 +795,280 @@ produce the measurement; this is what makes it measurable."
 
 ---
 
-### Task 6: The Phase A gate — prove nothing changed
+### Task 6: The Phase A gate — bound what could have changed
 
-Everything above claims to be measurement-only. This task is what turns that claim into a verified statement.
+Everything above claims to be measurement-only. This task turns that claim into a
+measurement — but not the one this plan originally specified, and the reason matters.
+
+**The original gate does not work, and was replaced before Task 6 ran.** It required
+the post-change `@@FINAL` lines to compare identical to the baseline's. Measured on
+this machine with **four clean runs at the identical commit, seed and configuration**,
+that never happens:
+
+| behaviour across 4 identical clean runs | fields |
+|---|---|
+| **identical every time** | the 21 zero-valued or tick-locked counters: `cmdApplied` `cmdRelayed` `cmdDup` `cmdRejected` `cmdFanout` `hoFail` `hoLate` `hoResent` `hoReclaimed` `hoCustody` `hoDup` `hoPending` `hoSched` `haloLate` `haloAhead` `haloSent` `haloRecv` `manifestSent` `objPreseed` `objSpawned` `objDestroyed` |
+| **per-server varies, TOTAL stable at 400** | `objs`, `objPool` — observed splits 201/199, 200/200, 200/200, 201/199 |
+| **varies, total varies** | `contacts` (~1%), `snapSent` (~1.5%), `haloObjSent`/`haloObjRecv` (~10%), `hoSent`/`hoRecv` (±1), `objFwd`, `objHalo`, `objWorld`, `hoClamp` |
+
+`ownership_gap_ticks` across those four runs: 84, 82, 91, 84. A fifth run degraded
+badly — 1747 ms and 1049 ms frame times in its opening windows against an 8.33 ms
+budget — which cascaded into custody firing, `haloLate` 9,530, `ownership_gap_ticks`
+1,779 and two ticks of double ownership. `analyse.py` flagged it with a
+REPRODUCIBILITY WARNING, so a degraded run is detectable; but its `@@FINAL` values
+bore no resemblance to a clean run's.
+
+So an exact comparison would have failed 100% of the time with zero code change. The
+gate below is weaker than "identical" because nothing stronger is available on this
+machine — not because a weaker check was more convenient.
 
 **Files:**
 - Modify: `docs/superpowers/results/2026-08-23-A-instrumentation.md`
 
 **Interfaces:**
-- Consumes: the Task 0 baseline at `runs/exp-phaseA-baseline/FINAL-baseline.txt`.
+- Consumes: the Task 0 baseline experiment at `runs/exp-phaseA-baseline/`.
 - Produces: a pass/fail verdict. **No Phase A result may be reported before this passes.**
 
-- [ ] **Step 1: Re-run the exact baseline configuration on the current build**
+- [ ] **Step 1: Take three post-change repeats of the baseline configuration**
+
+Three, not one: the varying fields can only be compared as ranges, and a single run
+cannot establish a range.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1
+powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1 -Config Release
 powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
-    -Name phaseA-gate -Sweep ticks -Values "1800" -Repeats 1 `
+    -Name phaseA-gate -Sweep ticks -Values "1800" -Repeats 3 `
     -Servers 2 -Objects 400 -Workload uniform `
     -Seed 42 -HaloWidth 8 -HaloReliable -DrainSeconds 5
 ```
 
-Every parameter must match Task 0 Step 3 exactly. `-Clients` is deliberately omitted so it takes its default of 1, matching the baseline.
+Every parameter except `-Repeats` must match Task 0 Step 3. `-Clients` is deliberately
+omitted so it takes its default of 1, matching the baseline.
 
-- [ ] **Step 2: Diff the simulation fields against the baseline**
-
-The new `net*` fields did not exist at baseline, so strip them before comparing — everything else must be identical.
-
-```powershell
-$strip = { param($line) ($line -replace '\s*net(Cli|Peer)(Bytes|Pkts)=\d+', '').Trim() }
-$base = Get-Content runs\exp-phaseA-baseline\FINAL-baseline.txt | ForEach-Object { & $strip $_ }
-$new  = Select-String -Path runs\exp-phaseA-gate\ticks1800-r1\mid.log -Pattern "@@FINAL role=server" | ForEach-Object { & $strip $_.Line }
-Compare-Object $base $new
-```
-
-Expected: **no output.** `Compare-Object` printing nothing means the two sets are identical, which is the gate passing.
-
-If it prints differences, Phase A altered a simulation result. Stop. Do not proceed to Task 9 — find which task caused it. The likeliest candidate is Task 2, since it is the only one that touches server code, and the likeliest mechanism is the counter read perturbing timing on a non-paced path.
-
-- [ ] **Step 3: Confirm the run is independently clean**
+- [ ] **Step 2: Establish validity — a degraded run is not a comparand**
 
 ```powershell
 python tools\analyse.py runs\exp-phaseA-gate
 ```
 
-Expected: exit code 0, same verdict as the baseline.
+Read the output for a `REPRODUCIBILITY WARNING`. Any repeat that reports custody
+firing is a **failed measurement, not a failed gate** — discard it and re-run that
+repeat until you have three clean ones. `ownership_gap_ticks` in the 80–95 band is
+expected (the documented `--handoff-lookahead 0` gap, see below); a value in the
+thousands means the run degraded and must be discarded on the same grounds.
 
-- [ ] **Step 4: Record the gate result**
+Only once you hold three clean repeats does the comparison below mean anything.
+
+- [ ] **Step 3: Require exact equality on the stable set**
+
+```powershell
+python tools\gate-compare.py runs\exp-phaseA-baseline runs\exp-phaseA-repro3 runs\exp-phaseA-gate
+```
+
+Write `tools/gate-compare.py` as part of this task:
+
+```python
+"""Phase A no-op gate.
+
+Exact @@FINAL comparison is impossible: four clean runs at the same commit, seed
+and configuration disagree on contacts, snapshot counts, halo object counts and the
+handoff split. What IS stable is a specific set of counters, and object conservation.
+
+Usage: gate-compare.py <pre-change experiment dir> ... -- <post-change experiment dir> ...
+       (with no --, the LAST directory is the post-change one and the rest are pre.)
+
+Exit code 0 = gate passes.
+"""
+import glob
+import os
+import re
+import sys
+
+# Identical on every clean run measured. A Phase A regression would almost certainly
+# move one of these off its value - they are the failure counters plus the two
+# tick-locked halo counts.
+STABLE = [
+    "cmdApplied", "cmdRelayed", "cmdDup", "cmdRejected", "cmdFanout",
+    "hoFail", "hoLate", "hoResent", "hoReclaimed", "hoCustody", "hoDup",
+    "hoPending", "hoSched", "haloLate", "haloAhead", "haloSent", "haloRecv",
+    "manifestSent", "objPreseed", "objSpawned", "objDestroyed",
+]
+
+# Per-server assignment drifts, but the world is conserved.
+CONSERVED = ["objs", "objPool"]
+
+
+def finals(experiment_dir):
+    """One dict per server per run under this experiment directory."""
+    out = []
+    for log in sorted(glob.glob(os.path.join(experiment_dir, "*", "mid.log"))):
+        for line in open(log, errors="ignore"):
+            if "@@FINAL role=server" not in line:
+                continue
+            out.append(dict(
+                re.findall(r"(\w+)=(-?\d+)", line[line.index("@@FINAL"):])
+            ))
+    return out
+
+
+def main():
+    args = sys.argv[1:]
+    if "--" in args:
+        cut = args.index("--")
+        pre_dirs, post_dirs = args[:cut], args[cut + 1:]
+    else:
+        pre_dirs, post_dirs = args[:-1], args[-1:]
+    if not pre_dirs or not post_dirs:
+        print(__doc__)
+        return 2
+
+    pre = [f for d in pre_dirs for f in finals(d)]
+    post = [f for d in post_dirs for f in finals(d)]
+    if not pre or not post:
+        print("FAIL: no @@FINAL server lines found on one side")
+        return 1
+
+    failures = []
+
+    # 1. The stable set must hold its exact value on every server of every run.
+    for field in STABLE:
+        pre_values = {int(f[field]) for f in pre if field in f}
+        post_values = {int(f[field]) for f in post if field in f}
+        if not pre_values or not post_values:
+            failures.append(f"{field}: absent on one side")
+        elif pre_values != post_values:
+            failures.append(
+                f"{field}: was {sorted(pre_values)}, now {sorted(post_values)}"
+            )
+
+    # 2. Conservation: per-server assignment drifts, the world total does not.
+    #    Grouped per run, because a total is only meaningful within one run.
+    def totals(rows, dirs):
+        per_run = []
+        for d in dirs:
+            rows_here = finals(d)
+            by_run = {}
+            for log_index in range(0, len(rows_here), 2):
+                pair = rows_here[log_index:log_index + 2]
+                if len(pair) == 2:
+                    by_run.setdefault(log_index, pair)
+            for pair in by_run.values():
+                per_run.append({f: sum(int(r[f]) for r in pair) for f in CONSERVED})
+        return per_run
+
+    for field in CONSERVED:
+        pre_totals = {t[field] for t in totals(pre, pre_dirs)}
+        post_totals = {t[field] for t in totals(post, post_dirs)}
+        if pre_totals != post_totals:
+            failures.append(
+                f"{field} total: was {sorted(pre_totals)}, now {sorted(post_totals)}"
+            )
+
+    if failures:
+        print(f"GATE FAILED ({len(failures)}):")
+        for failure in failures:
+            print(f"  {failure}")
+        return 1
+
+    print(f"GATE PASSED: {len(STABLE)} stable fields unchanged, "
+          f"{len(CONSERVED)} conserved totals unchanged "
+          f"({len(pre)} pre-change server-runs vs {len(post)} post-change)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+Expected: `GATE PASSED`. A failure here names the field that moved, which is the
+actual signal — a Phase A change that altered simulation behaviour would show up as a
+failure counter leaving zero, or as conservation breaking.
+
+- [ ] **Step 4: Check the varying fields sit inside their pre-change spread**
+
+The stable set cannot see a change that only perturbs the noisy fields, so bound them
+by hand. Pre-change spread, from four clean runs (`runs/exp-phaseA-baseline` plus the
+three in `runs/exp-phaseA-repro3`):
+
+| field | pre-change range across clean runs |
+|---|---|
+| `contacts` (per server) | 171,536 – 173,921 |
+| `snapSent` (per server) | 246,833 – 251,275 |
+| `haloObjSent` (per server) | 16,149 – 20,186 |
+| `hoSent` + `hoRecv` (both servers) | 78 – 80 |
+| `objHalo` (per server) | 7 – 14 |
+| `hoClamp` (server 0) | 7 – 8 |
+
+Read the same fields from the three gate repeats. Each must fall inside — or
+negligibly outside — its band. Record any that do not, with the actual value; a field
+that moves an order of magnitude is a real signal even though a field that moves 2% is
+not.
+
+- [ ] **Step 5: State the structural argument the numbers cannot make**
+
+The measurement above bounds the change; it cannot prove it is zero. Confirm by
+inspection, and record the file and line:
+
+- `DistributedGameServerManager::GetNetworkByteTotals()` is called **once**, from
+  `ServerStarter.cpp`, after the run loop has exited and before the `@@FINAL` line.
+- It performs only reads: the sender host's two counters plus a loop over peer links.
+- Nothing on the tick path calls it, and no counter is reset.
+
+If any of those three is false, the gate does not hold regardless of what the numbers
+say.
+
+- [ ] **Step 6: Record the gate result honestly**
 
 Append to `docs/superpowers/results/2026-08-23-A-instrumentation.md`:
 
 ```markdown
-## The no-op gate
+## The no-op gate, and why it is not an equality check
 
-Phase A claims to be measurement-only. Verified rather than asserted: the baseline
-configuration was re-run on the post-change build and every `@@FINAL` field except
-the four newly added `net*` ones compared identical.
+Phase A claims to be measurement-only. The obvious verification — re-run the baseline
+configuration and require every `@@FINAL` field to match — **is not available on this
+machine.** Four clean runs at the identical commit, seed and configuration disagree on
+`contacts` (~1%), `snapSent` (~1.5%), halo object counts (~10%), the `hoSent`/`hoRecv`
+split (±1), and the per-server object split (201/199 vs 200/200). `ownership_gap_ticks`
+across those four runs was 84, 82, 91, 84.
 
-| | |
+This contradicts `CLAUDE.md`'s claim that under `--run-ticks --fixed-step` "end state
+and conservation then reproduce exactly". Conservation does reproduce — the object
+total is 400 on every run. End state does not.
+
+What the gate checks instead:
+
+| check | result |
 |---|---|
-| Baseline commit | `<SHA>` |
-| Gate commit | `<SHA>` |
-| Differing fields | none |
-| Invariants | `<paste>` |
+| 21 stable counters identical across all runs, both sides | `<pass/fail>` |
+| Object conservation total unchanged (400) | `<pass/fail>` |
+| Varying fields inside their pre-change spread | `<pass/fail, with any exceptions>` |
+| Counter read is once-at-exit, off the tick path | `<confirmed at ServerStarter.cpp:NNN>` |
+
+**What this does and does not establish.** It rules out a Phase A change that breaks
+conservation, that trips any failure counter, or that shifts a noisy field beyond its
+natural spread. It cannot rule out a change that perturbs those fields within that
+spread. That is a weaker claim than the plan originally intended, and it is stated
+here rather than papered over.
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add docs/superpowers/results/2026-08-23-A-instrumentation.md
-git commit -m "docs(A): the no-op gate passes
+git add tools/gate-compare.py docs/superpowers/results/2026-08-23-A-instrumentation.md
+git commit -m "test(A): bound Phase A's effect, since exact comparison is unavailable
 
-Every @@FINAL field except the four new counters is identical to the
-step-0 baseline, so Phase A's instrumentation did not alter a simulation
-result. Batch A was selected on the argument that its changes could not
-alter a result and one of them did; this is that argument replaced with
-a measurement."
+Four clean runs at the same commit, seed and configuration disagree on
+contacts, snapshot counts, halo object counts and the handoff split, so
+the planned equality gate would have failed with zero code change.
+
+Gates instead on what is actually stable: 21 counters that hold their
+value on every clean run, and object conservation. The noisy fields are
+bounded by their measured pre-change spread, and the once-at-exit
+structure of the counter read is recorded as the part the numbers
+cannot establish.
+
+Also contradicts CLAUDE.md's 'end state and conservation then reproduce
+exactly' - conservation does, end state does not."
 ```
 
 ---

@@ -25,7 +25,8 @@ That split is the right instrument, and this plan applies it to the whole remain
 3. **Front-load the investigations whose cost grows over time** — a bisect gets more expensive with
    every commit added to its search window.
 4. **Every behaviour batch passes a no-op gate before any claim is made.** With its new flag at the
-   default, a paced run must reproduce the pre-change baseline exactly. This is Batch B's Step 2, a
+   default, a paced run must reproduce the pre-change baseline **on the fields that are actually
+   stable** (see §1.3 — exact reproduction is not available). This is Batch B's Step 2, a
    hard gate that ran before any custody result was claimed. Batch A had no such gate — it was
    selected on the argument that none of its items *could* alter a result, and the one that did
    (item 4, the halo publish rate) was caught only afterwards, by re-measuring E2 and E5's L=24 knee
@@ -73,6 +74,46 @@ no longer occupies, in a state it is no longer in (§2.5, §5.5). The first two 
 
 The rule: **the doc correction lands in the same change as the code, not in a follow-up pass.** A
 follow-up pass is what produced the backlog of stale claims in the first place.
+
+### 1.3 Paced runs do not reproduce exactly — measured, 2026-08-23
+
+Every gate in this document was originally written as "a paced run must reproduce the
+pre-change baseline exactly". **That instrument does not exist.** Measured during Phase A
+execution on four clean runs at the identical commit, seed and configuration (`uniform`,
+400 objects, 2 servers, 1,800 paced ticks, `--halo-width 8 --halo-reliable`):
+
+| behaviour | fields |
+|---|---|
+| identical on every clean run | the 21 zero-valued or tick-locked counters — `cmdApplied` `cmdRelayed` `cmdDup` `cmdRejected` `cmdFanout` `hoFail` `hoLate` `hoResent` `hoReclaimed` `hoCustody` `hoDup` `hoPending` `hoSched` `haloLate` `haloAhead` `haloSent` `haloRecv` `manifestSent` `objPreseed` `objSpawned` `objDestroyed` |
+| per-server varies, world total stable | `objs`, `objPool` — the 400 objects split 201/199 or 200/200 |
+| varies outright | `contacts` (~1%), `snapSent` (~1.5%), `haloObjSent`/`haloObjRecv` (~10%), `hoSent`/`hoRecv` (±1), `objFwd`, `objHalo`, `objWorld`, `hoClamp` |
+
+`ownership_gap_ticks` across those four runs was 84, 82, 91, 84.
+
+**This contradicts `CLAUDE.md`**, which states that under `--run-ticks --fixed-step` "end
+state and conservation then reproduce exactly", and that halo runs are reproducible under
+`uniform`. Conservation reproduces — the world total is 400 every time. End state does not.
+
+A fifth run degraded badly (opening frame times of 1,747 ms and 1,049 ms against an 8.33 ms
+budget), cascading into custody firing, `haloLate` 9,530, `ownership_gap_ticks` 1,779 and two
+ticks of **double ownership**. `analyse.py` caught it with a REPRODUCIBILITY WARNING, so such
+a run is detectable — but its end state resembled nothing else.
+
+**What every phase's gate must therefore be:**
+
+1. **A validity precondition.** Both sides certified clean by `analyse.py` — no reproducibility
+   warning, no custody firing. A degraded run is a failed measurement, not a comparand, and
+   must be discarded and re-run rather than compared.
+2. **Exact equality on the stable set** above, plus world-total conservation.
+3. **Range comparison on the varying fields**, across at least three repeats per side.
+4. **A structural argument** for whatever the numbers cannot reach.
+
+`tools/gate-compare.py` (added in Phase A) implements 1–2.
+
+**This also bears on the published evidence.** E1–E8 figures came from runs whose logs are
+gone (§1.1), so it cannot now be checked whether any of them was a degraded run of the kind
+above. Nothing here shows that one was; what it shows is that the check was available and
+there is no record of it having been applied.
 
 ---
 
@@ -390,7 +431,8 @@ axis cannot be swept past roughly 50 ms, which is most of the interesting range.
 
 Two conditions, both hard:
 
-1. At `--link-latency-ms 0`, a paced run reproduces the pre-change baseline exactly.
+1. At `--link-latency-ms 0`, a paced run reproduces the pre-change baseline on the stable field set
+   defined in §1.3. Exact reproduction is not achievable — see that section.
 2. The generalised `w_min` returns the **same value** as the current formula at zero latency, checked
    in `tools/InteractionTests` — the bound is pure arithmetic and belongs in the assert harness.
 
@@ -559,7 +601,7 @@ documents currently describe incorrectly.
 
 The no-op gate applies in an unusual form here, because the point of the change *is* to alter the
 default. Gate on the **old** default instead: at an explicitly passed `--handoff-lookahead 0`, a
-paced run must still reproduce the pre-change baseline exactly. That separates "the new default
+paced run must still reproduce the pre-change baseline on §1.3's stable field set. That separates "the new default
 behaves differently" (intended) from "the old path changed" (a defect).
 
 Additionally, `analyse.py`'s `check_custody` reports a non-zero `hoCustody` at exit as an invariant
