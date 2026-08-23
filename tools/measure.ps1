@@ -36,6 +36,11 @@ param(
     # joins during bootstrap, before the world exists, so without this there is no
     # late joiner and the manifest path is never exercised.
     [int]$LateClientAfter = 0,
+    # How many clients to start. E8's client-count argument - that the interest
+    # saving scales with clients while the halo cost does not - stays analytical
+    # until this is greater than 1, because snapshots are counted per object PER
+    # CLIENT and halo traffic is not.
+    [int]$Clients = 1,
     # Drives one object along +X every N client ticks so it crosses a border while
     # under control. 0 disables.
     [int]$DriveEvery = 0,
@@ -124,6 +129,7 @@ $manifest = [ordered]@{
     mode         = $mode
     servers      = $Servers
     objects      = $Objects
+    clients      = $Clients
     seconds      = $Seconds
     ticks        = $Ticks
     seed         = $Seed
@@ -145,7 +151,7 @@ $manifest | ConvertTo-Json | Out-File -FilePath (Join-Path $runDir "manifest.jso
 Write-Host "run=$Tag mode=$mode world=$World servers=$Servers objects=$Objects bound='$bound' seed=$Seed workload=$Workload"
 
 $mgr = Start-Process -PassThru -FilePath (Join-Path $deploy "Manager\EntryPoint.exe") `
-    -ArgumentList "--servers $Servers --clients 1 --objects $Objects --port 1234 --world $World --midwares 1 --autostart --headless --rebalance-alpha $RebalanceAlpha --rebalance-threshold $RebalanceThreshold $repartitionArgs" `
+    -ArgumentList "--servers $Servers --clients $Clients --objects $Objects --port 1234 --world $World --midwares 1 --autostart --headless --rebalance-alpha $RebalanceAlpha --rebalance-threshold $RebalanceThreshold $repartitionArgs" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\mgr.log" -RedirectStandardError "$runDir\mgr.err" -WindowStyle Hidden
 Start-Sleep -Seconds 3
 
@@ -179,9 +185,14 @@ $clientSeconds = if ($clientDrivesCommands) {
     $Seconds + 45
 }
 
-$cli = Start-Process -PassThru -FilePath (Join-Path $deploy "Client\EntryPoint.exe") `
-    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --headless --impulse-test $ImpulseTest --misroute-every $MisrouteEvery --blast-every $BlastEvery --spawn-every $SpawnEvery --blast-offset-x $BlastOffsetX --destroy-every $DestroyEvery --drive-every $DriveEvery --interest-radius $InterestRadius --run-seconds $clientSeconds" `
-    -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\cli.log" -RedirectStandardError "$runDir\cli.err" -WindowStyle Hidden
+# One log per client. analyse.py matches cli-<N>.log and deliberately does not
+# match cli-late.log, so the late joiner below stays out of the I4 tally.
+$cliProcs = @()
+for ($i = 0; $i -lt $Clients; $i++) {
+    $cliProcs += Start-Process -PassThru -FilePath (Join-Path $deploy "Client\EntryPoint.exe") `
+        -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --headless --impulse-test $ImpulseTest --misroute-every $MisrouteEvery --blast-every $BlastEvery --spawn-every $SpawnEvery --blast-offset-x $BlastOffsetX --destroy-every $DestroyEvery --drive-every $DriveEvery --interest-radius $InterestRadius --run-seconds $clientSeconds" `
+        -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\cli-$i.log" -RedirectStandardError "$runDir\cli-$i.err" -WindowStyle Hidden
+}
 
 if ($LateClientAfter -gt 0) {
     Start-Sleep -Seconds $LateClientAfter
@@ -228,7 +239,7 @@ if ($finals.Count -lt $Servers) {
     Write-Host "WARNING: only $($finals.Count) of $Servers servers reported @@FINAL. Invariant totals for this run are incomplete." -ForegroundColor Yellow
 }
 
-foreach ($p in @($cli, $mid, $mgr)) {
+foreach ($p in @($cliProcs) + @($mid, $mgr)) {
     if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
 }
 Start-Sleep -Seconds 1
@@ -249,5 +260,5 @@ Select-String -Path "$runDir\mid.log" -Pattern "MetricSink:|Headless run complet
 Write-Host ""
 Write-Host "==================== FINAL TOTALS ===================="
 # @@FINAL lines are exact end-of-run totals, unlike the 2 Hz @@STAT samples.
-Select-String -Path "$runDir\mid.log", "$runDir\cli.log" -Pattern "@@FINAL" -ErrorAction SilentlyContinue |
+Select-String -Path (@("$runDir\mid.log") + @(Get-ChildItem "$runDir\cli-*.log" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })) -Pattern "@@FINAL" -ErrorAction SilentlyContinue |
     ForEach-Object { $_.Line }
