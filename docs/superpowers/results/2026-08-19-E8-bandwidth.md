@@ -4,11 +4,18 @@
 > analytical client-count extrapolation are both closed out by
 > `docs/superpowers/results/2026-08-23-A-instrumentation.md` §"E8 re-measured on counted datagrams",
 > which reads ENet's own post-coalescing byte/packet counters instead of modelling them. **The verdict
-> moves, not just tightens**: measured, the claim holds at every radius tested (25, 50, **and 100**) at
-> a single client — the published analysis below could not settle radius 100 under either overhead
-> model. Client count is now measured at 1 and 2 clients rather than extrapolated. `docs/EVALUATION.md`
-> §3 E8 carries the current figures; this document remains the record of what was known on
-> 2026-08-19/20, under the per-packet model this phase replaced.
+> moves, not just tightens, and it is now build-scoped**: measured, the claim holds at every radius
+> tested (25, 50, **and 100**) at a single client — the published analysis below could not settle radius
+> 100 under either overhead model. Client count is now measured at 1 and 2 clients rather than
+> extrapolated. **One correction to how that move was first explained: counting real datagrams instead
+> of packets makes the ratio *worse*, not better — coalescing means less overhead than the flat 36 B/
+> packet model below charged, so a smaller saving and a higher ratio (confirmed directly: applying the
+> retired model to the re-measurement's own counts costs the ratio ×1.7-1.75 at every radius). The
+> verdict still holds on the re-measured build only because that build also emits 3.6x more
+> object-snapshots than this one did, for a reason that is itself unexplained (tracked as
+> `docs/EVALUATION.md` §7 item 13) — not because measuring datagrams instead of packets is inherently
+> favourable to the claim.** `docs/EVALUATION.md` §3 E8 carries the current figures; this document
+> remains the record of what was known on 2026-08-19/20, under the per-packet model this phase replaced.
 
 Date: 2026-08-19 (blocked) / 2026-08-20 (measured)
 Runs: `runs/exp-bytes-clean` (the measurement below). Superseded: `runs/exp-bytes`,
