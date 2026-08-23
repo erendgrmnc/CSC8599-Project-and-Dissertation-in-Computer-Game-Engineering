@@ -4,7 +4,7 @@ How the world is divided into per-server regions and how objects move between se
 
 ## The world and its regions
 
-The simulated world is a fixed square on the X/Z plane, **−150 to +150 on each axis** (`CSC8503CoreClasses/DistributedSystemCommonFiles/DistributedPhysicsServerDto.cpp:6-10`). The manager divides this square into one rectangular **region per server**.
+The simulated world is a square on the X/Z plane whose extent is set at runtime by the manager's `--world minX,maxX,minZ,maxZ` flag (default `-150,150,-150,150`, parsed in `DistributedPhysicsManager/ProgramStart.cpp`). It was formerly a fixed ±150 square, and experiments that grow the world with the server count — E1's locality sweep — depend on it no longer being fixed. The manager divides this square into one rectangular **region per server**.
 
 ### Border algorithm
 
@@ -47,7 +47,11 @@ Each tick (when the game is running) the owning server checks its active objects
 
 **3 — Receive and resume.** The target server receives `StartSimulatingObjectInServer` and calls `ServerWorldManager::StartHandlingObject` (`:163-203`): it looks the object up in its pool by ID, restores the network state and the velocities/force from the packet, repositions it, and reactivates it (`SetActive(true)`, `SetServerID(mServerID)`). From the next tick it is simulated locally and replicated to that server's clients.
 
-**4 — Acknowledgement (scaffolded).** A return handshake exists — `StartSimulatingObjectReceivedPacket` sent via `SendTransactionHandshakePacket` (`:467-478`) and handled by `HandleTransitionHandshakePacketReceived` (`:310-319`) — routed to the original sender over the server-to-server `GameClient` mesh. In the current code this path is **partly stubbed**: `StartHandlingObject` marks sending the ack as a `TODO` (`ServerWorldManager.cpp:192`), and the receive handler's cleanup is commented out (`:314`) because the sender already released the object in step 2. So in practice migration is effectively one-way (send-and-release); the ack scaffolding is in place for a future two-phase confirmation.
+**4 — Acknowledgement (live).** The receiver acknowledges on acceptance, and the sender holds the transfer packet in custody until that acknowledgement arrives, resending it on a wall-clock deadline (`CSC8503CoreClasses/DistributedSystemCommonFiles/HandoffCustody.h`, `ServerWorldManager::FlushPendingTransfers`). It reclaims the object only once the peer link itself is gone — never on a bare timeout, because a timeout cannot distinguish "the receiver never got it" from "the receiver got it and is slow". An outstanding transfer is visible as `hoCustody` rather than silently lost.
+
+This paragraph previously described the path as scaffolded, with the ack a `TODO` and the receive handler commented out. That was true before the handoff-custody work; see `docs/superpowers/results/2026-08-20-B-custody.md`.
+
+**Note this does not close the ownership gap.** Custody makes an individual transfer lossless; it does not make ownership transfer atomic. At `--handoff-lookahead 0`, the default, the sender still releases on send and nobody owns the object for one network round trip. See `docs/EVALUATION.md` §6.
 
 ### Incoming position offset
 
@@ -57,13 +61,13 @@ Each tick (when the game is running) the owning server checks its active objects
 
 | Concept | Where |
 |---|---|
-| World bounds (±150 X/Z) | `DistributedPhysicsServerDto.cpp:6-10` |
+| World bounds (`--world`, default ±150 X/Z) | `DistributedPhysicsManager/ProgramStart.cpp` |
 | Grid border algorithm | `DistributedPhysicsServerDto.cpp:91-135` |
 | Border string `minX/maxX\|minZ/maxZ` | `DistributedPhysicsServerDto.cpp:84-89` |
 | Exit detection | `ServerWorldManager::CheckPositionOutOfServerBoundries` |
 | Send + release | `DistributedGameServerManager::HandleObjectTransitions` / `SendFinishTransactionPacket` |
 | Resume on target | `ServerWorldManager::StartHandlingObject` |
-| Ack (scaffolded/TODO) | `SendTransactionHandshakePacket` / `HandleTransitionHandshakePacketReceived` |
+| Ack (live, custody-backed) | `SendTransactionHandshakePacket` / `HandleTransitionHandshakePacketReceived` / `HandoffCustody.h` |
 
 ## Next
 
