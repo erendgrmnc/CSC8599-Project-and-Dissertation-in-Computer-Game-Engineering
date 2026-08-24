@@ -430,6 +430,13 @@ tested, not from an inference about the published one.** This is a build-scoped 
 strengthened-by-instrumentation one: why throughput and the reduction fraction moved between builds is
 itself unexplained and is **not** tick-rate variability — the peer-facing/halo column, which depends
 only on tick rate, agrees with the published session to within 2.2% (see item 13 for the full argument).
+A same-session counterfactual on 2026-08-24 reproduced that throughput change back to back on one
+machine (3.50x at radius 0), confirming it is a build difference rather than session drift, and found
+the published build to be **erratic in exactly this quantity** — 130.6% within-radius spread against
+this build's 0.3%, with servers intermittently failing to accumulate ticks. The published-build
+counterfactual above is therefore a weaker challenge to this verdict than it looks: it is computed on
+the less well-behaved of the two builds. It is not thereby overturned, and this section's claim still
+rests on the current build alone.
 This closes backlog item 10 honestly — the overhead-model ambiguity is gone because the model is gone,
 and the claim survives on this build, but not because counting datagrams "improved" anything.
 
@@ -630,8 +637,10 @@ and their contact counts are not.**
 - **E8's bandwidth verdict is build-scoped, and absolute realtime byte/snapshot counts do not compare
   across measurement sessions.** §3 E8 holds on the commit it was measured on (`2060f55`); whether it
   holds on the published commit (`02e306b`) is untested, and the counterfactual there shows radius 100
-  specifically would not hold without this build's throughput and reduction-fraction changes. Those
-  changes are open and unexplained (§7 item 13), confirmed not to be tick-rate variability, so a reader
+  specifically would not hold without this build's throughput and reduction-fraction changes — though
+  that counterfactual is computed on a build since measured to be erratic by up to 130% in this very
+  quantity (§7 item 13, 2026-08-24), so it bounds the verdict less tightly than its arithmetic suggests.
+  Those changes are open and unexplained (§7 item 13), confirmed not to be tick-rate variability, so a reader
   should not treat the 10.0 MB/s vs. 4.63 MB/s radius-0 client-facing gap, or any other absolute
   realtime rate, as comparable **across** sessions on this evidence — only the ratio figures computed
   within one session's own repeats are load-bearing.
@@ -815,7 +824,7 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    client on link loss and waits for its line; a 2-server run on 2026-08-24 reconciled a real client
    `cmdSent=251` against the servers' 244+7+0-0 exactly. The discovery path is therefore now exercised
    against real client data. See item 14.
-13. **Open — a snapshot-throughput change (not tick-rate variability), plus a second, distinct change in
+13. **Narrowed 2026-08-24, still open — a snapshot-throughput change (not tick-rate variability), plus a second, distinct change in
    interest management's own reduction fraction — both between the published commit and this phase's
    re-measurement.** Client-facing byte rates measured in this phase are 2-4x the published ones at the
    same nominal configuration (radius-0 client-facing: 10.0 MB/s here vs. 4.63 MB/s published). The
@@ -864,6 +873,41 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    now share `tools/RunPaths.ps1`, which also rejects the drive-relative case (`C:runs`) that
    `Path.IsPathRooted` reports as absolute. Shared rather than copied precisely because this bug
    existed only because the earlier fix was applied to one script and not the other.
+
+   **Counterfactual, 2026-08-24 — the change is real; the cross-session doubt is retired.** Both
+   builds were compiled Release from clean checkouts and swept **back to back in one session on one
+   machine** at this experiment's exact configuration. Published->current snapshot throughput:
+   **3.50x** at radius 0, 1.81x at 25, 1.91x at 50, **3.15x** at 100, against the 3.6/1.36/2.10/3.08
+   recorded above — three of four within 0.1. The inference from two separate sessions was therefore
+   sound, and the halo-throughput argument that propped it up is no longer needed.
+
+   **It is in the snapshot path.** At **1 server with `--halo-width 0`** — no halo band, no peer link,
+   no handoff, and `snapSupp` = 0 on both builds, so nothing is filtered — the effect survives at
+   **3.17x**. It also survives on a **stationary** workload (2.66x), which rules out the obvious
+   "deltas now carry the changes they always should have" explanation. The current build ran *fewer*
+   ticks than the published one in that control while sending 2.8x more, so it is not tick rate.
+
+   **The current build meets a schedule the published one misses.** Across every configuration tested
+   the current build emits **exactly 2000.0 object-snapshots per counted tick**; the published build
+   emits 630-755, varying with load and between repeats. The published build's within-radius spread is
+   **130.6%** at radius 0 against the current build's **0.3%**, and its server-1 tick counts collapse
+   to 513/757/305/1,001 against a normal ~2,390 in the same experiment. That is what drives the one
+   radius (25) where the ratio disagrees with the recorded figure.
+
+   **Consequence for E8.** The counterfactual E8's verdict is hedged against — that the published
+   build would have failed at radius 100 — is computed on a build that is erratic by up to 130% in
+   exactly the quantity E8 measures. It is a weaker challenge to the verdict than it appeared when both
+   builds were assumed equally well-behaved.
+
+   **Still open: which commit, and whether it is a regression or a fix.** The snapshot cadence line,
+   `BroadcastSnapshot`, the `mServerSideLastFullID` delta baseline and the counting site
+   (`mSnapshotsSent += targets.size()`) are all byte-identical between the two commits, so the cause is
+   not visible in a diff of the obvious files. Locating it needs a bisect over the **36 non-doc commits**
+   in the range (the range holds 61 commits in total; this item's "roughly 18 core commits" understates
+   it). Cheapest bisect signal: the 1-server, `--halo-width 0`, radius-0 control — 2000.0 snap/tick or
+   not. Full write-up and raw figures:
+   `docs/superpowers/results/2026-08-24-item13-counterfactual.md`.
+
 14. **Fixed 2026-08-24 - no client `@@FINAL` line existed in any run of this phase (F4, found
    2026-08-23).** Every client was force-killed before it could print `@@FINAL`. Checked across every
    experiment of this phase - 60 client logs - zero contained `@@FINAL role=client`. Two consequences:
@@ -913,4 +957,6 @@ B's own measurement opened item 12, the rebalancing regression, which still need
 §3. It closes items 10 and 11 above, and — because the two builds' snapshot throughput differs by a
 radius-dependent factor (up to 3.6x) that tick rate cannot explain, alongside a second unexplained
 shift in interest management's own reduction fraction — opens item 13, left honestly unresolved rather
-than filed as noise.
+than filed as noise. A same-session counterfactual on 2026-08-24 confirmed that difference is real and
+localised it to the snapshot path; which commit caused it, and whether it is a regression or a fix,
+remain open.
