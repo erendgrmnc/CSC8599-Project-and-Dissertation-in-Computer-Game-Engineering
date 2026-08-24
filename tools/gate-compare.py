@@ -35,6 +35,19 @@ STABLE = [
 ]
 
 # Per-server assignment drifts, but the world is conserved.
+#
+# NOTE on `objs` (added 2026-08-24): unlike objPool it is NOT a count of what a
+# server holds. It is Profiler::GetObjectsOnBorders(), written by
+# ServerWorldManager::Update as the number of mTestObjects with physics, and the
+# drain phase runs the loop WITHOUT stepping the world - so on any run that ends
+# with transfers in flight it freezes at the last stepped tick while the drain
+# keeps installing arrivals. It is kept here because this gate compares two runs
+# of the SAME configuration against each other rather than against an expected
+# world total, and on the gate's own healthy-path configuration nothing is
+# outstanding at exit, so it is stable. Do not reuse it as a conservation
+# quantity: analyse.py counts objPool + hoCustody for exactly this reason (see
+# backlog item 12). If this gate is ever pointed at a rebalancing or
+# high-lookahead configuration, drop `objs` first or it will fail on drain timing.
 CONSERVED = ["objs", "objPool"]
 
 

@@ -469,12 +469,48 @@ def summarise_run(run_dir):
     if server_finals:
         spawned = total(server_finals, "objSpawned")
         destroyed = total(server_finals, "objDestroyed")
-        owned = total(server_finals, "objs")
         # Every server builds the identical pre-seeded set independently, so this is
         # ONE server's value - summing it would multiply the world by the server
         # count.
         preseed = max((int(f.get("objPreseed", 0)) for f in server_finals), default=0)
-        invariants["conservation_delta"] = owned - (preseed + spawned - destroyed)
+        expected = preseed + spawned - destroyed
+
+        # Conservation is counted on what each server HOLDS (objPool) plus what is
+        # still in flight (hoCustody). NOT on `objs`.
+        #
+        # `objs` is Profiler::GetObjectsOnBorders(), which ServerWorldManager::Update
+        # writes as `activeObjCount` - the number of mTestObjects with physics
+        # (ServerWorldManager.cpp:1126-1137). Two things make it wrong here:
+        #
+        #  * it is written INSIDE Update, and the drain phase runs the loop WITHOUT
+        #    stepping the world, so it is frozen at the last stepped tick while the
+        #    drain is still installing arrivals, and
+        #  * it counts active simulation participants, which is not the same set as
+        #    the objects the server is responsible for.
+        #
+        # Measured 2026-08-24 on an E4 rebalancing run: at the last stepped tick the
+        # two servers held 732 + 1024 = 1,756 objects, and `objs` reports exactly that
+        # - while objPool at exit reads 4,000 and hoCustody 0, because a 120 s drain
+        # had recovered all 2,244 transfers that were in flight when the run ended.
+        # The old check called that a 2,244-object loss on a run where nothing was
+        # lost, which is the whole of backlog item 12.
+        #
+        # Verified across every run in the repository (78 runs, 13 experiments):
+        # objPool + hoCustody conserves exactly on all 78; `objs` fails on 5.
+        #
+        # hoCustody is ADDED rather than assumed present in some pool: a transfer in
+        # custody has been released by the sender and not yet installed by the
+        # receiver, so it is in neither server's objPool. That is the ownership gap
+        # (S0.7) showing up in the accounting, and it is exactly why it is counted
+        # separately rather than folded in.
+        held = total(server_finals, "objPool")
+        in_flight = total(server_finals, "hoCustody")
+        invariants["conservation_delta"] = (held + in_flight) - expected
+
+        # Reported, not checked: objects the drain installed after the last stepped
+        # tick. This is the quantity the old conservation check was mistaking for a
+        # loss, so it is worth seeing rather than hiding.
+        invariants["drain_recovered"] = held - total(server_finals, "objs")
 
         # Measured wire cost, summed across servers. Deliberately a total rather
         # than a rate: the rate depends on which seconds of the run you count, and

@@ -21,8 +21,9 @@ the run directory that produced it or a named results document.
 >
 > The consequence is methodological, not cosmetic: **no question about these numbers can be settled
 > by re-analysis.** Anything of the form "do the old runs still say X if we recompute Y" — E3's
-> ratios under the drain artefact (§3), E4's loss against `ho_parity_delta` (§6), E8's modelled
-> bytes (§3) — requires re-running, not re-reading. Sequenced in
+> ratios under the drain artefact (§3), E8's modelled bytes (§3) — requires re-running, not
+> re-reading. (E4's loss against `ho_parity_delta` was on this list until 2026-08-24, when re-running
+> it showed there was no loss to reconcile — §7 item 12.) Sequenced in
 > `docs/superpowers/specs/2026-08-23-backlog-completion-design.md` §1.1, which makes generating a
 > fresh baseline the first step of every phase.
 
@@ -667,11 +668,20 @@ objects were actually lost (`conservation_delta` -4 to -8 at 8,000 objects).
 longer costs an object outright: at 8,000 objects `conservation_delta` moved from -4/-8/-8 (silent
 loss, no custody) to -15/0/-4 (`runs/exp-fix4-E7`), and the residual is traceable rather than
 unaccounted — `ho_parity_delta` matches it exactly on every repeat, and it reads as end-of-run
-truncation of transfers still in flight, not disappearance. That is not a general "gaps stopped
-mattering" result, though: the rebalancing case regressed rather than improved over the same window.
-`runs/exp-fix4-E4` loses 84 to 703 objects where the pre-custody baseline (`runs/exp-balance`, commit
-`93e6f21`) was exact, and that regression has not been isolated from the other changes made across the
-same period — see §7 item 12. The ownership guarantee is real but conditional, never unconditional,
+truncation of transfers still in flight, not disappearance. **The rebalancing case reads the same way,
+once it is measured on the right field** (corrected 2026-08-24). `runs/exp-fix4-E4`'s apparent 84-703
+object loss was an artefact: `analyse.py` counted conservation on `objs`, which is
+`Profiler::GetObjectsOnBorders()` — written inside `ServerWorldManager::Update` as the count of active
+`mTestObjects`, and therefore **frozen at the last stepped tick while the drain phase, which does not
+step the world, is still installing arrivals**. Counted on `objPool + hoCustody` instead, conservation
+is exact on all 78 runs in the repository, where the old field failed on 5. A re-run at HEAD with a
+120 s drain ends with `objPool` = 4,000 and `hoCustody` = 0 while `objs` still reads 1,756. So E7 and
+E4 exhibit one mechanism, not two, and this document no longer reads the same `ho_parity_delta`
+signature as explained in one place and unexplained in the other — see §7 item 12 and
+`docs/superpowers/results/2026-08-24-B-e4-attribution.md`. What did NOT go away is the ownership gap
+itself: those runs show 5,952-6,499 gap ticks of 7,200 and two repeats with a double owner, at
+`--handoff-lookahead 300` — the setting that is supposed to make ownership atomic. The ownership
+guarantee is real but conditional, never unconditional,
 and the experiments above independently expose the same underlying failure mode from three different
 angles: a transient migration, sustained overload, and now custody's own interaction with rebalancing.
 
@@ -857,16 +867,47 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    single `--run-seconds 20` sweep at commit `02e306b`, using this phase's counted-datagram
    instrumentation (which did not exist at that commit) — that one run would settle items 10
    and this one together. Investigating it further was out of scope for this task.
-12. **Rebalancing conservation regression, not attributed to Batch B.** `runs/exp-fix4-E4` (`cluster`,
-   4,000 objects, 7,200 ticks, `--handoff-lookahead 300`, rebalancing on) loses 84 to 703 objects across
-   3 repeats (-198, -703, -84), where the pre-Batch-A baseline `runs/exp-balance` (commit `93e6f21`) was
-   exact. `ho_parity_delta` matches the loss exactly on each repeat and transfers are still held in
-   custody at exit, so this is not the silent-loss mechanism items 1/2 describe closing — something else
-   is going on. **This regression is explicitly not attributed to Batch B**: the baseline predates Batch
-   A too, so the comparison spans the halo-publish rate gate (item 4), the `--drain-seconds` fix (item
-   5), and every custody change (items 1/2) at once — any of them, alone or in combination, could be the
-   cause. Isolating it needs a bisect of this same configuration at `776115b`, `02e306b`, and HEAD. That
-   bisect is the next step, not yet done.
+12. **Closed 2026-08-24 — there was no object loss. The conservation check was reading the wrong
+   field.** `runs/exp-fix4-E4` (`cluster`, 4,000 objects, 7,200 ticks, `--handoff-lookahead 300`,
+   rebalancing on) appeared to lose 84-703 objects across 3 repeats where the pre-Batch-A baseline
+   `runs/exp-balance` (commit `93e6f21`) was exact. The spec (§3.0) required testing the cheap
+   explanation before bisecting; doing so deleted the phase.
+
+   Re-run at HEAD, the configuration reported a *worse* loss (−2244/−2007/−2013) — while its own
+   counters disagreed with the verdict. On one repeat server 1 reported `objs` = 1,024 while holding
+   `objPool` = 2,722, and `963 + 2722 + 315 (hoCustody) = 4000`. Nothing was missing.
+
+   **`objs` is not a conservation quantity.** It is `Profiler::GetObjectsOnBorders()`, which
+   `ServerWorldManager::Update` writes as `activeObjCount` — the number of `mTestObjects` with physics
+   (`ServerWorldManager.cpp:1126-1137`). It is written *inside* `Update`, and **the drain phase runs
+   the loop without stepping the world**, so on any run that ends with transfers in flight it freezes
+   at the last stepped tick while the drain is still installing arrivals. The per-tick CSV shows this
+   directly: on a 120 s-drain re-run the two servers hold 732 + 1,024 = 1,756 at the final stepped
+   tick — exactly what `objs` reports — while the `@@FINAL` line for the same run reads `objPool` =
+   4,000 and `hoCustody` = 0, the drain having recovered all 2,244 in-flight transfers. The run was
+   perfectly conserved *and* fully drained, and the check still called it a 2,244-object loss.
+
+   **Fixed:** `analyse.py` now counts `conservation_delta` as `(objPool + hoCustody) − (preseed +
+   spawned − destroyed)`. `hoCustody` is added rather than assumed present in some pool — a transfer
+   in custody has been released by the sender and not installed by the receiver, so it is in neither
+   `objPool`; that is §0.7's ownership gap showing up in the accounting. Verified across **every
+   dataset in the repository: 78 runs, 13 experiments — `objPool + hoCustody` conserves exactly on all
+   78, where `objs` failed on 5.** Four unit tests (`ConservationFieldTests`) pin the field choice,
+   verified adversarially. `drain_recovered` is now reported so the quantity the old check mistook for
+   a loss stays visible.
+
+   **The §3.2 three-point bisect was not run and is not needed** — its premise, that a code change
+   caused a loss, is false. Four builds and twelve runs saved. This also reconciles the reading §3.3
+   flagged: the same exact `ho_parity_delta` match is end-of-run truncation in **both** E7 and E4, one
+   mechanism rather than two. Write-up:
+   `docs/superpowers/results/2026-08-24-B-e4-attribution.md`.
+
+   **Residual, and it is real:** these runs show `ownership_gap_ticks` of 5,952-6,499 out of 7,200 and
+   two repeats with `ownership_double_ticks` (5 and 1) — two servers claiming one object — at
+   `--handoff-lookahead 300`, the setting documented as making ownership atomic. Conservation being
+   exact does not touch that. It is Phase D's subject (item 2, §0.7), and these runs are a sharper test
+   case for it than anything previously on record.
+
 8. ~~**Stale comments in frozen source.**~~ **Fixed.** `NetworkObject.h` now states 60 bytes per halo
    entry (as `PacketSizeTests` measures) and the snapshot gate comment states 60 Hz.
 9. ~~**`run-experiments.ps1`'s `-OutDir` is not anchored to the repo root.**~~ **Fixed.** Both scripts
@@ -950,8 +991,9 @@ shift in interest management's own reduction fraction — shown not to be tick-r
 **Items 3, 4, 5, 8 and 9 are now closed** (Batch A). Item 1 is now also closed and item 6 withdrawn
 (Batch B). Item 14 - a harness defect found while writing up item 11, not attributable to any task's
 code change - was **closed on 2026-08-24**, which also made invariant I4 non-vacuous for the first
-time. Items 2 and 7 remain open - narrowed and confirmed-reachable respectively, not fixed - and Batch
-B's own measurement opened item 12, the rebalancing regression, which still needs a bisect.
+time. **Item 12 was also closed on 2026-08-24**: there was no object loss, only a conservation check
+counting the wrong field, so the bisect it called for was never needed. Items 2 and 7 remain open -
+narrowed and confirmed-reachable respectively, not fixed - and item 13 is narrowed but still open.
 
 **E8 has since been re-run** (`runs/exp-bytes-1client`, `runs/exp-bytes-2client`) and is reported in
 §3. It closes items 10 and 11 above, and — because the two builds' snapshot throughput differs by a

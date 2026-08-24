@@ -451,5 +451,82 @@ class I4VacuityTests(unittest.TestCase):
         self.assertEqual(invariants["cmd_delta"], -9)
 
 
+class ConservationFieldTests(unittest.TestCase):
+    """Conservation must be counted on objPool + hoCustody, never on objs.
+
+    `objs` is Profiler::GetObjectsOnBorders(), written by ServerWorldManager::Update
+    as the count of mTestObjects with physics. The drain phase runs the loop WITHOUT
+    stepping the world, so `objs` freezes at the last stepped tick while the drain is
+    still installing in-flight arrivals. On an E4 rebalancing run that made a
+    fully-conserved run report a 2,244-object loss - the whole of backlog item 12.
+
+    These tests pin the field choice, not the arithmetic: the failure mode is reading
+    a stale counter, and only a fixture where objs and objPool DISAGREE can catch it.
+    """
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, ignore_errors=True)
+
+    def _write_mid_log(self, lines):
+        with open(os.path.join(self.directory, "mid.log"), "w") as handle:
+            handle.write(chr(10).join(lines) + chr(10))
+
+    def test_stale_objs_does_not_read_as_a_loss(self):
+        # The measured shape: objs frozen mid-drain at 1756, objPool complete at 4000,
+        # custody emptied by the drain. Nothing was lost.
+        self._write_mid_log([
+            "@@FINAL role=server id=0 objs=732 objPreseed=4000 objPool=2976 "
+            "hoCustody=0 objSpawned=0 objDestroyed=0",
+            "@@FINAL role=server id=1 objs=1024 objPreseed=4000 objPool=1024 "
+            "hoCustody=0 objSpawned=0 objDestroyed=0",
+        ])
+
+        _servers, invariants, _custody = analyse.summarise_run(self.directory)
+
+        self.assertEqual(invariants["conservation_delta"], 0)
+        # Reading objs instead would have produced this, which is the bug.
+        self.assertEqual(invariants["drain_recovered"], 4000 - 1756)
+
+    def test_in_flight_custody_counts_towards_conservation(self):
+        # A transfer in custody has been released by the sender and not installed by
+        # the receiver, so it sits in NEITHER objPool. Omitting it reads as a loss.
+        self._write_mid_log([
+            "@@FINAL role=server id=0 objs=963 objPreseed=4000 objPool=963 "
+            "hoCustody=315 objSpawned=0 objDestroyed=0",
+            "@@FINAL role=server id=1 objs=1024 objPreseed=4000 objPool=2722 "
+            "hoCustody=0 objSpawned=0 objDestroyed=0",
+        ])
+
+        _servers, invariants, _custody = analyse.summarise_run(self.directory)
+
+        # 963 + 2722 + 315 = 4000.
+        self.assertEqual(invariants["conservation_delta"], 0)
+
+    def test_a_genuine_loss_is_still_detected(self):
+        """The check must not have been widened into uselessness."""
+        self._write_mid_log([
+            "@@FINAL role=server id=0 objs=500 objPreseed=4000 objPool=500 "
+            "hoCustody=0 objSpawned=0 objDestroyed=0",
+            "@@FINAL role=server id=1 objs=1000 objPreseed=4000 objPool=1000 "
+            "hoCustody=0 objSpawned=0 objDestroyed=0",
+        ])
+
+        _servers, invariants, _custody = analyse.summarise_run(self.directory)
+
+        self.assertEqual(invariants["conservation_delta"], -2500)
+
+    def test_spawns_and_destroys_still_shift_the_expected_total(self):
+        self._write_mid_log([
+            "@@FINAL role=server id=0 objs=0 objPreseed=100 objPool=104 "
+            "hoCustody=0 objSpawned=7 objDestroyed=3",
+        ])
+
+        _servers, invariants, _custody = analyse.summarise_run(self.directory)
+
+        # 100 + 7 - 3 = 104.
+        self.assertEqual(invariants["conservation_delta"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()
