@@ -20,6 +20,8 @@ msbuild DistributedPhysicsSystem.sln /p:Configuration=Debug /p:Platform=x64
 
 Or open `DistributedPhysicsSystem.sln` in Visual Studio and build (`EntryPoint` is the startup project). Asset paths are baked into the binary at configure time via the `ASSETROOTLOCATION` compile definition pointing at `Assets/`.
 
+The solution and every `.vcxproj*` file are **generator output and are not tracked** (`.gitignore`) — a fresh clone has none of them until you run the configure above. They were tracked until 2026-08-24, and because the `.filters` files bake in machine-absolute source paths they showed as modified after every configure, which stamped each measurement run's provenance manifest "dirty tree / not reproducible" for a reason that had nothing to do with the run.
+
 Validation is largely empirical — run the roles together and read the on-screen profilers (see `docs/DissertationEvaluationVisuals/`). There is one automated suite, `tools/InteractionTests`, a dependency-free assert harness covering pure logic and the physics system:
 
 ```powershell

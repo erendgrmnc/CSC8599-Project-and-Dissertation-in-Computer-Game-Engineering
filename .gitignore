@@ -145,3 +145,14 @@ __pycache__/
 
 # Subagent-driven development workspace (ledgers, briefs, review packages).
 .superpowers/
+
+# --- CMake / Visual Studio generated project files (2026-08-24) ---
+# Regenerated wholesale by `cmake -G "Visual Studio 17 2022" -A x64 .`, and the
+# .filters files bake in machine-absolute source paths. While tracked they showed
+# as modified after every configure, which stamped every measurement run's
+# provenance manifest "dirty tree / not reproducible" for a reason unrelated to
+# the run. The globs below supersede the per-file lines above; those are kept
+# only to avoid churn.
+/DistributedPhysicsSystem.sln
+*.vcxproj.filters
+*.vcxproj.user

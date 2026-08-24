@@ -6,7 +6,7 @@ How to build the Distributed Physics Server Simulation. For running and connecti
 
 - **Windows** (the system uses Win32 `CreateProcessA` to spawn servers and Winsock via ENet).
 - **Visual Studio 2019/2022** with the C++ desktop workload (MSBuild + the MSVC toolchain).
-- **CMake ≥ 3.16** (`CMakeLists.txt:1`). CMake *generates* the `DistributedPhysicsSystem.sln`; you do not edit the solution by hand.
+- **CMake ≥ 3.16** (`CMakeLists.txt:1`). CMake *generates* the `DistributedPhysicsSystem.sln`; you do not edit the solution by hand. It is **not checked in** (nor are the `.vcxproj*` files), so a fresh clone has no solution until you run the configure step below.
 - **C++20** (`CMakeLists.txt:7`).
 - **x64** platform. (A PlayStation 5 / `Prospero` path exists in the CMake files but is out of scope here.)
 
