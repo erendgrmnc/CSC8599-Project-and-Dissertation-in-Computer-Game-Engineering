@@ -1057,6 +1057,24 @@ void NCL::DistributedGameServer::ServerWorldManager::FlushMetrics() {
 	}
 }
 
+// See the header for why this is a named function rather than a tail of Update():
+// the drain phase installs arrivals without stepping the world, so these have to be
+// republished afterwards or @@FINAL reports them frozen at the last stepped tick.
+//
+// mObjectsInBorders is deliberately NOT republished here. It is `activeObjCount`,
+// counted by walking mTestObjects inside Update(), so there is no stored value to
+// re-emit - and it is not a conservation quantity anyway (objPool is). Leaving it
+// stale is the honest option: it means "objects being simulated as of the last
+// stepped tick", which is exactly what it is.
+void NCL::DistributedGameServer::ServerWorldManager::PublishCounters() {
+	Profiler::SetHandoffsSent(mHandoffsSent);
+	Profiler::SetHandoffsReceived(mHandoffsReceived);
+	Profiler::SetHandoffsFailed(mHandoffsFailed);
+	Profiler::SetHandoffsLate(mHandoffsLate);
+	Profiler::SetHaloUpdatesLate(mHaloUpdatesLate);
+	Profiler::SetHaloUpdatesAhead(mHaloUpdatesAhead);
+}
+
 // Gives a freshly created object its initial motion. Without a workload the default
 // scene is purely ballistic - objects fall straight down and settle - so nothing ever
 // approaches a region border and the handoff protocol, which is the whole point of
@@ -1196,13 +1214,7 @@ void NCL::DistributedGameServer::ServerWorldManager::Update(float dt) {
 	// dangling pointer in those containers for the rest of the tick.
 	FlushPendingDeletions();
 
-	Profiler::SetHandoffsLate(mHandoffsLate);
-	Profiler::SetHaloUpdatesLate(mHaloUpdatesLate);
-	Profiler::SetHaloUpdatesAhead(mHaloUpdatesAhead);
-	Profiler::SetHandoffsSent(mHandoffsSent);
-	Profiler::SetHandoffsReceived(mHandoffsReceived);
-	Profiler::SetHandoffsFailed(mHandoffsFailed);
-	Profiler::SetHandoffsLate(mHandoffsLate);
+	PublishCounters();
 
 	// Per-tick record. The @@STAT line above is a 2 Hz instantaneous sample and
 	// cannot describe a distribution; this is what the paper's timing figures are

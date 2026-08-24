@@ -112,3 +112,85 @@ was supposed to make ownership atomic and demonstrably does not under rebalancin
 The three-point bisect of §3.2 (`93e6f21`, `776115b`, `02e306b`, HEAD) was **not run**. Its
 premise — that a code change caused an object loss — is false: there is no loss to attribute.
 Four builds and twelve runs saved.
+
+---
+
+# Addendum — the root cause, and a second defect it was hiding
+
+Written after the audit that followed this attribution. The field-choice fix above was
+correct but treated a symptom. The cause is more general.
+
+## `@@FINAL` was reporting two different instants at once
+
+`ServerWorldManager::Update` publishes its running counters into `Profiler` at its tail
+(`ServerWorldManager.cpp:1199-1205`). The drain phase deliberately does **not** step the
+world, so `Update` never runs during it — while `DrainScheduledArrivals()` keeps installing
+arrivals and incrementing `mHandoffsReceived`.
+
+The `@@FINAL` line therefore mixed:
+
+| source | fields | state |
+|---|---|---|
+| `Profiler::Get*`, published in `Update` | `objs`, `hoSent`, `hoRecv`, `hoFail`, `hoLate`, `haloLate`, `haloAhead` | **frozen at the last stepped tick** |
+| locals read at print time | `objPool`, `objWorld`, `objFwd`, `objHalo`, `hoCustody`, `hoPending`, `hoSched`, `hoResent`, `hoReclaimed`, `hoClamp`, `hoDup` | post-drain |
+
+Every invariant computed across that boundary was comparing two different moments. Item 12's
+conservation failure was one consequence; **invariant I5 (handoff parity) was another**, and it
+had the same character — a real-looking failure with no real cause.
+
+Counters published from `DistributedGameServerManager` (`snapSent`, `snapSupp`, `cmd*`, `halo`
+send/recv, `objSpawned`, `objDestroyed`, `manifestSent`) are **not** affected: the drain loop
+calls `UpdateGameServerManager(dt)`, so they keep being refreshed. The item-13 counterfactual
+is also unaffected — those runs used `--drain-seconds 0`, so no drain phase existed.
+
+**Fix:** `ServerWorldManager::PublishCounters()`, called at the end of `Update()` as before and
+**again after the drain**, before `@@FINAL` reads anything. `objs` is deliberately *not*
+republished: it is `activeObjCount`, computed by walking `mTestObjects` inside `Update`, so
+there is no stored value to re-emit — and it is not a conservation quantity. Leaving it stale
+is honest, since what it means is "objects being simulated as of the last stepped tick".
+
+**Effect, same configuration, before and after:**
+
+| | server 0 | server 1 |
+|---|---|---|
+| before | hoSent 3269, hoRecv 1 | hoSent 1, **hoRecv 1025** |
+| after | hoSent 2130, hoRecv 111 | hoSent 111, **hoRecv 2130** |
+
+Both directions now match exactly, and `ho_parity_delta` is 0 where it previously read 2244.
+
+## The second defect: custody resends can DUPLICATE objects
+
+With the counters correct, a re-run of the same configuration (3 repeats, 120 s drain) gives:
+
+| repeat | objPool sum | hoSent ↔ hoRecv | hoResent | hoDup | conservation |
+|---|---|---|---|---|---|
+| r1 | 4000 | 2241 ↔ 2241 | 1 | 1 | exact |
+| r2 | 4000 | 2717 ↔ 2717 | 0 | 0 | exact |
+| r3 | **5303** | 10780 ↔ 10780 | **3471** | **3391** | **+1303** |
+
+r3 ends with **1,303 more objects than the world contains** — the two pools hold 5,303 between
+them. This is not a counting artefact: `conservation_delta` is *positive*, which the old
+`objs`-based check could never produce, and it appeared only once the counters told the truth.
+
+The mechanism is the one `DistributedGameServerManager`'s own comment anticipates for resends:
+
+> a receiver that STILL HOLDS the object re-applies it harmlessly and acks — but one that has
+> since handed the object onward re-installs an object that now lives elsewhere, so resends are
+> bounded by `--handoff-max-attempts` rather than repeated indefinitely
+
+Under rebalancing that bound is not sufficient. 3,471 resends produced 3,391 duplicate arrivals
+and 1,303 surviving duplicate objects. **Duplication is a worse failure than loss** for a
+physics simulation: the object exists twice, is integrated twice, and collides with itself.
+
+Filed as backlog item 15. It belongs to Phase D with the rest of the ownership work, and it is
+a stronger argument for doing that phase than the ownership gap alone.
+
+## Audit status of the other invariants
+
+| invariant | field(s) | verdict |
+|---|---|---|
+| I1 ownership gap / double owner | CSV `owned_objects` (= `activeObjCount`) | **sound** — verified equal to `pool_objects` on every tick at lookahead 0 and on the Phase A baseline; 56 of 7,200 ticks divergence on one server at lookahead 300 |
+| I2 conservation | `objPool` + `hoCustody` | **fixed** (this document) |
+| I4 command accounting | `cmd*` from `DistributedGameServerManager` | sound — refreshed during the drain; separately made non-vacuous on 2026-08-24 |
+| I5 handoff parity | `hoSent`/`hoRecv` | **fixed** by `PublishCounters()` |
+| I3 resurrections | client `@@FINAL` | sound, and only actually evaluated since the item-14 fix |

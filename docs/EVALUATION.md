@@ -896,6 +896,19 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    verified adversarially. `drain_recovered` is now reported so the quantity the old check mistook for
    a loss stays visible.
 
+   **Root cause, found in the follow-up audit: `@@FINAL` was reporting two different instants at
+   once.** `ServerWorldManager::Update` publishes its counters into `Profiler` at its tail
+   (`ServerWorldManager.cpp:1199-1205`), and the drain does not step the world, so `Update` never
+   runs during it — while `DrainScheduledArrivals()` keeps installing arrivals. Seven fields
+   (`objs`, `hoSent`, `hoRecv`, `hoFail`, `hoLate`, `haloLate`, `haloAhead`) were therefore frozen
+   at the last stepped tick while eleven others, read live at print time, described the post-drain
+   state. **Invariant I5 (handoff parity) was failing for the same reason**, not just conservation.
+   Fixed by `ServerWorldManager::PublishCounters()`, called at the end of `Update()` and **again
+   after the drain**. Same configuration, before and after: server 0 `hoSent` 3,269 against server
+   1 `hoRecv` 1,025, becoming 2,130 against 2,130 — parity exact where it previously read 2,244.
+   Counters published from `DistributedGameServerManager` (`snapSent`, `cmd*`, `objSpawned`, halo
+   send/recv) were never affected, because the drain loop does call `UpdateGameServerManager`.
+
    **The §3.2 three-point bisect was not run and is not needed** — its premise, that a code change
    caused a loss, is false. Four builds and twelve runs saved. This also reconciles the reading §3.3
    flagged: the same exact `ho_parity_delta` match is end-of-run truncation in **both** E7 and E4, one
@@ -949,6 +962,31 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    not. Full write-up and raw figures:
    `docs/superpowers/results/2026-08-24-item13-counterfactual.md`.
 
+15. **Open, new 2026-08-24 — custody resends DUPLICATE objects under rebalancing.** Found only once
+   the counter-staleness fix above made `@@FINAL` self-consistent; the old reporting could not
+   express it, because a duplicate showed up as a *negative* conservation delta indistinguishable
+   from a loss.
+
+   Three repeats of E4's configuration (`cluster`, 4,000 objects, `--handoff-lookahead 300`,
+   rebalancing on, 120 s drain) at the fixed build:
+
+   | repeat | objPool sum | hoSent <-> hoRecv | hoResent | hoDup | conservation |
+   |---|---|---|---|---|---|
+   | r1 | 4,000 | 2,241 <-> 2,241 | 1 | 1 | exact |
+   | r2 | 4,000 | 2,717 <-> 2,717 | 0 | 0 | exact |
+   | r3 | **5,303** | 10,780 <-> 10,780 | **3,471** | **3,391** | **+1,303** |
+
+   r3 ends holding **1,303 more objects than the world contains**. The mechanism is the one
+   `DistributedGameServerManager`'s own comment anticipates: a resend reaching a receiver that has
+   *since handed the object onward* "re-installs an object that now lives elsewhere", bounded only
+   by `--handoff-max-attempts`. Under rebalancing that bound is not sufficient.
+
+   **Duplication is a worse failure than loss**: the object exists twice, is integrated twice, and
+   can collide with itself. Belongs to Phase D with the ownership work, and is a stronger argument
+   for that phase than the ownership gap alone. Note it is intermittent — 1 of 3 repeats — so it
+   needs repeats to see at all. Write-up:
+   `docs/superpowers/results/2026-08-24-B-e4-attribution.md`.
+
 14. **Fixed 2026-08-24 - no client `@@FINAL` line existed in any run of this phase (F4, found
    2026-08-23).** Every client was force-killed before it could print `@@FINAL`. Checked across every
    experiment of this phase - 60 client logs - zero contained `@@FINAL role=client`. Two consequences:
@@ -994,6 +1032,8 @@ code change - was **closed on 2026-08-24**, which also made invariant I4 non-vac
 time. **Item 12 was also closed on 2026-08-24**: there was no object loss, only a conservation check
 counting the wrong field, so the bisect it called for was never needed. Items 2 and 7 remain open -
 narrowed and confirmed-reachable respectively, not fixed - and item 13 is narrowed but still open.
+Closing item 12 also opened **item 15**, object duplication under custody resend, which only became
+visible once the counters stopped mixing two instants.
 
 **E8 has since been re-run** (`runs/exp-bytes-1client`, `runs/exp-bytes-2client`) and is reported in
 §3. It closes items 10 and 11 above, and — because the two builds' snapshot throughput differs by a

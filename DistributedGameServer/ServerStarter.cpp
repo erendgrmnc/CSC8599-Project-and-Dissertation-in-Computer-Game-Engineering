@@ -258,6 +258,14 @@ int StartGameServer(int argc, char* argv[]) {
 		int handoffsClamped = 0;
 		int handoffsDuplicate = 0;
 		if (auto* worldManager = serverManager->GetServerWorldManager()) {
+			// BEFORE anything below reads a counter. The drain above installs
+			// arrivals without stepping the world, so Update() - which is where these
+			// are normally published to Profiler - did not run during it. Without
+			// this, the Profiler-sourced fields on the @@FINAL line below (hoSent,
+			// hoRecv, hoFail, hoLate, haloLate, haloAhead) describe the last stepped
+			// tick while the locals captured here (objPool, hoCustody, hoSched...)
+			// describe the post-drain state, and the line mixes two instants.
+			worldManager->PublishCounters();
 			worldManager->FlushMetrics();
 			poolObjects = worldManager->GetPoolObjectCount();
 			worldObjects = worldManager->GetWorldObjectCount();

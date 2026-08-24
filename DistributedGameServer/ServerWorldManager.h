@@ -520,6 +520,23 @@ namespace NCL {
 			// Writes any buffered samples out. Called on a clean shutdown; a run that
 			// is force-killed loses whatever has not been flushed.
 			void FlushMetrics();
+
+			// Copies this manager's running counters into Profiler, which is where the
+			// @@FINAL line and the 2 Hz telemetry read them from.
+			//
+			// Called at the end of Update(), and AGAIN after the drain phase. The
+			// second call is the point: the drain deliberately does not step the
+			// world, so Update() does not run during it - but DrainScheduledArrivals()
+			// keeps installing arrivals and incrementing mHandoffsReceived. Without a
+			// republish, @@FINAL reports these counters frozen at the last stepped
+			// tick while the fields read live at print time (objPool, hoCustody,
+			// hoSched...) report post-drain values, so the line mixes two different
+			// instants and the invariants computed from it disagree with each other.
+			//
+			// Measured 2026-08-24 on an E4 rebalancing run: hoRecv reported 1,025
+			// against a server that had actually installed 2,722 objects, which is
+			// most of backlog item 12.
+			void PublishCounters();
 		protected:
 			int mNetworkIdBuffer;
 			int mServerID;
