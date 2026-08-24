@@ -41,6 +41,23 @@ namespace NCL {
 		// 7200 ticks elapse in ~25ms when nothing is sleeping.
 		std::function<bool()> countTicksWhen;
 
+		// Ends the run early, cleanly, when it returns true. Checked once per
+		// iteration BEFORE the tick, so the caller's own end-of-run reporting runs
+		// exactly as it would on a bound being reached.
+		//
+		// This exists because a bound is the wrong instrument for a role whose
+		// natural lifetime is "as long as its peers". The client must outlive the
+		// servers - stopping while they are still broadcasting reliable packets at
+		// it blocks their loop for tens of seconds - so the harness sized its window
+		// past the servers' and then force-killed it. A force-killed process never
+		// returns from this loop, so its end-of-run @@FINAL line was never printed:
+		// across all 12 Phase A experiments, 60 client logs contained zero of them,
+		// which left invariant I4 (command accounting) with nothing to check.
+		//
+		// A predicate fixes what a bound cannot express: run until the peers are
+		// gone, then exit under our own power with the totals intact.
+		std::function<bool()> stopWhen;
+
 		// Aligns tick 0 to a shared wall-clock boundary, in microseconds. 0 disables.
 		//
 		// Every server counts ticks from its own game-start, so a sender's tick number

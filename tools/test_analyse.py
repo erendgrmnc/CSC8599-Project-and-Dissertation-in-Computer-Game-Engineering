@@ -385,5 +385,71 @@ class SummariseRunWireBytesWiringTests(unittest.TestCase):
         )
 
 
+class I4VacuityTests(unittest.TestCase):
+    """Invariant I4 reconciles the client's cmdSent against the servers'
+    applied+rejected+dup. Until 2026-08-24 the harness force-killed clients before
+    they printed @@FINAL, so `sent` was always 0. On a run that drove no commands
+    the server terms were 0 too, cmd_delta came out 0 - 0, and I4 reported as a
+    PASS while checking nothing. That held for all 60 client logs of Phase A.
+
+    These tests pin the two keys that let a caller tell "checked and balanced"
+    apart from "nothing to check". They deliberately assert on client_finals and
+    cmd_server_side rather than on cmd_delta, because cmd_delta is exactly the
+    quantity that cannot express the difference.
+    """
+
+    def setUp(self):
+        self.directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.directory, ignore_errors=True)
+
+    def _write(self, name, lines):
+        with open(os.path.join(self.directory, name), "w") as handle:
+            handle.write(chr(10).join(lines) + chr(10))
+
+    def test_missing_client_final_is_visible_and_does_not_look_like_a_pass(self):
+        self._write("mid.log", [
+            "@@FINAL role=server id=0 cmdApplied=0 cmdRejected=0 cmdDup=0",
+            "@@FINAL role=server id=1 cmdApplied=0 cmdRejected=0 cmdDup=0",
+        ])
+
+        _servers, invariants, _custody = analyse.summarise_run(self.directory)
+
+        # The trap: the delta alone says "balanced".
+        self.assertEqual(invariants["cmd_delta"], 0)
+        # The signal that says it was never actually checked.
+        self.assertEqual(invariants["client_finals"], 0)
+        self.assertEqual(invariants["cmd_server_side"], 0)
+
+    def test_client_final_present_is_counted_and_reconciles(self):
+        self._write("mid.log", [
+            "@@FINAL role=server id=0 cmdApplied=6 cmdRejected=1 cmdDup=0 cmdFanout=0",
+            "@@FINAL role=server id=1 cmdApplied=3 cmdRejected=0 cmdDup=2 cmdFanout=0",
+        ])
+        self._write("cli-0.log", ["@@FINAL role=client cmdSent=12 resurrectAttempts=0"])
+
+        _servers, invariants, _custody = analyse.summarise_run(self.directory)
+
+        self.assertEqual(invariants["client_finals"], 1)
+        self.assertEqual(invariants["cmd_sent"], 12)
+        # 6+1+0 + 3+0+2 = 12, so the tally balances and the delta is a real zero
+        # this time rather than an absence of evidence.
+        self.assertEqual(invariants["cmd_server_side"], 12)
+        self.assertEqual(invariants["cmd_delta"], 0)
+
+    def test_server_command_activity_without_a_client_final_is_detectable(self):
+        """The dangerous case: commands were processed but the client never
+        reported. cmd_delta goes negative, which names the wrong cause; the caller
+        needs cmd_server_side > 0 with client_finals == 0 to report it correctly."""
+        self._write("mid.log", [
+            "@@FINAL role=server id=0 cmdApplied=9 cmdRejected=0 cmdDup=0 cmdFanout=0",
+        ])
+
+        _servers, invariants, _custody = analyse.summarise_run(self.directory)
+
+        self.assertEqual(invariants["client_finals"], 0)
+        self.assertEqual(invariants["cmd_server_side"], 9)
+        self.assertEqual(invariants["cmd_delta"], -9)
+
+
 if __name__ == "__main__":
     unittest.main()

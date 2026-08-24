@@ -237,6 +237,21 @@ int RunDistributedClient(int argc, char* argv[]) {
 		NCL::HeadlessRunOptions clientRun;
 		clientRun.runSeconds = static_cast<double>(config.GetInt("--run-seconds", 0));
 
+		// The bound above is now a ceiling, not the expected end of the run.
+		//
+		// The client has to outlive the servers - see the note above, and the
+		// harness's own comment in measure.ps1 - so its window is sized past
+		// theirs. That left it to be force-killed, and a force-killed process
+		// never reaches the @@FINAL line below: across all 12 Phase A experiments,
+		// 60 client logs contained zero client @@FINAL lines, so invariant I4
+		// (command accounting) had no client side to check against and passed
+		// vacuously in every one of them.
+		//
+		// Stopping when the last physics-server link drops keeps the ordering the
+		// servers need - they are already gone - while ending the run under the
+		// client's own power, with its totals printed.
+		clientRun.stopWhen = [scene]() { return scene->AllServerLinksLost(); };
+
 		// Area of interest. 0 (the default) asks for everything, which is what every
 		// measurement before interest management existed did.
 		//

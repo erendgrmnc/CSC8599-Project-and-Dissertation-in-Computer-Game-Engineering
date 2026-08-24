@@ -82,6 +82,21 @@ public:
 	// Server ids this client is connected to, in connection order.
 	std::vector<int> GetConnectedServerIds() const;
 
+	// True once the client has been connected to at least one physics server and
+	// ENet has reported every one of those links gone - i.e. the servers have
+	// finished their bounded run and exited.
+	//
+	// This is the client's natural end of run. It deliberately requires the game to
+	// have started AND at least one link to have existed, because "no links" is also
+	// the state during bootstrap; returning true then would end the run before the
+	// world was ever built.
+	//
+	// Built on HasLostLink() rather than !GetIsConnected() for the reason that
+	// function's own comment gives: Connect() returns before the handshake
+	// completes, so a healthy link reads as not-connected for a window after it is
+	// created, and polling that tears every link down during bootstrap.
+	bool AllServerLinksLost() const;
+
 	int GetCommandsSent() const { return mCommandsSent; }
 
 	// Returns a live (non-tombstoned) replica id to destroy, or -1. Rotates so the

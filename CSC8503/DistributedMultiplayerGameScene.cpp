@@ -204,6 +204,25 @@ std::vector<int> DistributedMultiplayerGameScene::GetConnectedServerIds() const 
 	return ids;
 }
 
+bool DistributedMultiplayerGameScene::AllServerLinksLost() const {
+	// See the header. Bootstrap has no links either, so an empty list is never
+	// "all gone"; and a link that has not yet completed its handshake is not lost.
+	if (!mIsGameStarted || mDistributedPhysicsClients.empty()) {
+		return false;
+	}
+	for (const PhysicsServerLink& link : mDistributedPhysicsClients) {
+		// A null client is not a live link, so it counts as lost rather than as
+		// unknown. Treating it as still-alive would be the more cautious-looking
+		// choice and the worse one: it can never become true again, so the run
+		// would fall back to being force-killed - the exact failure this predicate
+		// exists to remove.
+		if (link.client && !link.client->HasLostLink()) {
+			return false;
+		}
+	}
+	return true;
+}
+
 bool DistributedMultiplayerGameScene::SendCommand(NCL::Interaction::CommandType type,
 	NCL::Interaction::CommandArgs args) {
 	return SendCommandTo(type, args, -1);

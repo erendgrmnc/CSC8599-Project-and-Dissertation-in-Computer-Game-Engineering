@@ -239,6 +239,44 @@ if ($finals.Count -lt $Servers) {
     Write-Host "WARNING: only $($finals.Count) of $Servers servers reported @@FINAL. Invariant totals for this run are incomplete." -ForegroundColor Yellow
 }
 
+# Now wait for the CLIENTS' @@FINAL lines, for the same reason as the servers'.
+#
+# Until 2026-08-24 the clients were force-killed on the next line. Because their
+# window is deliberately sized to outlive the servers (see above), the kill always
+# landed first and the client @@FINAL line was never printed: 60 client logs across
+# all 12 Phase A experiments contained zero of them. Invariant I4 compares client
+# cmdSent against the servers' applied+rejected+dup, so with no client side it
+# reduced to 0 - 0 and PASSED VACUOUSLY in every run of the phase.
+#
+# The client now ends its own run when its last physics-server link drops
+# (HeadlessRunOptions::stopWhen). The servers do not disconnect their peers
+# explicitly - enet_host_destroy does not notify - so the client learns by ENet
+# timeout, whose floor is ENET_PEER_TIMEOUT_MINIMUM = 5 s. Hence a deadline in
+# tens of seconds, not the 20 used for servers, and an early break as soon as
+# every client has reported.
+#
+# Bounded, like the server wait: a client that never reports must not hang the run.
+$expectedClientFinals = $cliProcs.Count
+if ($expectedClientFinals -gt 0) {
+    $cliDeadline = (Get-Date).AddSeconds(45)
+    while ((Get-Date) -lt $cliDeadline) {
+        $cliLogs = @(Get-ChildItem "$runDir\cli-*.log" -Exclude "cli-late.log" -ErrorAction SilentlyContinue)
+        $cliFinals = @($cliLogs | Select-String -Pattern "@@FINAL role=client" -ErrorAction SilentlyContinue)
+        if ($cliFinals.Count -ge $expectedClientFinals) { break }
+        # Stop waiting early if every client process has already gone: nothing more
+        # is coming, and a full 45 s of dead air per run is not worth paying.
+        if (-not (@($cliProcs) | Where-Object { $_ -and -not $_.HasExited })) { break }
+        Start-Sleep -Milliseconds 500
+    }
+    Start-Sleep -Seconds 1
+
+    $cliLogs = @(Get-ChildItem "$runDir\cli-*.log" -Exclude "cli-late.log" -ErrorAction SilentlyContinue)
+    $cliFinals = @($cliLogs | Select-String -Pattern "@@FINAL role=client" -ErrorAction SilentlyContinue)
+    if ($cliFinals.Count -lt $expectedClientFinals) {
+        Write-Host "WARNING: only $($cliFinals.Count) of $expectedClientFinals clients reported @@FINAL. Invariant I4 (command accounting) cannot be checked for this run." -ForegroundColor Yellow
+    }
+}
+
 foreach ($p in @($cliProcs) + @($mid, $mgr)) {
     if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
 }

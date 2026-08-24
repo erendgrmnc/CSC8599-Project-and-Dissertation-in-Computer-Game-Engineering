@@ -809,11 +809,12 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    independence holds, and because the r=0 baseline itself under-accumulates ticks from the same effect,
    the 0.105 ratio is conservative rather than an open question. See §3.
 
-   **Qualification (F4, found 2026-08-23):** no client `@@FINAL` line was printed in any run of this
-   phase — `measure.ps1` sizes `--run-seconds` well past how long the harness actually waits, so every
-   client is force-killed before it gets there. This item's own per-client discovery (numbered
-   `cli-N.log` files) is real and unit-tested, but it has never been exercised against a real client
-   `@@FINAL` line, only fixture data. See item 14.
+   **Qualification (F4, found 2026-08-23; resolved 2026-08-24):** no client `@@FINAL` line was printed
+   in any run of this phase, so this item's per-client discovery (numbered `cli-N.log` files), though
+   real and unit-tested, had only ever been exercised against fixture data. The harness now ends the
+   client on link loss and waits for its line; a 2-server run on 2026-08-24 reconciled a real client
+   `cmdSent=251` against the servers' 244+7+0-0 exactly. The discovery path is therefore now exercised
+   against real client data. See item 14.
 13. **Open — a snapshot-throughput change (not tick-rate variability), plus a second, distinct change in
    interest management's own reduction fraction — both between the published commit and this phase's
    re-measurement.** Client-facing byte rates measured in this phase are 2-4x the published ones at the
@@ -863,22 +864,50 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    now share `tools/RunPaths.ps1`, which also rejects the drive-relative case (`C:runs`) that
    `Path.IsPathRooted` reports as absolute. Shared rather than copied precisely because this bug
    existed only because the earlier fix was applied to one script and not the other.
-14. **Open — no client `@@FINAL` line exists in any run of this phase (F4, found 2026-08-23).**
-   `measure.ps1` sizes `--run-seconds` far longer than the harness actually waits, so every client is
-   force-killed before it can print `@@FINAL`. Checked across every experiment run in this phase (four
-   experiments, five client logs total): zero contain `@@FINAL role=client`. Two consequences:
-   invariant I4 is silently vacuous in every run of this phase rather than failing (`analyse.py` guards
-   it behind `if client_finals:`, so it simply never runs), and item 11's per-client `@@FINAL`
-   discovery has never been exercised against real client data, only unit-test fixtures. E8 and E3 are
-   unaffected — both read server-side counters only. The fix is a harness timing change (`measure.ps1`'s
-   `--run-seconds` sizing relative to how long it actually waits for a client), out of this phase's
-   scope.
+14. **Fixed 2026-08-24 - no client `@@FINAL` line existed in any run of this phase (F4, found
+   2026-08-23).** Every client was force-killed before it could print `@@FINAL`. Checked across every
+   experiment of this phase - 60 client logs - zero contained `@@FINAL role=client`. Two consequences:
+   invariant I4 was silently vacuous in every run rather than failing, and item 11's per-client
+   `@@FINAL` discovery had never been exercised against real client data, only unit-test fixtures. E8
+   and E3 were unaffected - both read server-side counters only.
+
+   **The diagnosis in the original finding was half right.** The sizing is not an accident to be
+   corrected: `measure.ps1` sizes the client's window *past* the servers' on purpose, because a client
+   that stops first leaves the servers broadcasting reliable packets at a peer that no longer
+   acknowledges them, which blocked their loop for 8.0 s and then 26.0 s on a measured 1200-tick run.
+   The bound was never the problem - a bound is the wrong instrument for a role whose natural lifetime
+   is "as long as its peers".
+
+   **Fix, in three parts.** `HeadlessRunOptions::stopWhen` ends a headless run early and cleanly on a
+   predicate; the client supplies `DistributedMultiplayerGameScene::AllServerLinksLost()`, true once
+   the game has started and ENet has reported every physics-server link gone; and `measure.ps1` waits
+   for one `@@FINAL role=client` per client, bounded at 45 s, before force-killing anything. The
+   ordering the servers need is preserved - the client still outlives them - but it now ends under its
+   own power with its totals printed. The 45 s allows for ENet's `ENET_PEER_TIMEOUT_MINIMUM` of 5 s:
+   `enet_host_destroy` does not notify peers, so link loss is detected by timeout.
+
+   **Verified on a real run, not fixtures** (2026-08-24, 2 servers, 400 objects, 25 s, `--halo-width 8`,
+   `--impulse-test 20 --misroute-every 5`): client `cmdSent=251`; servers `cmdApplied` 177+67=244,
+   `cmdRejected` 3+4=7, `cmdDup=0`, `cmdFanout=0`; 244+7+0-0 = **251, I4 balances exactly**, with 47
+   relay hops exercised. A companion no-driver run - the shape that produced zero client finals
+   throughout Phase A - printed `@@FINAL role=client cmdSent=0 replicas=400 evicted=0 tombstones=0
+   resurrectAttempts=0`.
+
+   **`analyse.py` no longer lets an unevaluated I4 read as a pass.** `cmd_delta` is
+   `sent - (applied + rejected + dup - fanout)`; with no client line `sent` is 0, and on a run that
+   drove no commands the server terms are 0 too, so the delta was 0-0 and reported as a pass while
+   checking nothing. Two new keys (`client_finals`, `cmd_server_side`) separate "checked and balanced"
+   from "nothing to check". Server-side command activity with no client line is now a **failure** named
+   for its actual cause rather than a large negative delta; no commands anywhere is reported as **NOT
+   EVALUATED**, and the summary line drops its "command accounting" claim when nothing was reconciled.
+   Three unit tests pin this (`I4VacuityTests`), verified adversarially: hardcoding `client_finals`
+   breaks two of them.
 
 **Items 3, 4, 5, 8 and 9 are now closed** (Batch A). Item 1 is now also closed and item 6 withdrawn
-(Batch B). Items 2 and 7 remain open — narrowed and confirmed-reachable respectively, not fixed — and
-Batch B's own measurement opened item 12, the rebalancing regression, which still needs a bisect. Item
-14, a harness timing defect found while writing up item 11, is also open and is not attributable to
-any task's code change.
+(Batch B). Item 14 - a harness defect found while writing up item 11, not attributable to any task's
+code change - was **closed on 2026-08-24**, which also made invariant I4 non-vacuous for the first
+time. Items 2 and 7 remain open - narrowed and confirmed-reachable respectively, not fixed - and Batch
+B's own measurement opened item 12, the rebalancing regression, which still needs a bisect.
 
 **E8 has since been re-run** (`runs/exp-bytes-1client`, `runs/exp-bytes-2client`) and is reported in
 §3. It closes items 10 and 11 above, and — because the two builds' snapshot throughput differs by a

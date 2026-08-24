@@ -49,6 +49,16 @@ void NCL::RunHeadlessLoop(const std::function<void(float dt)>& tick, const Headl
 			}
 		}
 
+		// Checked after the bounds so a run that reaches its bound reports as
+		// bounded, and before tick() so the reason is decided on one consistent
+		// observation rather than on state the tick just changed.
+		if (options.stopWhen && options.stopWhen()) {
+			const std::chrono::duration<double> elapsed = std::chrono::steady_clock::now() - started;
+			std::cout << "Headless run complete after " << elapsed.count()
+				<< "s (stop condition met, " << ticksRun << " ticks).\n";
+			return;
+		}
+
 		// During bootstrap the simulation is not running yet, so those ticks are pure
 		// network pumping: they must not be charged to the budget, and spinning
 		// through them at full speed would exhaust it before the world exists.

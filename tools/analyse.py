@@ -524,6 +524,23 @@ def summarise_run(run_dir):
         invariants["cmd_delta"] = sent - (applied + rejected + duplicate - fanout)
         invariants["resurrections"] = total(client_finals, "resurrectAttempts")
 
+        # How many clients reported an end-of-run line, and how much command work
+        # the servers actually did. Both exist to stop I4 passing vacuously.
+        #
+        # cmd_delta above is `sent - (applied + rejected + dup - fanout)`. With no
+        # client @@FINAL line, `sent` is 0; if the run also drove no commands the
+        # server terms are 0 too, so the delta is 0 - 0 and reports as a PASS. That
+        # is not a check, it is the absence of one, and it was the state of every
+        # run in Phase A: 60 client logs, zero client @@FINAL lines. The count and
+        # the server-side total below let the caller tell "checked and balanced"
+        # apart from "nothing to check", which the delta alone cannot express.
+        #
+        # Emitted unconditionally, including when the list is empty: summary.csv
+        # takes its columns from the first row only (csv.DictWriter), so a key that
+        # appears on some runs and not others raises on the first row that differs.
+        invariants["client_finals"] = len(client_finals)
+        invariants["cmd_server_side"] = applied + rejected + duplicate
+
         # Reported, not asserted. These are the quantities the increments are
         # ABOUT - how much snapshot traffic interest removed, how much work each
         # server did - so a summary without them cannot answer the question the
@@ -667,6 +684,13 @@ def analyse_experiment(experiment_dir):
     rows = []
     failures = []
     reproducibility_warnings = []
+    # Runs where invariant I4 had no client side to check against. Tracked so the
+    # summary can say "not evaluated" instead of letting silence read as a pass.
+    i4_unevaluated = []
+    # Tags of runs that produced metrics, i.e. the denominator the line above is
+    # out of. Not len(run_dirs): that counts directories, including ones that
+    # failed to produce any metrics and were skipped.
+    rows_run_tags = []
     for run_dir in run_dirs:
         tag = os.path.basename(run_dir)
         # Sweep names are camelCase now (interestRadius, physicsThreads), and values
@@ -684,6 +708,7 @@ def analyse_experiment(experiment_dir):
             failures.append(f"{tag}: no per-tick metrics (run failed)")
             continue
 
+        rows_run_tags.append(tag)
         for server in servers:
             rows.append({"point": point, "repeat": repeat, **server, **invariants})
 
@@ -693,6 +718,28 @@ def analyse_experiment(experiment_dir):
             if name in ("ho_fail", "resurrections",
                         "ownership_gap_ticks", "ownership_double_ticks") and value != 0:
                 failures.append(f"{tag}: {name} = {value} (expected 0)")
+
+        # I4 has a client side and a server side. Without the client's @@FINAL line
+        # there is no client side, and cmd_delta collapses to a tautology - see the
+        # note beside client_finals in summarise_run.
+        #
+        # Two different situations, treated differently on purpose:
+        #  * servers processed commands but no client reported -> the tally cannot
+        #    balance and the run is broken, so FAIL. (Reported explicitly rather
+        #    than as a large negative cmd_delta, which names the wrong cause.)
+        #  * no commands anywhere -> nothing was lost, but nothing was verified
+        #    either. Recorded as unevaluated, not as a pass. Not a failure, because
+        #    it is the normal state of a bandwidth run that drives no commands.
+        # The key is emitted only when server @@FINAL lines were found, so its
+        # presence is what says "the server side of I4 exists"; server_finals
+        # itself is local to summarise_run.
+        if "client_finals" in invariants and invariants["client_finals"] == 0:
+            if invariants.get("cmd_server_side", 0) > 0:
+                failures.append(
+                    f"{tag}: no client @@FINAL line, but servers processed "
+                    f"{invariants['cmd_server_side']} commands - I4 cannot balance")
+            else:
+                i4_unevaluated.append(tag)
 
         for problem in custody_problems:
             failures.append(f"{tag}: {problem}")
@@ -769,9 +816,28 @@ def analyse_experiment(experiment_dir):
         print(f"INVARIANT FAILURES ({len(failures)}):")
         for failure in failures:
             print(f"  {failure}")
+    elif i4_unevaluated and len(i4_unevaluated) == len(rows_run_tags):
+        # Every run lacked a client side. Claiming "command accounting" holds here
+        # would be the exact false reassurance this block used to give.
+        print("All EVALUATED invariants hold on every run (conservation, handoff "
+              "parity, no failures, no resurrections).")
     else:
         print("All invariants hold on every run (conservation, handoff parity, "
               "command accounting, no failures, no resurrections).")
+
+    # Printed whether or not anything failed: an unevaluated check is not a passing
+    # check, and the distinction is invisible unless it is stated. Every run of
+    # Phase A landed here without anyone noticing, because the only signal was the
+    # absence of a complaint.
+    if i4_unevaluated:
+        print()
+        print(f"I4 (command accounting) NOT EVALUATED on {len(i4_unevaluated)} of "
+              f"{len(rows_run_tags)} runs: no client @@FINAL line, and no commands "
+              f"were driven, so there was nothing to reconcile.")
+        print("  " + ", ".join(i4_unevaluated))
+        print("  This is expected for runs with no interaction driver "
+              "(--impulse-test / --drive-every / --blast-every / --spawn-every / "
+              "--destroy-every). It is NOT a pass.")
 
     # Separate from failures on purpose: custody firing is the mechanism working as
     # designed (check_custody / custody_reproducibility_note), not a bug. But a clean
