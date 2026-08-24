@@ -1,3 +1,31 @@
+> # RETRACTED, same day, by the bisect that followed.
+>
+> **This document's central conclusion is wrong.** It concluded that the snapshot-throughput
+> difference between `02e306b` and the current build is a real build difference, having ruled
+> out session drift by running both builds back to back. The ruling-out was sound; the
+> attribution was not.
+>
+> The difference is a **harness** artefact. Each tree was run with *its own*
+> `tools/measure.ps1`, and that file's client-lifetime rule changed inside the range, at
+> `e413ab0`. Before it, a 20-second run gave the measurement client
+> `max(5, 20-15) = 5 seconds`; after it, `20+45 = 65`. A server with no client connected has
+> no snapshot targets, so `mSnapshotsSent` simply stops incrementing - the "throughput" being
+> compared was really *how long the client stayed connected*.
+>
+> Proved by holding the binary fixed and changing only the client lifetime (see
+> `2026-08-24-item13-bisect.md`): the same `dd63915` build gives **2.00 ticks/event** with a
+> 65 s client and **6.04/6.20** with a 5 s client, reproducing the entire "old vs new" split
+> with zero code difference.
+>
+> **My error, specifically:** I diffed the two harnesses' `-ArgumentList` lines, saw the client
+> line differ only in indentation, and concluded the invocation was equivalent. I did not diff
+> the computation of `$clientSeconds` feeding it. Checking the call site and not its inputs is
+> the same class of mistake as item 12's - comparing the wrong thing and believing the result.
+>
+> What survives from below: the back-to-back method, the per-radius figures as *measurements*,
+> and the observation that the published build's numbers are erratic - now explained, since a
+> client dying at 5 s makes the count depend on exactly when it died.
+
 # Item 13 counterfactual — is the snapshot-throughput change real, and is it a regression?
 
 **Date:** 2026-08-24

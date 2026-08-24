@@ -431,13 +431,14 @@ tested, not from an inference about the published one.** This is a build-scoped 
 strengthened-by-instrumentation one: why throughput and the reduction fraction moved between builds is
 itself unexplained and is **not** tick-rate variability — the peer-facing/halo column, which depends
 only on tick rate, agrees with the published session to within 2.2% (see item 13 for the full argument).
-A same-session counterfactual on 2026-08-24 reproduced that throughput change back to back on one
-machine (3.50x at radius 0), confirming it is a build difference rather than session drift, and found
-the published build to be **erratic in exactly this quantity** — 130.6% within-radius spread against
-this build's 0.3%, with servers intermittently failing to accumulate ticks. The published-build
-counterfactual above is therefore a weaker challenge to this verdict than it looks: it is computed on
-the less well-behaved of the two builds. It is not thereby overturned, and this section's claim still
-rests on the current build alone.
+**Resolved 2026-08-24: there is no build difference.** A bisect (§7 item 13) traced the whole
+throughput gap to `tools/measure.ps1`, not to any code change — before `e413ab0` a 20-second run gave
+the measurement client 5 seconds, after it 65, and a server with no client connected counts no
+snapshots at all. Holding the binary fixed and changing only the client lifetime reproduces the entire
+gap. The published E8 run therefore measured its byte rates over roughly the first quarter of each
+run, so **the published absolute figures are not run rates** and the published-build counterfactual
+above does not bound this verdict. Per-radius comparisons within either session remain valid, since
+all four radii shared one client lifetime; this section's claim still rests on the current build.
 This closes backlog item 10 honestly — the overhead-model ambiguity is gone because the model is gone,
 and the claim survives on this build, but not because counting datagrams "improved" anything.
 
@@ -638,10 +639,11 @@ and their contact counts are not.**
 - **E8's bandwidth verdict is build-scoped, and absolute realtime byte/snapshot counts do not compare
   across measurement sessions.** §3 E8 holds on the commit it was measured on (`2060f55`); whether it
   holds on the published commit (`02e306b`) is untested, and the counterfactual there shows radius 100
-  specifically would not hold without this build's throughput and reduction-fraction changes — though
-  that counterfactual is computed on a build since measured to be erratic by up to 130% in this very
-  quantity (§7 item 13, 2026-08-24), so it bounds the verdict less tightly than its arithmetic suggests.
-  Those changes are open and unexplained (§7 item 13), confirmed not to be tick-rate variability, so a reader
+  specifically would not hold without this build's throughput figures — but those figures differ for a
+  **harness** reason, not a build reason (§7 item 13, closed 2026-08-24): the published run's client was
+  attached for only about the first quarter of each run, so its absolute rates are not run rates and the
+  counterfactual does not bound this verdict. The throughput difference is explained rather than open, and
+  was never tick-rate variability, so a reader
   should not treat the 10.0 MB/s vs. 4.63 MB/s radius-0 client-facing gap, or any other absolute
   realtime rate, as comparable **across** sessions on this evidence — only the ratio figures computed
   within one session's own repeats are load-bearing.
@@ -834,133 +836,51 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    client on link loss and waits for its line; a 2-server run on 2026-08-24 reconciled a real client
    `cmdSent=251` against the servers' 244+7+0-0 exactly. The discovery path is therefore now exercised
    against real client data. See item 14.
-13. **Narrowed 2026-08-24, still open — a snapshot-throughput change (not tick-rate variability), plus a second, distinct change in
-   interest management's own reduction fraction — both between the published commit and this phase's
-   re-measurement.** Client-facing byte rates measured in this phase are 2-4x the published ones at the
-   same nominal configuration (radius-0 client-facing: 10.0 MB/s here vs. 4.63 MB/s published). The
-   underlying object-snapshot throughput change is **not uniform across radii** — 3.6x at radius 0, but
-   only 1.36x at radius 25, 2.10x at radius 50 and 3.08x at radius 100 (§3) — an earlier version of this
-   item described it as a flat 3.6x, which was a radius-0 figure presented as global. The obvious
-   explanation for any of this — an unpaced `--run-seconds` run simulating a different amount of work
-   depending on machine load — is refuted by the peer-facing (halo) column in the same tables: published
-   halo throughput was 1,615,376 B/s, re-measured 1,580,699 B/s, **within 2.2%**; implied halo packets/s
-   were 1,438 published, 1,432 re-measured, **within 0.4%**. The halo band publishes once per tick and
-   its own cost model is accurate to ~1% against the counted figures (17.8 entries/packet; 1,096 B
-   counted vs 1,096 B modelled payload, 27 B vs 36 B header) — so halo throughput is a direct, accurate
-   proxy for tick rate, and it says tick rate is essentially unchanged between the two sessions. A
-   near-identical tick rate cannot produce a 3.6x change in snapshot volume, so something in the
-   **snapshot path** itself changed between the published commit `02e306b` and this phase's `2060f55` —
-   roughly 18 core commits, including custody, halo scheduling, a halo performance fix and a peer-link
-   rebuild.
+13. **Closed 2026-08-24 — the snapshot-throughput change does not exist. It was a measurement-harness
+   artefact.** This item recorded client-facing byte rates 2-4x the published ones at the same nominal
+   configuration, with a per-radius pattern (3.6x at radius 0, 1.36x/2.10x/3.08x at 25/50/100), and
+   argued from the halo column that tick rate could not explain it. That argument was correct: tick
+   rate was never the cause. Neither was any code change.
 
-   **A second, equally unexplained factor sits alongside the throughput change**: at radius 25, a
-   uniform 3.6x throughput rise would predict a ×0.29 factor on the published->measured ratio move: the
-   observed factor is ×0.23. The residual ~×0.78 is interest management's own reduction fraction inside
-   this E8 run moving from **68.1% published** (radius 25 retained 31.9% of radius-0 bytes: 1,477,392 /
-   4,630,270 B/s) to **87.9% here** (radius 25 retained 12.1% of radius-0 snapshot counts: 590,953 /
-   4,897,037) — a change with no more explanation than the throughput shift, and tracked here alongside
-   it rather than separately.
+   **A bisect of `02e306b..2060f55` located the transition between `87205ea` and `dd63915`.** The only
+   C++ change in that window is two removed `std::cout` calls on handoff paths, and the bisect
+   configuration records `hoSent = 0`, so they never execute — log volume across the boundary is 167
+   lines against 168. The window's other change is `tools/measure.ps1`:
 
-   This is recorded here as an **open, unexplained behavioural change**, not as measurement noise, and
-   it is why §3's E8 verdict is stated as build-scoped rather than as a straightforward improvement (§3).
-   The resolving experiment is a
-   single `--run-seconds 20` sweep at commit `02e306b`, using this phase's counted-datagram
-   instrumentation (which did not exist at that commit) — that one run would settle items 10
-   and this one together. Investigating it further was out of scope for this task.
-12. **Closed 2026-08-24 — there was no object loss. The conservation check was reading the wrong
-   field.** `runs/exp-fix4-E4` (`cluster`, 4,000 objects, 7,200 ticks, `--handoff-lookahead 300`,
-   rebalancing on) appeared to lose 84-703 objects across 3 repeats where the pre-Batch-A baseline
-   `runs/exp-balance` (commit `93e6f21`) was exact. The spec (§3.0) required testing the cheap
-   explanation before bisecting; doing so deleted the phase.
+   `e413ab0 fix(measure): client must outlive the servers when it sends no commands` replaced
+   `$clientSeconds = max(5, serverRunSeconds - 15)` with a rule that gives a non-driving client
+   `$Seconds + 45`. **On a 20-second run that is 5 seconds before, and 65 after.**
+   `BroadcastSnapshot` counts `mSnapshotsSent += targets.size()`, and `targets` is the connected
+   clients — so once the client died the counter simply stopped advancing while the servers ran on.
+   The quantity that "changed by 3.6x" was never throughput; it was **how much of the run had a client
+   attached to it**.
 
-   Re-run at HEAD, the configuration reported a *worse* loss (−2244/−2007/−2013) — while its own
-   counters disagreed with the verdict. On one repeat server 1 reported `objs` = 1,024 while holding
-   `objPool` = 2,722, and `963 + 2722 + 315 (hoCustody) = 4000`. Nothing was missing.
+   **Proved with the binary held fixed.** Same `dd63915` build, same configuration, only
+   `$clientSeconds` altered:
 
-   **`objs` is not a conservation quantity.** It is `Profiler::GetObjectsOnBorders()`, which
-   `ServerWorldManager::Update` writes as `activeObjCount` — the number of `mTestObjects` with physics
-   (`ServerWorldManager.cpp:1126-1137`). It is written *inside* `Update`, and **the drain phase runs
-   the loop without stepping the world**, so on any run that ends with transfers in flight it freezes
-   at the last stepped tick while the drain is still installing arrivals. The per-tick CSV shows this
-   directly: on a 120 s-drain re-run the two servers hold 732 + 1,024 = 1,756 at the final stepped
-   tick — exactly what `objs` reports — while the `@@FINAL` line for the same run reads `objPool` =
-   4,000 and `hoCustody` = 0, the drain having recovered all 2,244 in-flight transfers. The run was
-   perfectly conserved *and* fully drained, and the check still called it a 2,244-object loss.
+   | `dd63915` binary | snapSent | ticks per snapshot event |
+   |---|---|---|
+   | client 65 s (as shipped) | 2,516,000 / 2,868,000 | **2.00 , 2.00** |
+   | client 5 s (pre-`e413ab0`) | 948,000 / 940,000 | **6.04 , 6.20** |
 
-   **Fixed:** `analyse.py` now counts `conservation_delta` as `(objPool + hoCustody) − (preseed +
-   spawned − destroyed)`. `hoCustody` is added rather than assumed present in some pool — a transfer
-   in custody has been released by the sender and not installed by the receiver, so it is in neither
-   `objPool`; that is §0.7's ownership gap showing up in the accounting. Verified across **every
-   dataset in the repository: 78 runs, 13 experiments — `objPool + hoCustody` conserves exactly on all
-   78, where `objs` failed on 5.** Four unit tests (`ConservationFieldTests`) pin the field choice,
-   verified adversarially. `drain_recovered` is now reported so the quantity the old check mistook for
-   a loss stays visible.
+   That reproduces the entire old/new split with **no code difference at all**.
 
-   **Root cause, found in the follow-up audit: `@@FINAL` was reporting two different instants at
-   once.** `ServerWorldManager::Update` publishes its counters into `Profiler` at its tail
-   (`ServerWorldManager.cpp:1199-1205`), and the drain does not step the world, so `Update` never
-   runs during it — while `DrainScheduledArrivals()` keeps installing arrivals. Seven fields
-   (`objs`, `hoSent`, `hoRecv`, `hoFail`, `hoLate`, `haloLate`, `haloAhead`) were therefore frozen
-   at the last stepped tick while eleven others, read live at print time, described the post-drain
-   state. **Invariant I5 (handoff parity) was failing for the same reason**, not just conservation.
-   Fixed by `ServerWorldManager::PublishCounters()`, called at the end of `Update()` and **again
-   after the drain**. Same configuration, before and after: server 0 `hoSent` 3,269 against server
-   1 `hoRecv` 1,025, becoming 2,130 against 2,130 — parity exact where it previously read 2,244.
-   Counters published from `DistributedGameServerManager` (`snapSent`, `cmd*`, `objSpawned`, halo
-   send/recv) were never affected, because the drain loop does call `UpdateGameServerManager`.
+   **Consequences for E8.** The published E8 run (`02e306b`, 2026-08-20) predates `e413ab0`
+   (2026-08-21), so it was measured with the client attached for roughly the first quarter of each
+   run; Phase A's re-measurement (`2060f55`) had it attached throughout. Therefore: absolute byte and
+   snapshot rates from the **published** run are measured over a truncated window and must not be
+   quoted as run rates; per-radius comparisons **within** either session stay internally valid, since
+   all four radii of a sweep shared one client lifetime, so E8's reduction fractions are unaffected;
+   the two sessions are not comparable in absolute terms, which is precisely what this item observed;
+   and the published build's apparent instability (130% within-radius spread) is the same artefact,
+   since a count that depends on a client dying a few seconds in depends on exactly when it died.
 
-   **The §3.2 three-point bisect was not run and is not needed** — its premise, that a code change
-   caused a loss, is false. Four builds and twelve runs saved. This also reconciles the reading §3.3
-   flagged: the same exact `ho_parity_delta` match is end-of-run truncation in **both** E7 and E4, one
-   mechanism rather than two. Write-up:
-   `docs/superpowers/results/2026-08-24-B-e4-attribution.md`.
+   The counterfactual "the published build would have failed at radius 100" is therefore computed on
+   quarter-length-window numbers and does **not** bound the current build's verdict.
 
-   **Residual, and it is real:** these runs show `ownership_gap_ticks` of 5,952-6,499 out of 7,200 and
-   two repeats with `ownership_double_ticks` (5 and 1) — two servers claiming one object — at
-   `--handoff-lookahead 300`, the setting documented as making ownership atomic. Conservation being
-   exact does not touch that. It is Phase D's subject (item 2, §0.7), and these runs are a sharper test
-   case for it than anything previously on record.
-
-8. ~~**Stale comments in frozen source.**~~ **Fixed.** `NetworkObject.h` now states 60 bytes per halo
-   entry (as `PacketSizeTests` measures) and the snapshot gate comment states 60 Hz.
-9. ~~**`run-experiments.ps1`'s `-OutDir` is not anchored to the repo root.**~~ **Fixed.** Both scripts
-   now share `tools/RunPaths.ps1`, which also rejects the drive-relative case (`C:runs`) that
-   `Path.IsPathRooted` reports as absolute. Shared rather than copied precisely because this bug
-   existed only because the earlier fix was applied to one script and not the other.
-
-   **Counterfactual, 2026-08-24 — the change is real; the cross-session doubt is retired.** Both
-   builds were compiled Release from clean checkouts and swept **back to back in one session on one
-   machine** at this experiment's exact configuration. Published->current snapshot throughput:
-   **3.50x** at radius 0, 1.81x at 25, 1.91x at 50, **3.15x** at 100, against the 3.6/1.36/2.10/3.08
-   recorded above — three of four within 0.1. The inference from two separate sessions was therefore
-   sound, and the halo-throughput argument that propped it up is no longer needed.
-
-   **It is in the snapshot path.** At **1 server with `--halo-width 0`** — no halo band, no peer link,
-   no handoff, and `snapSupp` = 0 on both builds, so nothing is filtered — the effect survives at
-   **3.17x**. It also survives on a **stationary** workload (2.66x), which rules out the obvious
-   "deltas now carry the changes they always should have" explanation. The current build ran *fewer*
-   ticks than the published one in that control while sending 2.8x more, so it is not tick rate.
-
-   **The current build meets a schedule the published one misses.** Across every configuration tested
-   the current build emits **exactly 2000.0 object-snapshots per counted tick**; the published build
-   emits 630-755, varying with load and between repeats. The published build's within-radius spread is
-   **130.6%** at radius 0 against the current build's **0.3%**, and its server-1 tick counts collapse
-   to 513/757/305/1,001 against a normal ~2,390 in the same experiment. That is what drives the one
-   radius (25) where the ratio disagrees with the recorded figure.
-
-   **Consequence for E8.** The counterfactual E8's verdict is hedged against — that the published
-   build would have failed at radius 100 — is computed on a build that is erratic by up to 130% in
-   exactly the quantity E8 measures. It is a weaker challenge to the verdict than it appeared when both
-   builds were assumed equally well-behaved.
-
-   **Still open: which commit, and whether it is a regression or a fix.** The snapshot cadence line,
-   `BroadcastSnapshot`, the `mServerSideLastFullID` delta baseline and the counting site
-   (`mSnapshotsSent += targets.size()`) are all byte-identical between the two commits, so the cause is
-   not visible in a diff of the obvious files. Locating it needs a bisect over the **36 non-doc commits**
-   in the range (the range holds 61 commits in total; this item's "roughly 18 core commits" understates
-   it). Cheapest bisect signal: the 1-server, `--halo-width 0`, radius-0 control — 2000.0 snap/tick or
-   not. Full write-up and raw figures:
-   `docs/superpowers/results/2026-08-24-item13-counterfactual.md`.
+   Bisect and proof: `docs/superpowers/results/2026-08-24-item13-bisect.md`. An earlier document the
+   same day, `2026-08-24-item13-counterfactual.md`, concluded this was a real build difference and is
+   **retracted** there — it ran each build with its own harness and so reproduced the artefact.
 
 15. **Open, new 2026-08-24 — custody resends DUPLICATE objects under rebalancing.** Found only once
    the counter-staleness fix above made `@@FINAL` self-consistent; the old reporting could not
@@ -1031,7 +951,9 @@ shift in interest management's own reduction fraction — shown not to be tick-r
 code change - was **closed on 2026-08-24**, which also made invariant I4 non-vacuous for the first
 time. **Item 12 was also closed on 2026-08-24**: there was no object loss, only a conservation check
 counting the wrong field, so the bisect it called for was never needed. Items 2 and 7 remain open -
-narrowed and confirmed-reachable respectively, not fixed - and item 13 is narrowed but still open.
+narrowed and confirmed-reachable respectively, not fixed. **Item 13 was closed on 2026-08-24** by a
+bisect that found no build difference at all, only a change in how long the measurement client stayed
+connected.
 Closing item 12 also opened **item 15**, object duplication under custody resend, which only became
 visible once the counters stopped mixing two instants.
 
@@ -1039,6 +961,6 @@ visible once the counters stopped mixing two instants.
 §3. It closes items 10 and 11 above, and — because the two builds' snapshot throughput differs by a
 radius-dependent factor (up to 3.6x) that tick rate cannot explain, alongside a second unexplained
 shift in interest management's own reduction fraction — opens item 13, left honestly unresolved rather
-than filed as noise. A same-session counterfactual on 2026-08-24 confirmed that difference is real and
-localised it to the snapshot path; which commit caused it, and whether it is a regression or a fix,
-remain open.
+than filed as noise. A bisect on 2026-08-24 closed item 13: the difference is not a build difference at
+all but a harness one — the measurement client's lifetime — so the published run's absolute rates are
+measured over a truncated window.
