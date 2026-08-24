@@ -77,6 +77,15 @@ int StartMidware(int argc, char* argv[]) {
 	if (config.Has("--halo-reliable")) {
 		serverExtraArgs += " --halo-reliable";
 	}
+	// Injected server-to-server link delay (Phase C). Forwarded here as well as
+	// parsed in ServerStarter: game servers are spawned by this midware, so a flag it
+	// does not append to mServerExtraArgs is silently ignored with no error at all.
+	if (config.Has("--link-latency-ms")) {
+		serverExtraArgs += " --link-latency-ms " + std::to_string(config.GetFloat("--link-latency-ms", 0.0f));
+	}
+	if (config.Has("--link-jitter-ms")) {
+		serverExtraArgs += " --link-jitter-ms " + std::to_string(config.GetFloat("--link-jitter-ms", 0.0f));
+	}
 	if (config.Has("--halo-lookahead")) {
 		serverExtraArgs += " --halo-lookahead " + std::to_string(config.GetInt("--halo-lookahead", 4));
 	}

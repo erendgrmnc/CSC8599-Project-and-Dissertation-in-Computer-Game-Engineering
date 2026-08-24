@@ -9,6 +9,7 @@
 #include "PhysicsObject.h"
 #include "PhysicsSystem.h"
 #include "DistributedSystemCommonFiles/TaskPool.h"
+#include "DistributedSystemCommonFiles/HaloBound.h"
 #include "Profiler.h"
 #include "TestObject.h"
 #include "glad/gl.h"
@@ -664,19 +665,37 @@ void NCL::DistributedGameServer::ServerWorldManager::GetOverlappedServers(const 
 // than the measured maximum on purpose: a band width derived from live velocities
 // would change with the contents of the world, and two servers computing different
 // widths would publish different sets.
-static constexpr float HALO_ASSUMED_MAX_SPEED = 60.0f;
-// Generous compared with the unit cubes the workloads build, so a pair is published
-// well before it can touch.
-static constexpr float HALO_ASSUMED_MAX_RADIUS = 2.0f;
+// Moved to DistributedSystemCommonFiles/HaloBound.h so the bound is one definition
+// rather than two that can drift apart - it is the headline claim of this increment
+// and is now asserted directly in tools/InteractionTests.
 
+// The soundness condition, generalised over link delay.
+//
+//     w_min = v_max * (L * dt + T_L + T_J) + 2 * r_max
+//
+// The bracket is the total lag between an object's state being SAMPLED by its owner
+// and that state being APPLIED on the neighbour: L ticks of deliberate scheduling
+// lookahead, plus the one-way link latency T_L, plus the worst-case jitter T_J on top
+// of it. Jitter is added at its maximum rather than its mean because this is a bound,
+// not an estimate - a band sized for average delay misses contacts on the slow tail.
+//
+// At T_L = T_J = 0 this reduces exactly to the published expression
+// `v_max * L * dt + 2 * r_max`, which is what makes the zero-latency E5 sweep still
+// valid as the baseline (and is asserted in tools/InteractionTests).
+//
+// Relationship to the ancestor's condition, which the AP benchmark states as
+//     T_T = (3 * ceil((2*T_F + T_L) / T_P) - 1) * T_P ,  R_a = R_o + V_t * T_T
+// this is the same shape - a travel distance at maximum speed over a total delay,
+// plus body radii - with two differences. Ours expresses the delay in substeps
+// directly instead of rounding it up to whole periods T_P, because the halo schedules
+// in the sender's tick numbers and so has no rounding to do; and it does not carry the
+// 2*T_F frame term, because a halo update is published once per tick from the same
+// loop that steps the world, so frame time is already inside L * dt. Injected jitter
+// is the term that stands in for frame-to-frame variability here.
 float DistributedGameServer::ServerWorldManager::MinimumSafeHaloWidth() const {
 	const int substepHz = (mPhysics != nullptr) ? mPhysics->GetSubstepHZ() : 120;
-	const float substepDt = (substepHz > 0) ? (1.0f / static_cast<float>(substepHz)) : (1.0f / 120.0f);
-
-	// Distance an object can cover between its state being sampled and that state
-	// being applied on the neighbour, plus room for both bodies.
-	const float lag = static_cast<float>(std::max(0, mHaloLookaheadTicks)) * substepDt;
-	return HALO_ASSUMED_MAX_SPEED * lag + 2.0f * HALO_ASSUMED_MAX_RADIUS;
+	return NCL::Distributed::MinimumSafeHaloWidth(mHaloLookaheadTicks, substepHz,
+		mLinkLatencyMs, mLinkJitterMs);
 }
 
 void DistributedGameServer::ServerWorldManager::SetHaloWidth(float width) {
@@ -693,7 +712,17 @@ void DistributedGameServer::ServerWorldManager::SetHaloWidth(float width) {
 		// misconfiguration.
 		std::cout << "WARNING: --halo-width " << width << " is below the safe minimum "
 			<< floorWidth << " for a halo lookahead of " << mHaloLookaheadTicks
-			<< " ticks. Border contacts may be missed.\n";
+			<< " ticks";
+		// Named explicitly: since Phase C the floor carries a latency term, so a width
+		// that was safe at zero latency can become unsafe purely because a link delay
+		// was injected. Without this the operator sees the floor move and no reason.
+		if (mLinkLatencyMs > 0.0f || mLinkJitterMs > 0.0f) {
+			std::cout << " and an injected link delay of " << mLinkLatencyMs << " ms";
+			if (mLinkJitterMs > 0.0f) {
+				std::cout << " (+" << mLinkJitterMs << " ms jitter)";
+			}
+		}
+		std::cout << ". Border contacts may be missed.\n";
 	}
 }
 
@@ -1013,18 +1042,31 @@ void DistributedGameServer::ServerWorldManager::ReimposeHaloState() {
 	}
 }
 
-// A shadow is only meaningful while its owner keeps publishing it. Generous, because
-// halo updates are unreliable by design and a run of dropped packets must not retire
-// a shadow that is still very much there; the cost of being late to retire is a few
-// ticks of a ghost, and the cost of being early is a missed contact.
-static constexpr uint64_t HALO_STALE_TICKS = 30;
+// The horizon has to clear the scheduling delay as well as the drop tolerance.
+//
+// A halo update is applied at senderTick + lookahead, so with a lookahead of L a
+// shadow legitimately goes L ticks between applications even when every packet
+// arrives. A fixed horizon of 30 therefore stops being a drop tolerance and becomes a
+// CEILING ON LOOKAHEAD: at L > 30 a shadow is retired before the update that would
+// refresh it is due to apply, the halo silently stops working, and the run reports a
+// staleness horizon as if it were a missed contact. That is exactly how L=32 came to
+// read as unsound in E5 round 1.
+//
+// Latency makes this binding sooner rather than later: injected link delay costs
+// roughly one tick of effective lookahead per 8.33 ms at the 120 Hz substep, so a
+// nominal L=24 reaches the old ceiling at only ~50 ms of one-way delay. Phase C could
+// not sweep past that without measuring its own envelope instead of the bound.
+uint64_t DistributedGameServer::ServerWorldManager::HaloStaleTicks() const {
+	return static_cast<uint64_t>(NCL::Distributed::HaloStaleTicks(mHaloLookaheadTicks));
+}
 
 void DistributedGameServer::ServerWorldManager::RetireStaleHaloShadows() {
+	const uint64_t horizon = HaloStaleTicks();
 	for (auto entry = mHaloObjects.begin(); entry != mHaloObjects.end(); ) {
 		const auto state = mHaloState.find(entry->first);
 		const uint64_t lastTick = (state != mHaloState.end()) ? state->second.lastAppliedTick : 0;
 
-		if (mTickCounter > lastTick && (mTickCounter - lastTick) > HALO_STALE_TICKS) {
+		if (mTickCounter > lastTick && (mTickCounter - lastTick) > horizon) {
 			TeardownObject(entry->second);
 			mHaloState.erase(entry->first);
 			entry = mHaloObjects.erase(entry);

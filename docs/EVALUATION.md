@@ -36,9 +36,10 @@ the run directory that produced it or a named results document.
   with it.
 - **Cross-border correctness.** Objects either side of a region border collide only when the halo
   band mechanism is enabled; without it they silently pass through each other at the border.
-- **The soundness condition.** The halo width formula `w_min = v_max * L * dt + 2*r_max` never
-  under-predicts the width actually required to catch every border contact, at any tested lookahead
-  `L`.
+- **The soundness condition.** The halo width formula never under-predicts the width actually
+  required to catch every border contact, at any tested lookahead `L`. Since 2026-08-25 the formula
+  is `w_min = v_max * (L * dt + T_L + T_J) + 2*r_max`; the validated evidence is the `T_L = T_J = 0`
+  special case, which is exactly what the published expression `v_max * L * dt + 2*r_max` states.
 - **The client-facing cost bound.** A client's snapshot traffic is a property of its interest radius
   (what it can see), not of total world size.
 - **Dynamic balancing.** Moving region borders at runtime reduces the cost borne by the busiest
@@ -486,9 +487,20 @@ measured 1.615 MB/s and this re-measurement's 1.58–1.77 MB/s peer-facing range
 This is the project's headline correctness result, so it gets its own section rather than a row in the
 table above. Full detail: `docs/superpowers/results/2026-08-19-E5-soundness.md`.
 
-**Claim.** `MinimumSafeHaloWidth()` predicts a halo band width — `w_min = v_max * L * dt + 2*r_max`,
-the "conservative floor" — that never under-predicts the width actually required to catch every
-cross-border contact, at a given handoff lookahead `L`.
+**Claim.** `MinimumSafeHaloWidth()` predicts a halo band width — the "conservative floor" — that
+never under-predicts the width actually required to catch every cross-border contact, at a given
+halo lookahead `L`.
+
+The bound is now stated over link delay as well:
+
+    w_min = v_max * (L * dt + T_L + T_J) + 2 * r_max
+
+with `T_L` the one-way link latency and `T_J` the worst-case jitter on top of it (worst-case, not
+mean: a band sized for average delay misses contacts on the slow tail). **Everything measured below
+is the `T_L = T_J = 0` case**, where this reduces exactly to the published
+`w_min = v_max * L * dt + 2*r_max` — an identity asserted in `tools/InteractionTests`
+(`HaloBoundTests`), which is what keeps these 120 runs valid as the baseline. The latency dimension
+is implemented but not yet swept.
 
 **Configuration.** `headon`, 2 servers, 100 objects, 1,800 paced ticks, `--halo-reliable`, 3 repeats
 per point. 120 runs total across two rounds (`runs/exp-haloL2`, `exp-haloL16`, `exp-haloL32` — round 1;
@@ -616,9 +628,14 @@ and their contact counts are not.**
   uneven. **Do not quote the 2->4 segment as a scaling limit of the design** - it is a measurement of
   this machine. The 1->2 segment (50.4 s -> 34.8 s wall for the same simulated work) is the safer
   figure, and the physics column is the safest of all.
-- **No latency injection.** Every measurement runs on a local network with effectively zero link
-  latency. Nothing here says how any of these claims hold up once cross-server or client-server
-  messages carry real network delay.
+- **Latency injection exists, but has not yet been swept.** `--link-latency-ms` and
+  `--link-jitter-ms` delay the **server-to-server** path (Phase C, 2026-08-25), and
+  `MinimumSafeHaloWidth` now carries the latency and jitter terms, with the published expression
+  falling out exactly at zero - asserted in `tools/InteractionTests`. **The measurements in this
+  document all still run at zero injected latency**, so every claim here remains a zero-latency
+  result until the E5 latency sweep is run. The client path is deliberately not delayed: the halo
+  bound is a statement about server-to-server lag, and delaying snapshots would move E3 and E8
+  without moving E5.
 - ~~**No AP-comparable injection workload.**~~ **Closed.** `--workload injection` reproduces Aura
   Projection's published benchmark (160 objects/s for 60 s), measured at 1 and 2 servers with a
   4-server scaling point. See `docs/superpowers/results/2026-08-21-AP-injection.md`, which also

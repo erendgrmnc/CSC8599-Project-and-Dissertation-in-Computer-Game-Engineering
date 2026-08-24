@@ -123,6 +123,14 @@ int StartGameServer(int argc, char* argv[]) {
 		// comment. Set BEFORE the width, since the width's safety floor is derived
 		// from it.
 		worldManager->SetHaloLookaheadTicks(config.GetInt("--halo-lookahead", 4));
+		// Injected server-to-server link delay. Set BEFORE the width for the same
+		// reason as the lookahead: both are terms in the width's safety floor, so a
+		// width validated before they are known is validated against the wrong bound.
+		//
+		// 0/0 is no injection, which is how every measurement before Phase C ran.
+		serverManager->SetLinkDelay(config.GetFloat("--link-latency-ms", 0.0f),
+			config.GetFloat("--link-jitter-ms", 0.0f),
+			static_cast<unsigned int>(config.GetInt("--seed", 1)));
 		// 0, so every configuration that predates the halo behaves exactly as before.
 		worldManager->SetHaloWidth(config.GetFloat("--halo-width", 0.0f));
 		// Parallel physics. 0 (the default) keeps every phase on this thread, so a

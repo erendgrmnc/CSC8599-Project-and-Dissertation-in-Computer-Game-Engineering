@@ -70,6 +70,13 @@ param(
     # Small on purpose - unlike the handoff lookahead, this is permanent lag on a
     # continuously tracked position, not a one-off gap.
     [int]$HaloLookahead = 4,
+    # Injected one-way server-to-server link delay, milliseconds. The halo soundness
+    # bound is a statement about this lag, and every measurement before Phase C ran at
+    # 0 - the zero-latency special case. The CLIENT path is deliberately not delayed.
+    [double]$LinkLatencyMs = 0,
+    # Worst-case additional delay on top of the latency, drawn deterministically from
+    # --seed so a run stays reproducible.
+    [double]$LinkJitterMs = 0,
     # Send halo updates reliably. Costs bandwidth, but a dropped update leaves a
     # shadow extrapolating from an older sample and drops are not the same from
     # run to run - so reproducible runs need this.
@@ -117,6 +124,11 @@ $metricsDir = $runDir -replace '\\','/'
 # without its build metadata is not reproducible.
 $mode = if ($Ticks -gt 0) { "reproducible" } else { "realtime" }
 $haloReliableArg = if ($HaloReliable) { "--halo-reliable" } else { "" }
+# Only appended when non-zero, so a run without them produces a byte-identical launch
+# string to every run that predates Phase C.
+$linkDelayArg = ""
+if ($LinkLatencyMs -gt 0) { $linkDelayArg += " --link-latency-ms $LinkLatencyMs" }
+if ($LinkJitterMs  -gt 0) { $linkDelayArg += " --link-jitter-ms $LinkJitterMs" }
 $drainArg = if ($DrainSeconds -ge 0) { "--drain-seconds $DrainSeconds" } else { "" }
 $custodyArg = ""
 if ($HandoffRetryTicks -ge 0) { $custodyArg += " --handoff-retry-ticks $HandoffRetryTicks" }
@@ -137,6 +149,8 @@ $manifest = [ordered]@{
     world        = $World
     haloWidth    = $HaloWidth
     haloLookahead = $HaloLookahead
+    linkLatencyMs = $LinkLatencyMs
+    linkJitterMs = $LinkJitterMs
     physicsThreads = $PhysicsThreads
     rebalanceInterval = $RebalanceInterval
     repartitionAt = $RepartitionAt
@@ -156,7 +170,7 @@ $mgr = Start-Process -PassThru -FilePath (Join-Path $deploy "Manager\EntryPoint.
 Start-Sleep -Seconds 3
 
 $mid = Start-Process -PassThru -FilePath (Join-Path $deploy "Midware\EntryPoint.exe") `
-    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" --rebalance-interval $RebalanceInterval --handoff-delay-ticks $HandoffDelayTicks --handoff-lookahead $HandoffLookahead --physics-threads $PhysicsThreads --halo-width $HaloWidth --halo-lookahead $HaloLookahead $haloReliableArg --epoch-align-us $EpochAlignUs $drainArg$custodyArg $bound" `
+    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" --rebalance-interval $RebalanceInterval --handoff-delay-ticks $HandoffDelayTicks --handoff-lookahead $HandoffLookahead --physics-threads $PhysicsThreads --halo-width $HaloWidth --halo-lookahead $HaloLookahead $haloReliableArg$linkDelayArg --epoch-align-us $EpochAlignUs $drainArg$custodyArg $bound" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\mid.log" -RedirectStandardError "$runDir\mid.err" -WindowStyle Hidden
 Start-Sleep -Seconds 4
 

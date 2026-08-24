@@ -1,7 +1,9 @@
 #pragma once
 #include <cstdint>
+#include <map>
 #include <mutex>
 #include <queue>
+#include <vector>
 
 #include "DistributedPhysicsServerClient.h"
 #include "NetworkBase.h"
@@ -42,6 +44,32 @@ namespace NCL {
 			// Halo updates reliably rather than unreliably. See PublishHaloBand:
 			// needed for a reproducible run, not for a deployment.
 			void SetHaloReliable(bool reliable) { mHaloReliable = reliable; }
+
+			// --- injected link delay (Phase C) -------------------------------------
+			//
+			// Holds outbound SERVER-TO-SERVER packets for a configured one-way delay
+			// before handing them to ENet, so the halo soundness bound can be swept
+			// over a latency axis instead of only at the zero-latency special case
+			// that every measurement before this ran at.
+			//
+			// Applied to the peer path only. The client path is deliberately NOT
+			// delayed: the halo bound is a statement about server-to-server lag, and
+			// delaying snapshots would move E3 and E8 without moving E5, which is the
+			// experiment this exists for.
+			//
+			// jitterMs is a WORST-CASE additional delay, drawn deterministically from
+			// the world seed so a run stays reproducible. Release times are forced
+			// monotonic per target, so jitter never reorders packets on a link - real
+			// networks do reorder, but a bound test wants the delay axis varied and
+			// nothing else.
+			void SetLinkDelay(float latencyMs, float jitterMs, unsigned int seed);
+
+			// Sends everything whose release time has passed. Called once per tick.
+			void DrainDelayedPeerPackets();
+
+			int GetDelayedPeerPacketCount() const {
+				return static_cast<int>(mDelayedPeerPackets.size());
+			}
 
 			// Per-host ENet totals, split by what each host family carries. The
 			// sender server talks to CLIENTS (snapshots, spawns, acks); the peer
@@ -224,6 +252,8 @@ namespace NCL {
 			bool SendPacketToServer(int targetServerID, GamePacket& packet) const;
 			// For state superseded every tick. See the definition.
 			bool SendUnreliablePacketToServer(int targetServerID, GamePacket& packet) const;
+
+
 			// Whether a peer link to that server exists AT ALL, independently of
 			// whether any particular send succeeded. Custody needs the distinction:
 			// a send can fail because ENet's outgoing reliable queue is full (overload)
@@ -292,6 +322,31 @@ namespace NCL {
 			void RetryPendingPeers(float dt);
 			// Requeues links ENet has dropped so RetryPendingPeers rebuilds them.
 			void ReclaimDroppedPeers();
+
+			// Copies the packet and queues it. Returns false only when there is no peer
+			// link, matching SendPacketToServer's contract - custody reclaims solely on
+			// a MISSING link, so a queued packet must report success or a delayed
+			// handoff would be reclaimed while still in flight.
+			bool QueueDelayedPeerPacket(int targetServerID, GamePacket& packet,
+				bool reliable) const;
+
+			struct DelayedPeerPacket {
+				int targetServerID = -1;
+				bool reliable = true;
+				long long releaseMicros = 0;
+				std::vector<char> bytes;
+			};
+
+			// mutable: the two send functions are const, and threading the delay
+			// through them by dropping const would touch every call site for no gain.
+			mutable std::vector<DelayedPeerPacket> mDelayedPeerPackets;
+			// Last release time issued per target, so release times stay monotonic and
+			// jitter cannot reorder a link.
+			mutable std::map<int, long long> mLastReleaseMicros;
+			mutable unsigned int mJitterCounter = 0;
+			float mLinkLatencyMs = 0.0f;
+			float mLinkJitterMs = 0.0f;
+			unsigned int mLinkDelaySeed = 1u;
 			// Links ENet has dropped, kept alive rather than destroyed. See
 			// ReclaimDroppedPeers for why they are not deleted during a run.
 			std::vector<GameServerConnection*> mRetiredPeerLinks;

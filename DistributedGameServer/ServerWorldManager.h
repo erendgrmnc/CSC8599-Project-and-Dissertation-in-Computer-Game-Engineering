@@ -466,6 +466,26 @@ namespace NCL {
 				return mHaloLookaheadTicks;
 			}
 
+			// Injected one-way link delay, in milliseconds, applied to the
+			// server-to-server path. Held here because it is a term in the halo
+			// soundness bound (MinimumSafeHaloWidth); the actual delaying is done by
+			// DistributedGameServerManager, which owns the peer sends.
+			//
+			// Jitter is the WORST-CASE additional delay, not a standard deviation:
+			// the bound has to hold on the slow tail, not on average.
+			void SetLinkDelayMs(float latencyMs, float jitterMs) {
+				mLinkLatencyMs = latencyMs;
+				mLinkJitterMs = jitterMs;
+			}
+
+			float GetLinkLatencyMs() const { return mLinkLatencyMs; }
+			float GetLinkJitterMs() const { return mLinkJitterMs; }
+
+			// Ticks a halo shadow may go without an applied update before it is
+			// retired. Tracks the lookahead - see the definition for why a fixed
+			// value silently caps how far ahead the halo can usefully schedule.
+			uint64_t HaloStaleTicks() const;
+
 			float GetHaloWidth() const {
 				return mHaloWidth;
 			}
@@ -816,6 +836,9 @@ namespace NCL {
 			// So this is a small number - just enough to cover LAN delivery jitter -
 			// and haloLate counts the updates that still miss their slot.
 			int mHaloLookaheadTicks = 4;
+			// 0 is no injected delay, which is how every measurement before Phase C ran.
+			float mLinkLatencyMs = 0.0f;
+			float mLinkJitterMs = 0.0f;
 
 			// A destroy can arrive at the new owner BEFORE the object does (race W3).
 			// Dropping it would resurrect the object, so it is held here and applied

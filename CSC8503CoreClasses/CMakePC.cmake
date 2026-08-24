@@ -213,6 +213,7 @@ function(Create_CSC8503CoreClasses_Files_PC)
         "./DistributedSystemCommonFiles/MetricSink.h"
         "./DistributedSystemCommonFiles/MetricSink.cpp"
         "./DistributedSystemCommonFiles/SequenceWindow.h"
+        "./DistributedSystemCommonFiles/HaloBound.h"
         "./DistributedSystemCommonFiles/RegionOwnership.h"
         "./DistributedSystemCommonFiles/NetworkIdSpace.h"
         "./DistributedSystemCommonFiles/InjectionSchedule.h"

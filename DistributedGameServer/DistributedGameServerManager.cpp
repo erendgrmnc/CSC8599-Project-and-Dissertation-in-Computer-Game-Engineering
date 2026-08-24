@@ -161,6 +161,10 @@ void DistributedGameServer::DistributedGameServerManager::UpdateGameServerManage
 		gameServerConnection->client->UpdateClient();
 	}
 	ReclaimDroppedPeers();
+	// Releases peer packets whose injected delay has elapsed. No-op unless
+	// --link-latency-ms / --link-jitter-ms are set, which is how every measurement
+	// before Phase C ran.
+	DrainDelayedPeerPackets();
 
 	if (mIsGameStarted) {
 		// Reported to the manager, which owns the partition and may move it. Emitted
@@ -864,6 +868,9 @@ void DistributedGameServer::DistributedGameServerManager::HandleObjectTransition
 // must stay reliable.
 bool DistributedGameServer::DistributedGameServerManager::SendUnreliablePacketToServer(
 	int targetServerID, GamePacket& packet) const {
+	if (mLinkLatencyMs > 0.0f || mLinkJitterMs > 0.0f) {
+		return QueueDelayedPeerPacket(targetServerID, packet, false);
+	}
 	for (auto* connection : mDistributedPhysicsClients) {
 		if (connection->serverID == targetServerID && connection->client != nullptr) {
 			connection->client->SendPacket(packet);
@@ -875,6 +882,9 @@ bool DistributedGameServer::DistributedGameServerManager::SendUnreliablePacketTo
 
 bool DistributedGameServer::DistributedGameServerManager::SendPacketToServer(int targetServerID,
 	GamePacket& packet) const {
+	if (mLinkLatencyMs > 0.0f || mLinkJitterMs > 0.0f) {
+		return QueueDelayedPeerPacket(targetServerID, packet, true);
+	}
 	for (const auto* connection : mDistributedPhysicsClients) {
 		if (connection->serverID == targetServerID && connection->client != nullptr) {
 			// Propagated, not assumed. A handoff releases the object on the strength of
@@ -884,6 +894,127 @@ bool DistributedGameServer::DistributedGameServerManager::SendPacketToServer(int
 		}
 	}
 	return false;
+}
+
+// Local, deliberately not shared with ServerWorldManager's DeterministicHash: that one
+// seeds WORLD CONSTRUCTION, and coupling jitter to it would make changing the delay
+// model change the world. Any cheap avalanche function does here - the requirement is
+// only that it be a pure function of (seed, target, sequence) so a run replays
+// identically.
+static unsigned int LinkJitterHash(unsigned int seed, int target, int sequence) {
+	unsigned int h = seed;
+	h ^= static_cast<unsigned int>(target) + 0x9E3779B9u + (h << 6) + (h >> 2);
+	h ^= static_cast<unsigned int>(sequence) + 0x85EBCA6Bu + (h << 6) + (h >> 2);
+	h ^= h >> 16;
+	h *= 0x7FEB352Du;
+	h ^= h >> 15;
+	return h;
+}
+
+void DistributedGameServer::DistributedGameServerManager::SetLinkDelay(
+	float latencyMs, float jitterMs, unsigned int seed) {
+	mLinkLatencyMs = std::max(0.0f, latencyMs);
+	mLinkJitterMs = std::max(0.0f, jitterMs);
+	mLinkDelaySeed = seed;
+	if (auto* worldManager = GetServerWorldManager()) {
+		// The world manager does not send anything; it needs these because they are
+		// terms in MinimumSafeHaloWidth, which it owns.
+		worldManager->SetLinkDelayMs(mLinkLatencyMs, mLinkJitterMs);
+	}
+	if (mLinkLatencyMs > 0.0f || mLinkJitterMs > 0.0f) {
+		std::cout << "Injecting server-to-server link delay: " << mLinkLatencyMs
+			<< " ms one-way";
+		if (mLinkJitterMs > 0.0f) {
+			std::cout << " + up to " << mLinkJitterMs << " ms jitter";
+		}
+		std::cout << ". Client path is NOT delayed.\n";
+	}
+}
+
+bool DistributedGameServer::DistributedGameServerManager::QueueDelayedPeerPacket(
+	int targetServerID, GamePacket& packet, bool reliable) const {
+	// A missing link still fails, exactly as an immediate send would. Custody
+	// reclaims only on a missing link, so reporting success here for a peer that is
+	// not there would let a handoff be released to nobody.
+	bool haveLink = false;
+	for (const auto* connection : mDistributedPhysicsClients) {
+		if (connection != nullptr && connection->serverID == targetServerID
+			&& connection->client != nullptr) {
+			haveLink = true;
+			break;
+		}
+	}
+	if (!haveLink) {
+		return false;
+	}
+
+	// Deterministic jitter. rand() would make the run irreproducible, which is the
+	// one thing a measurement harness cannot afford; this draws from the world seed
+	// and a monotonic counter, so the same run replays the same delays.
+	long long jitterMicros = 0;
+	if (mLinkJitterMs > 0.0f) {
+		const unsigned int h = LinkJitterHash(
+			mLinkDelaySeed ^ 0x5BD1E995u, targetServerID, static_cast<int>(mJitterCounter++));
+		const double fraction = static_cast<double>(h % 10000u) / 10000.0;
+		jitterMicros = static_cast<long long>(fraction * mLinkJitterMs * 1000.0);
+	}
+
+	const long long now = static_cast<long long>(NCL::MonotonicMicros());
+	long long release = now + static_cast<long long>(mLinkLatencyMs * 1000.0f) + jitterMicros;
+
+	// Monotonic per target: jitter varies the delay but must not reorder a link.
+	// Reordering is a real network behaviour, but this experiment varies one axis.
+	auto last = mLastReleaseMicros.find(targetServerID);
+	if (last != mLastReleaseMicros.end() && release < last->second) {
+		release = last->second;
+	}
+	mLastReleaseMicros[targetServerID] = release;
+
+	DelayedPeerPacket delayed;
+	delayed.targetServerID = targetServerID;
+	delayed.reliable = reliable;
+	delayed.releaseMicros = release;
+	// Every packet in this system is strict POD and is memcpy'd by the ENet path
+	// anyway (see CLAUDE.md), so copying the bytes is exactly what the wire does.
+	const char* raw = reinterpret_cast<const char*>(&packet);
+	delayed.bytes.assign(raw, raw + packet.GetTotalSize());
+	mDelayedPeerPackets.push_back(std::move(delayed));
+	return true;
+}
+
+void DistributedGameServer::DistributedGameServerManager::DrainDelayedPeerPackets() {
+	if (mDelayedPeerPackets.empty()) {
+		return;
+	}
+	const long long now = static_cast<long long>(NCL::MonotonicMicros());
+
+	size_t keep = 0;
+	for (size_t i = 0; i < mDelayedPeerPackets.size(); ++i) {
+		DelayedPeerPacket& delayed = mDelayedPeerPackets[i];
+		if (delayed.releaseMicros > now) {
+			// Kept in arrival order; release times are monotonic per target, but the
+			// queue interleaves targets, so this cannot break out early.
+			if (keep != i) {
+				mDelayedPeerPackets[keep] = std::move(delayed);
+			}
+			++keep;
+			continue;
+		}
+		GamePacket* packet = reinterpret_cast<GamePacket*>(delayed.bytes.data());
+		for (auto* connection : mDistributedPhysicsClients) {
+			if (connection != nullptr && connection->serverID == delayed.targetServerID
+				&& connection->client != nullptr) {
+				if (delayed.reliable) {
+					connection->client->SendReliablePacket(*packet);
+				}
+				else {
+					connection->client->SendPacket(*packet);
+				}
+				break;
+			}
+		}
+	}
+	mDelayedPeerPackets.resize(keep);
 }
 
 // Deliberately separate from SendPacketToServer's return value. That returns false for

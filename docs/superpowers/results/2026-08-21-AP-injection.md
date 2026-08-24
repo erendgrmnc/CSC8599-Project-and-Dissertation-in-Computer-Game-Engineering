@@ -242,6 +242,22 @@ reviewer. It also converts "no latency injection" (`docs/EVALUATION.md` §5) fro
 datapoint into a **correctness gap in the headline claim**: E5 validates a bound whose latency
 term is absent because latency was always zero.
 
+> **DONE 2026-08-25 (Phase C).** The generalisation predicted here landed as
+>
+>     w_min = v_max * (L * dt + T_L + T_J) + 2 * r_max
+>
+> in `CSC8503CoreClasses/DistributedSystemCommonFiles/HaloBound.h`, with `--link-latency-ms` and
+> `--link-jitter-ms` injecting delay on the server-to-server path. The relationship to AP's form is
+> written out in that header: same shape - travel distance at maximum speed over a total delay, plus
+> body radii - expressed in substeps rather than rounded up to whole periods `T_P`, because the halo
+> schedules in the sender's tick numbers and so has no rounding to do, and without the `2*T_F` frame
+> term because a halo update is published once per tick from the same loop that steps the world, so
+> frame time is already inside `L * dt`. Injected jitter is what stands in for frame-to-frame
+> variability.
+>
+> The **code** gap is closed; the **evidence** gap is not. Every measurement on record is still the
+> `T_L = 0` case, and stays so until the E5 latency sweep runs.
+
 ## 7. Defects found by running this benchmark
 
 Listed because they are the substantive output of Phase 1 alongside the numbers. Every one was

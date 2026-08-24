@@ -31,7 +31,7 @@ param(
     # Which parameter to sweep.
     [Parameter(Mandatory = $true)]
     [ValidateSet("servers", "objects", "ticks", "seconds", "haloWidth", "interestRadius",
-                 "physicsThreads", "rebalanceInterval")]
+                 "physicsThreads", "rebalanceInterval", "linkLatencyMs")]
     [string]$Sweep,
     # Comma-separated, e.g. -Values 1,2,4. A string rather than an array because
     # `powershell -File` does not parse array arguments: -Values 1,2 arrives as the
@@ -73,6 +73,11 @@ param(
     # increment behaved.
     [double]$HaloWidth = 0,
     [int]$HaloLookahead = 4,
+    # Injected one-way server-to-server link delay, milliseconds. Phase C's axis: the
+    # halo soundness bound carries a latency term, and every run before it measured
+    # only the T_L = 0 special case.
+    [double]$LinkLatencyMs = 0,
+    [double]$LinkJitterMs = 0,
     # Reliable halo updates. Needed for a bit-reproducible run, because which
     # unreliable updates drop is not the same from run to run.
     [switch]$HaloReliable,
@@ -142,6 +147,7 @@ $manifest = [ordered]@{
         drainSeconds = $DrainSeconds
         handoffRetryTicks = $HandoffRetryTicks; handoffMaxAttempts = $HandoffMaxAttempts
         haloWidth = $HaloWidth; haloLookahead = $HaloLookahead
+        linkLatencyMs = $LinkLatencyMs; linkJitterMs = $LinkJitterMs
         haloReliable = [bool]$HaloReliable
         interestRadius = $InterestRadius
         clients = $Clients
@@ -175,6 +181,7 @@ foreach ($value in $valueList) {
     $runServers = $Servers; $runObjects = $Objects; $runTicks = $Ticks; $runSeconds = $Seconds
     $runHaloWidth = $HaloWidth; $runInterest = $InterestRadius
     $runThreads = $PhysicsThreads; $runRebalance = $RebalanceInterval
+    $runLinkLatency = $LinkLatencyMs
 
     $runWorld = $World
     switch ($Sweep) {
@@ -186,6 +193,7 @@ foreach ($value in $valueList) {
         "interestRadius"    { $runInterest = $value }
         "physicsThreads"    { $runThreads = [int]$value }
         "rebalanceInterval" { $runRebalance = [int]$value }
+        "linkLatencyMs"     { $runLinkLatency = $value }
     }
 
     if ($ScaleWorldWithServers -and $Sweep -eq "servers") {
@@ -220,6 +228,7 @@ foreach ($value in $valueList) {
             -Clients $Clients `
             -HandoffRetryTicks $HandoffRetryTicks -HandoffMaxAttempts $HandoffMaxAttempts `
             -HaloWidth $runHaloWidth -HaloLookahead $HaloLookahead -HaloReliable:$HaloReliable `
+            -LinkLatencyMs $runLinkLatency -LinkJitterMs $LinkJitterMs `
             -InterestRadius $runInterest -PhysicsThreads $runThreads `
             -RebalanceInterval $runRebalance -RebalanceAlpha $RebalanceAlpha `
             -RebalanceThreshold $RebalanceThreshold `

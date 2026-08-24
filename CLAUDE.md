@@ -205,7 +205,7 @@ The midware spawns `./DistributedPhysicsServer/EntryPoint.exe` **relative to its
 |---|---|
 | Manager | `--servers N --clients N --objects N --port P --world minX,maxX,minZ,maxZ --midwares N --autostart [--headless] [--rebalance-alpha F] [--rebalance-threshold F] [--repartition-at TICK --repartition-x "x1,..."]` |
 | Midware | `--manager-ip A.B.C.D --manager-port P --server-exe <path> [--headless] [--fixed-step] [--seed N] [--workload shuttle] [--metrics-dir <dir>] [--metrics-capacity N] [--run-seconds N] [--run-ticks N]` |
-| Game Server | `--headless`, `--fixed-step`, `--seed N`, `--workload seam\|shuttle\|uniform\|headon`, `--metrics-dir`, `--metrics-capacity`, `--run-seconds`, `--run-ticks`, `--handoff-delay-ticks N`, `--handoff-lookahead N`, `--handoff-retry-ticks N`, `--handoff-max-attempts N`, `--halo-width W`, `--halo-lookahead N`, `--halo-reliable`, `--physics-threads N`, `--rebalance-interval N`, `--drain-seconds N`, `--epoch-align-us N` — **not passed directly**, see below |
+| Game Server | `--headless`, `--fixed-step`, `--seed N`, `--workload seam\|shuttle\|uniform\|headon`, `--metrics-dir`, `--metrics-capacity`, `--run-seconds`, `--run-ticks`, `--handoff-delay-ticks N`, `--handoff-lookahead N`, `--handoff-retry-ticks N`, `--handoff-max-attempts N`, `--halo-width W`, `--halo-lookahead N`, `--halo-reliable`, `--link-latency-ms M`, `--link-jitter-ms J`, `--physics-threads N`, `--rebalance-interval N`, `--drain-seconds N`, `--epoch-align-us N` — **not passed directly**, see below |
 | Client | `--manager-ip A.B.C.D --manager-port P [--game-instance N] [--render-deferred] [--headless] [--run-seconds N] [--interest-radius R]` plus interaction drivers: `[--impulse-test N] [--misroute-every N] [--blast-every N] [--blast-radius N] [--blast-offset-x N] [--spawn-every N] [--destroy-every N] [--drive-every N]` |
 
 > **Game servers are spawned by the midware, not the launcher.** Their launch string is built in `ServerMidwareManager::StartPhysicsServerInstance`, so a flag the game server understands is unreachable unless the midware forwards it. `--fixed-step` and `--seed` are therefore given to the **midware**, which appends them to every server it spawns (`mServerExtraArgs`). Any new game-server flag needs adding in both `ServerStarter.cpp` (to parse it) and `PhysicsServerMidware/ProgramStart.cpp` (to forward it) — otherwise it is silently ignored with no error.
@@ -218,7 +218,27 @@ The midware spawns `./DistributedPhysicsServer/EntryPoint.exe` **relative to its
 > `v_max * halo_lookahead * dt + 2 * r_max`; the server warns loudly below it rather than silently
 > missing contacts. `--halo-lookahead N` (default 4) is deliberately **separate from and much smaller
 > than** `--handoff-lookahead`: a handoff gap is one-off, but halo lag is permanent, so shadows are
-> extrapolated from their sample tick rather than applied stale. `--halo-reliable` makes the updates
+> extrapolated from their sample tick rather than applied stale.
+>
+> **The lookahead has a CEILING as well as the width having a floor**, and it used to be silent.
+> A shadow is retired after `HaloStaleTicks(L) = 30 + L` ticks without an applied update. That
+> horizon tracks the lookahead since 2026-08-25; before then it was a fixed 30, which meant any
+> `--halo-lookahead` above 30 retired a shadow *before* the update that would refresh it was due to
+> apply. The halo silently stopped working and the run read as unsound — which is exactly how L=32
+> came to be reported as a soundness failure in E5 round 1. The fixed 30 is now a **drop tolerance**,
+> not a ceiling.
+>
+> **`--link-latency-ms M` / `--link-jitter-ms J`** inject one-way delay on the **server-to-server**
+> path only — the client path is deliberately not delayed, because the halo bound is a statement
+> about server-to-server lag and delaying snapshots would move E3 and E8 without moving E5. Jitter is
+> a WORST-CASE additional delay drawn deterministically from `--seed`, so a run stays reproducible;
+> release times are forced monotonic per target, so jitter varies the delay without reordering a
+> link. Both are terms in the width floor: `w_min = v_max * (L * dt + T_L + T_J) + 2 * r_max`, which
+> reduces exactly to the published `v_max * L * dt + 2 * r_max` at zero delay (asserted in
+> `tools/InteractionTests`). A width that was safe at zero latency can therefore become unsafe purely
+> because delay was injected — the warning names the latency when that happens.
+>
+> `--halo-reliable` makes the updates
 > reliable, which a deployment does not need but a **reproducible run does** - dropped updates are
 > not the same from run to run.
 >

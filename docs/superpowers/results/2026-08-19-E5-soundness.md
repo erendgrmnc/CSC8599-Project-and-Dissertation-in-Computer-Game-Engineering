@@ -148,12 +148,30 @@ data shows: crossings pinned near the no-halo baseline at every tested width, an
 loss of collision-mediated border blocking is consistent with (though not proven to fully explain)
 the ownership-gap failures on the same runs.
 
-**This is a real defect, and it is recorded here rather than fixed here.** `SetHaloWidth` warns
-loudly when `--halo-width` is set below its computed floor. There is no equivalent warning when
-`--halo-lookahead` exceeds the `HALO_STALE_TICKS` staleness horizon — the guard is asymmetric: the
-width axis is protected, the lookahead axis is silent. Server code is frozen for this evidence
-pass (`deploy/` binaries must not be rebuilt), so this is deliberately left as a finding for the
-build phase: either raise `HALO_STALE_TICKS` to track `--halo-lookahead`, or warn when it doesn't.
+**This is a real defect, and it was recorded here rather than fixed here.** `SetHaloWidth` warns
+loudly when `--halo-width` is set below its computed floor. There was no equivalent warning when
+`--halo-lookahead` exceeded the `HALO_STALE_TICKS` staleness horizon — the guard was asymmetric: the
+width axis protected, the lookahead axis silent. Server code was frozen for this evidence pass
+(`deploy/` binaries must not be rebuilt), so it was left as a finding for the build phase: either
+raise `HALO_STALE_TICKS` to track `--halo-lookahead`, or warn when it doesn't.
+
+> **CLOSED 2026-08-25 (Phase C §4.2), by the first of those two options.** The horizon now tracks
+> the lookahead: `HaloStaleTicks(L) = 30 + L`, so the fixed 30 becomes a **drop tolerance** rather
+> than a ceiling, and a shadow can never be retired before the update that would refresh it is due
+> to apply. Asserted in `tools/InteractionTests` (`HaloBoundTests`), which checks
+> `HaloStaleTicks(L) > L` at L = 0, 4, 24, 32, 64 and pins `HaloStaleTicks(0) == 30` so the drop
+> tolerance itself is preserved.
+>
+> This was a **precondition** for Phase C rather than a tidy-up: injected link delay costs roughly
+> one tick of effective lookahead per 8.33 ms at the 120 Hz substep, so a nominal L=24 would have
+> hit the old ceiling of 30 at only ~50 ms of one-way delay — and the latency sweep would then have
+> reported its own envelope limit as a falsification of the bound, which is precisely the misreading
+> recorded above at L=32.
+>
+> **The zero-latency rounds below are NOT re-run and remain valid.** The generalised bound reduces
+> exactly to the published expression at `T_L = T_J = 0` (asserted), and a paced gate run at zero
+> injected latency reproduced the pre-change baseline on all 20 stable fields and both conserved
+> totals.
 
 L=32 is therefore reported as **out of the implementation's tested envelope**, not as a soundness
 falsification within it — the formula was never actually tested at L=32, because the mechanism
