@@ -6,6 +6,18 @@ void NetworkBase::ClearPacketHandlers() {
 	packetHandlers.clear();
 }
 
+unsigned int NetworkBase::GetTotalSentData() const {
+	return (netHandle != nullptr) ? netHandle->totalSentData : 0u;
+}
+
+unsigned int NetworkBase::GetTotalSentPackets() const {
+	return (netHandle != nullptr) ? netHandle->totalSentPackets : 0u;
+}
+
+unsigned int NetworkBase::GetTotalReceivedData() const {
+	return (netHandle != nullptr) ? netHandle->totalReceivedData : 0u;
+}
+
 NetworkBase::NetworkBase()	{
 	netHandle = nullptr;
 }

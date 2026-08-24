@@ -27,6 +27,11 @@ not only the swept one, because several of them decide whether a run is reproduc
 - **A busiest-server table.** An average over servers hides precisely the imbalance partitioning
   exists to fix; the simulation runs no faster than its slowest participant.
 
+**Tick-epoch alignment.** Reproducible runs leave `--epoch-align-us` at 0, measured in
+`docs/superpowers/results/2026-08-23-A-instrumentation.md`. Every E1–E8 figure was
+taken with it off, so a run that enables it is not directly comparable to those
+without re-measuring the baseline.
+
 ### One check was wrong, and the experiments found it
 
 The per-tick ownership check added with B6 sums `owned_objects` across servers at each tick. That is

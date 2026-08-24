@@ -16,11 +16,20 @@
 - **There is no stored baseline.** `runs/` is gitignored and empty (spec §1.1), so Task 1 does not start until Task 0 has produced one.
 - **Every measurement run passes `--fixed-step` and `--seed`.** Without both, servers under different load integrate with different `dt` and figures are not comparable.
 - **`--handoff-delay-ticks` must be 0 for any measurement run.** It is fault injection.
-- **Measurement runs use a Release build.** Debug duration figures are annotated "not quotable" throughout the results documents. Counts are build-independent; durations are not.
+- **Measurement runs use a Release build, and `build-deploy.ps1` defaults to Debug** — always pass `-Config Release` explicitly. Debug duration figures are annotated "not quotable" throughout the results documents. Counts are build-independent; durations are not.
 - **Repeats are 3, and the reported figure is the median across them** (`analyse.py` does this).
 - **`-Values` is a quoted comma-separated string**, never a bare list: `powershell -File` parses `-Values 1,2` as the single value `12`.
 - **New source files must be added to the owning `CMake*.cmake` or `CMakeLists.txt`**, not just to disk.
 - **A phase is not done until the documents it invalidates are corrected** (spec §1.2), in the same change as the code.
+- **`msbuild` is not on PATH on this machine.** Invoke it by full path, quoted:
+  `& "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe"` (verified 17.12.12).
+  A bare `msbuild` fails with "command not found" and is not a build failure — do not diagnose it as one.
+- **The build tree starts cold.** There is no `CMakeCache.txt` and no `deploy/`, so the first
+  configure-and-build is a full build of every vendored library (Recast, Detour, imgui, OpenGL
+  backend). Expect it to take a long time; that is not a hang.
+- **`analyse.py` only accepts experiment directories**, never a single run directory. It requires
+  `experiment.json` plus run subdirectories named `<sweep><value>-r<repeat>`, so every run in this
+  plan goes through `run-experiments.ps1` rather than `measure.ps1` directly.
 
 ---
 
@@ -51,11 +60,11 @@
 Nothing in this plan may be gated against a baseline that does not exist. This task produces it.
 
 **Files:**
-- Create: `runs/phaseA-baseline/` (gitignored output, not committed)
+- Create: `runs/exp-phaseA-baseline/` (gitignored output, not committed)
 - Create: `docs/superpowers/results/2026-08-23-A-instrumentation.md`
 
 **Interfaces:**
-- Produces: a paced, reproducible run directory that Task 6 compares against byte-for-byte, and the commit SHA it was built from.
+- Produces: `runs/exp-phaseA-baseline/FINAL-baseline.txt`, the `@@FINAL role=server` lines Task 6 compares against, and the commit SHA in `experiment.json`.
 
 - [ ] **Step 1: Record the commit the baseline is taken at**
 
@@ -69,7 +78,7 @@ Expected: a clean working tree. If it is not clean, stop and commit or stash fir
 - [ ] **Step 2: Build and stage all four roles in Release**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1
+powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1 -Config Release
 ```
 
 Expected: `deploy/Manager`, `deploy/Midware`, `deploy/Client`, `deploy/DistributedPhysicsServer` each containing `EntryPoint.exe`.
@@ -78,30 +87,42 @@ Expected: `deploy/Manager`, `deploy/Midware`, `deploy/Client`, `deploy/Distribut
 
 Paced and reproducible, halo on, so the gate covers the halo path as well as the plain one.
 
+Run through `run-experiments.ps1`, not `measure.ps1`: `analyse.py` only accepts an
+experiment directory (it requires `experiment.json` and run subdirectories matching
+`<sweep><value>-r<repeat>`), and the experiment manifest also records the commit SHA
+and a dirty flag — which is exactly what makes a baseline reproducible.
+
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\measure.ps1 `
-    -Tag phaseA-baseline -Servers 2 -Objects 400 -Workload uniform `
-    -Ticks 1800 -Seed 42 -HaloWidth 8 -HaloReliable -DrainSeconds 5
+powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
+    -Name phaseA-baseline -Sweep ticks -Values "1800" -Repeats 1 `
+    -Servers 2 -Objects 400 -Workload uniform `
+    -Seed 42 -HaloWidth 8 -HaloReliable -DrainSeconds 5
 ```
 
-Expected: `runs/phaseA-baseline/ticks-server0.csv`, `ticks-server1.csv`, `mid.log`, `cli.log`, `manifest.json`.
+Expected: `runs/exp-phaseA-baseline/experiment.json` and `runs/exp-phaseA-baseline/ticks1800-r1/` containing `ticks-server0.csv`, `ticks-server1.csv`, `mid.log`, `cli.log`, `manifest.json`.
 
 - [ ] **Step 4: Verify the run is clean before trusting it as a baseline**
 
 ```powershell
-python tools\analyse.py runs\phaseA-baseline
+python tools\analyse.py runs\exp-phaseA-baseline
 ```
 
 Expected: exit code 0, two server CSVs found, no invariant failure. A baseline that already fails an invariant is not a baseline — investigate before continuing.
 
 - [ ] **Step 5: Snapshot the exact values the gate will compare**
 
+The filter must be **exactly** the one Task 6 uses. `mid.log` carries forwarded
+server output, so capturing unfiltered `@@FINAL` here and filtering `role=server`
+at the gate would let `Compare-Object` report a difference that is an artefact of
+the filter rather than of the code — discrediting the only check that makes Phase
+A's measurement-only claim verifiable.
+
 ```powershell
-Select-String -Path runs\phaseA-baseline\mid.log -Pattern "@@FINAL" | ForEach-Object { $_.Line } | Out-File -Encoding utf8 runs\phaseA-baseline\FINAL-baseline.txt
-Get-Content runs\phaseA-baseline\FINAL-baseline.txt
+Select-String -Path runs\exp-phaseA-baseline\ticks1800-r1\mid.log -Pattern "@@FINAL role=server" | ForEach-Object { $_.Line } | Out-File -Encoding utf8 runs\exp-phaseA-baseline\FINAL-baseline.txt
+Get-Content runs\exp-phaseA-baseline\FINAL-baseline.txt
 ```
 
-Expected: one `@@FINAL role=server` line per server. These lines are what Task 6 diffs against.
+Expected: one line per server. These lines are what Task 6 diffs against.
 
 - [ ] **Step 6: Open the Phase A results document and record the baseline**
 
@@ -125,7 +146,7 @@ generated rather than cited. Every no-op gate below compares against it.
 | Build | Release, via `tools/build-deploy.ps1` |
 | Invariants | `<paste the analyse.py verdict>` |
 
-`@@FINAL` lines are stored at `runs/phaseA-baseline/FINAL-baseline.txt`.
+`@@FINAL` lines are stored at `runs/exp-phaseA-baseline/FINAL-baseline.txt`.
 ```
 
 - [ ] **Step 7: Commit**
@@ -361,11 +382,11 @@ Expected: all three link with no errors.
 There is no unit test for this — it needs live hosts. Verify by running.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1
-powershell -ExecutionPolicy Bypass -File tools\measure.ps1 `
-    -Tag netcounters-smoke -Servers 2 -Objects 400 -Workload uniform `
-    -Ticks 600 -Seed 42 -HaloWidth 8 -HaloReliable
-Select-String -Path runs\netcounters-smoke\mid.log -Pattern "@@FINAL" | ForEach-Object { $_.Line }
+powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1 -Config Release
+powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
+    -Name netcounters-smoke -Sweep ticks -Values "600" -Repeats 1 `
+    -Servers 2 -Objects 400 -Workload uniform -Seed 42 -HaloWidth 8 -HaloReliable
+Select-String -Path runs\exp-netcounters-smoke\ticks600-r1\mid.log -Pattern "@@FINAL role=server" | ForEach-Object { $_.Line }
 ```
 
 Expected: each server line carries all four fields. `netCliBytes` and `netCliPkts` must be **non-zero** (snapshots went to a client), and with `--halo-width 8` on two servers `netPeerBytes` and `netPeerPkts` must be **non-zero** too. All-zero peer figures mean the peer links were never established — a real failure, not a reporting one.
@@ -373,7 +394,7 @@ Expected: each server line carries all four fields. `netCliBytes` and `netCliPkt
 - [ ] **Step 6: Sanity-check the ratio before trusting it**
 
 ```powershell
-Select-String -Path runs\netcounters-smoke\mid.log -Pattern "@@FINAL" | ForEach-Object {
+Select-String -Path runs\exp-netcounters-smoke\ticks600-r1\mid.log -Pattern "@@FINAL role=server" | ForEach-Object {
     if ($_.Line -match "netCliBytes=(\d+).*netCliPkts=(\d+)") {
         "mean datagram payload: {0:N1} bytes" -f ([double]$Matches[1] / [double]$Matches[2])
     }
@@ -509,7 +530,7 @@ In `tools/analyse.py`, inside `summarise_run`, in the `if server_finals:` block 
 - [ ] **Step 6: Verify against the Task 2 smoke run**
 
 ```powershell
-python tools\analyse.py runs\netcounters-smoke
+python tools\analyse.py runs\exp-netcounters-smoke
 ```
 
 Expected: the summary reports `net_cli_wire_bytes` and `net_peer_wire_bytes`, both non-zero, and each strictly greater than the corresponding raw `netCliBytes` / `netPeerBytes` sum (because headers were added). Exit code unchanged from before the edit.
@@ -637,7 +658,7 @@ Expected: OK, all tests passing, including the pre-existing ones.
 - [ ] **Step 5: Verify no regression on a real run**
 
 ```powershell
-python tools\analyse.py runs\phaseA-baseline
+python tools\analyse.py runs\exp-phaseA-baseline
 ```
 
 Expected: identical output to Task 0 Step 4. The baseline has one `cli.log`, which the new pattern still matches.
@@ -739,21 +760,21 @@ And add `-Clients $Clients` to the `measure.ps1` invocation at `:215`, alongside
 - [ ] **Step 7: Verify one client still behaves exactly as before**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\measure.ps1 `
-    -Tag clients-1 -Servers 2 -Objects 400 -Workload uniform `
-    -Ticks 600 -Seed 42 -HaloWidth 8 -HaloReliable
-python tools\analyse.py runs\clients-1
+powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
+    -Name clients-1 -Sweep ticks -Values "600" -Repeats 1 `
+    -Servers 2 -Objects 400 -Workload uniform -Seed 42 -HaloWidth 8 -HaloReliable
+python tools\analyse.py runs\exp-clients-1
 ```
 
-Expected: `runs/clients-1/cli-0.log` exists (not `cli.log`), analyse.py finds exactly one client, invariants pass.
+Expected: `runs/exp-clients-1/ticks600-r1/cli-0.log` exists (not `cli.log`), analyse.py finds exactly one client, invariants pass.
 
 - [ ] **Step 8: Verify two clients**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\measure.ps1 `
-    -Tag clients-2 -Servers 2 -Objects 400 -Workload uniform `
-    -Ticks 600 -Seed 42 -HaloWidth 8 -HaloReliable -Clients 2
-python tools\analyse.py runs\clients-2
+powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
+    -Name clients-2 -Sweep ticks -Values "600" -Repeats 1 `
+    -Servers 2 -Objects 400 -Workload uniform -Seed 42 -HaloWidth 8 -HaloReliable -Clients 2
+python tools\analyse.py runs\exp-clients-2
 ```
 
 Expected: `cli-0.log` and `cli-1.log` both present, both carrying an `@@FINAL role=client` line; invariants pass. Compare the two runs' `netCliBytes`: the two-client run must be substantially **higher**, since snapshots are sent per client. If it is not, the second client never actually received snapshots and the bootstrap is at fault — investigate before continuing, because this is the measurement Task 9 depends on.
@@ -774,81 +795,280 @@ produce the measurement; this is what makes it measurable."
 
 ---
 
-### Task 6: The Phase A gate — prove nothing changed
+### Task 6: The Phase A gate — bound what could have changed
 
-Everything above claims to be measurement-only. This task is what turns that claim into a verified statement.
+Everything above claims to be measurement-only. This task turns that claim into a
+measurement — but not the one this plan originally specified, and the reason matters.
+
+**The original gate does not work, and was replaced before Task 6 ran.** It required
+the post-change `@@FINAL` lines to compare identical to the baseline's. Measured on
+this machine with **four clean runs at the identical commit, seed and configuration**,
+that never happens:
+
+| behaviour across 4 identical clean runs | fields |
+|---|---|
+| **identical every time** | the 21 zero-valued or tick-locked counters: `cmdApplied` `cmdRelayed` `cmdDup` `cmdRejected` `cmdFanout` `hoFail` `hoLate` `hoResent` `hoReclaimed` `hoCustody` `hoDup` `hoPending` `hoSched` `haloLate` `haloAhead` `haloSent` `haloRecv` `manifestSent` `objPreseed` `objSpawned` `objDestroyed` |
+| **per-server varies, TOTAL stable at 400** | `objs`, `objPool` — observed splits 201/199, 200/200, 200/200, 201/199 |
+| **varies, total varies** | `contacts` (~1%), `snapSent` (~1.5%), `haloObjSent`/`haloObjRecv` (~10%), `hoSent`/`hoRecv` (±1), `objFwd`, `objHalo`, `objWorld`, `hoClamp` |
+
+`ownership_gap_ticks` across those four runs: 84, 82, 91, 84. A fifth run degraded
+badly — 1747 ms and 1049 ms frame times in its opening windows against an 8.33 ms
+budget — which cascaded into custody firing, `haloLate` 9,530, `ownership_gap_ticks`
+1,779 and two ticks of double ownership. `analyse.py` flagged it with a
+REPRODUCIBILITY WARNING, so a degraded run is detectable; but its `@@FINAL` values
+bore no resemblance to a clean run's.
+
+So an exact comparison would have failed 100% of the time with zero code change. The
+gate below is weaker than "identical" because nothing stronger is available on this
+machine — not because a weaker check was more convenient.
 
 **Files:**
 - Modify: `docs/superpowers/results/2026-08-23-A-instrumentation.md`
 
 **Interfaces:**
-- Consumes: the Task 0 baseline at `runs/phaseA-baseline/FINAL-baseline.txt`.
+- Consumes: the Task 0 baseline experiment at `runs/exp-phaseA-baseline/`.
 - Produces: a pass/fail verdict. **No Phase A result may be reported before this passes.**
 
-- [ ] **Step 1: Re-run the exact baseline configuration on the current build**
+- [ ] **Step 1: Take three post-change repeats of the baseline configuration**
+
+Three, not one: the varying fields can only be compared as ranges, and a single run
+cannot establish a range.
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1
-powershell -ExecutionPolicy Bypass -File tools\measure.ps1 `
-    -Tag phaseA-gate -Servers 2 -Objects 400 -Workload uniform `
-    -Ticks 1800 -Seed 42 -HaloWidth 8 -HaloReliable -DrainSeconds 5
+powershell -ExecutionPolicy Bypass -File tools\build-deploy.ps1 -Config Release
+powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
+    -Name phaseA-gate -Sweep ticks -Values "1800" -Repeats 3 `
+    -Servers 2 -Objects 400 -Workload uniform `
+    -Seed 42 -HaloWidth 8 -HaloReliable -DrainSeconds 5
 ```
 
-Every parameter must match Task 0 Step 3 exactly. `-Clients` is deliberately omitted so it takes its default of 1, matching the baseline.
+Every parameter except `-Repeats` must match Task 0 Step 3. `-Clients` is deliberately
+omitted so it takes its default of 1, matching the baseline.
 
-- [ ] **Step 2: Diff the simulation fields against the baseline**
-
-The new `net*` fields did not exist at baseline, so strip them before comparing — everything else must be identical.
+- [ ] **Step 2: Establish validity — a degraded run is not a comparand**
 
 ```powershell
-$strip = { param($line) ($line -replace '\s*net(Cli|Peer)(Bytes|Pkts)=\d+', '').Trim() }
-$base = Get-Content runs\phaseA-baseline\FINAL-baseline.txt | ForEach-Object { & $strip $_ }
-$new  = Select-String -Path runs\phaseA-gate\mid.log -Pattern "@@FINAL role=server" | ForEach-Object { & $strip $_.Line }
-Compare-Object $base $new
+python tools\analyse.py runs\exp-phaseA-gate
 ```
 
-Expected: **no output.** `Compare-Object` printing nothing means the two sets are identical, which is the gate passing.
+Read the output for a `REPRODUCIBILITY WARNING`. Any repeat that reports custody
+firing is a **failed measurement, not a failed gate** — discard it and re-run that
+repeat until you have three clean ones. `ownership_gap_ticks` in the 80–95 band is
+expected (the documented `--handoff-lookahead 0` gap, see below); a value in the
+thousands means the run degraded and must be discarded on the same grounds.
 
-If it prints differences, Phase A altered a simulation result. Stop. Do not proceed to Task 9 — find which task caused it. The likeliest candidate is Task 2, since it is the only one that touches server code, and the likeliest mechanism is the counter read perturbing timing on a non-paced path.
+Only once you hold three clean repeats does the comparison below mean anything.
 
-- [ ] **Step 3: Confirm the run is independently clean**
+- [ ] **Step 3: Require exact equality on the stable set**
 
 ```powershell
-python tools\analyse.py runs\phaseA-gate
+python tools\gate-compare.py runs\exp-phaseA-baseline runs\exp-phaseA-repro3 runs\exp-phaseA-gate
 ```
 
-Expected: exit code 0, same verdict as the baseline.
+Write `tools/gate-compare.py` as part of this task:
 
-- [ ] **Step 4: Record the gate result**
+```python
+"""Phase A no-op gate.
+
+Exact @@FINAL comparison is impossible: four clean runs at the same commit, seed
+and configuration disagree on contacts, snapshot counts, halo object counts and the
+handoff split. What IS stable is a specific set of counters, and object conservation.
+
+Usage: gate-compare.py <pre-change experiment dir> ... -- <post-change experiment dir> ...
+       (with no --, the LAST directory is the post-change one and the rest are pre.)
+
+Exit code 0 = gate passes.
+"""
+import glob
+import os
+import re
+import sys
+
+# Identical on every clean run measured. A Phase A regression would almost certainly
+# move one of these off its value - they are the failure counters plus the two
+# tick-locked halo counts.
+STABLE = [
+    "cmdApplied", "cmdRelayed", "cmdDup", "cmdRejected", "cmdFanout",
+    "hoFail", "hoLate", "hoResent", "hoReclaimed", "hoCustody", "hoDup",
+    "hoPending", "hoSched", "haloLate", "haloAhead", "haloSent", "haloRecv",
+    "manifestSent", "objPreseed", "objSpawned", "objDestroyed",
+]
+
+# Per-server assignment drifts, but the world is conserved.
+CONSERVED = ["objs", "objPool"]
+
+
+def finals(experiment_dir):
+    """One dict per server per run under this experiment directory."""
+    out = []
+    for log in sorted(glob.glob(os.path.join(experiment_dir, "*", "mid.log"))):
+        for line in open(log, errors="ignore"):
+            if "@@FINAL role=server" not in line:
+                continue
+            out.append(dict(
+                re.findall(r"(\w+)=(-?\d+)", line[line.index("@@FINAL"):])
+            ))
+    return out
+
+
+def main():
+    args = sys.argv[1:]
+    if "--" in args:
+        cut = args.index("--")
+        pre_dirs, post_dirs = args[:cut], args[cut + 1:]
+    else:
+        pre_dirs, post_dirs = args[:-1], args[-1:]
+    if not pre_dirs or not post_dirs:
+        print(__doc__)
+        return 2
+
+    pre = [f for d in pre_dirs for f in finals(d)]
+    post = [f for d in post_dirs for f in finals(d)]
+    if not pre or not post:
+        print("FAIL: no @@FINAL server lines found on one side")
+        return 1
+
+    failures = []
+
+    # 1. The stable set must hold its exact value on every server of every run.
+    for field in STABLE:
+        pre_values = {int(f[field]) for f in pre if field in f}
+        post_values = {int(f[field]) for f in post if field in f}
+        if not pre_values or not post_values:
+            failures.append(f"{field}: absent on one side")
+        elif pre_values != post_values:
+            failures.append(
+                f"{field}: was {sorted(pre_values)}, now {sorted(post_values)}"
+            )
+
+    # 2. Conservation: per-server assignment drifts, the world total does not.
+    #    Grouped per run, because a total is only meaningful within one run.
+    def totals(rows, dirs):
+        per_run = []
+        for d in dirs:
+            rows_here = finals(d)
+            by_run = {}
+            for log_index in range(0, len(rows_here), 2):
+                pair = rows_here[log_index:log_index + 2]
+                if len(pair) == 2:
+                    by_run.setdefault(log_index, pair)
+            for pair in by_run.values():
+                per_run.append({f: sum(int(r[f]) for r in pair) for f in CONSERVED})
+        return per_run
+
+    for field in CONSERVED:
+        pre_totals = {t[field] for t in totals(pre, pre_dirs)}
+        post_totals = {t[field] for t in totals(post, post_dirs)}
+        if pre_totals != post_totals:
+            failures.append(
+                f"{field} total: was {sorted(pre_totals)}, now {sorted(post_totals)}"
+            )
+
+    if failures:
+        print(f"GATE FAILED ({len(failures)}):")
+        for failure in failures:
+            print(f"  {failure}")
+        return 1
+
+    print(f"GATE PASSED: {len(STABLE)} stable fields unchanged, "
+          f"{len(CONSERVED)} conserved totals unchanged "
+          f"({len(pre)} pre-change server-runs vs {len(post)} post-change)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+Expected: `GATE PASSED`. A failure here names the field that moved, which is the
+actual signal — a Phase A change that altered simulation behaviour would show up as a
+failure counter leaving zero, or as conservation breaking.
+
+- [ ] **Step 4: Check the varying fields sit inside their pre-change spread**
+
+The stable set cannot see a change that only perturbs the noisy fields, so bound them
+by hand. Pre-change spread, from four clean runs (`runs/exp-phaseA-baseline` plus the
+three in `runs/exp-phaseA-repro3`):
+
+| field | pre-change range across clean runs |
+|---|---|
+| `contacts` (per server) | 171,536 – 173,921 |
+| `snapSent` (per server) | 246,833 – 251,275 |
+| `haloObjSent` (per server) | 16,149 – 20,186 |
+| `hoSent` + `hoRecv` (both servers) | 78 – 80 |
+| `objHalo` (per server) | 7 – 14 |
+| `hoClamp` (server 0) | 7 – 8 |
+
+Read the same fields from the three gate repeats. Each must fall inside — or
+negligibly outside — its band. Record any that do not, with the actual value; a field
+that moves an order of magnitude is a real signal even though a field that moves 2% is
+not.
+
+- [ ] **Step 5: State the structural argument the numbers cannot make**
+
+The measurement above bounds the change; it cannot prove it is zero. Confirm by
+inspection, and record the file and line:
+
+- `DistributedGameServerManager::GetNetworkByteTotals()` is called **once**, from
+  `ServerStarter.cpp`, after the run loop has exited and before the `@@FINAL` line.
+- It performs only reads: the sender host's two counters plus a loop over peer links.
+- Nothing on the tick path calls it, and no counter is reset.
+
+If any of those three is false, the gate does not hold regardless of what the numbers
+say.
+
+- [ ] **Step 6: Record the gate result honestly**
 
 Append to `docs/superpowers/results/2026-08-23-A-instrumentation.md`:
 
 ```markdown
-## The no-op gate
+## The no-op gate, and why it is not an equality check
 
-Phase A claims to be measurement-only. Verified rather than asserted: the baseline
-configuration was re-run on the post-change build and every `@@FINAL` field except
-the four newly added `net*` ones compared identical.
+Phase A claims to be measurement-only. The obvious verification — re-run the baseline
+configuration and require every `@@FINAL` field to match — **is not available on this
+machine.** Four clean runs at the identical commit, seed and configuration disagree on
+`contacts` (~1%), `snapSent` (~1.5%), halo object counts (~10%), the `hoSent`/`hoRecv`
+split (±1), and the per-server object split (201/199 vs 200/200). `ownership_gap_ticks`
+across those four runs was 84, 82, 91, 84.
 
-| | |
+This contradicts `CLAUDE.md`'s claim that under `--run-ticks --fixed-step` "end state
+and conservation then reproduce exactly". Conservation does reproduce — the object
+total is 400 on every run. End state does not.
+
+What the gate checks instead:
+
+| check | result |
 |---|---|
-| Baseline commit | `<SHA>` |
-| Gate commit | `<SHA>` |
-| Differing fields | none |
-| Invariants | `<paste>` |
+| 21 stable counters identical across all runs, both sides | `<pass/fail>` |
+| Object conservation total unchanged (400) | `<pass/fail>` |
+| Varying fields inside their pre-change spread | `<pass/fail, with any exceptions>` |
+| Counter read is once-at-exit, off the tick path | `<confirmed at ServerStarter.cpp:NNN>` |
+
+**What this does and does not establish.** It rules out a Phase A change that breaks
+conservation, that trips any failure counter, or that shifts a noisy field beyond its
+natural spread. It cannot rule out a change that perturbs those fields within that
+spread. That is a weaker claim than the plan originally intended, and it is stated
+here rather than papered over.
 ```
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add docs/superpowers/results/2026-08-23-A-instrumentation.md
-git commit -m "docs(A): the no-op gate passes
+git add tools/gate-compare.py docs/superpowers/results/2026-08-23-A-instrumentation.md
+git commit -m "test(A): bound Phase A's effect, since exact comparison is unavailable
 
-Every @@FINAL field except the four new counters is identical to the
-step-0 baseline, so Phase A's instrumentation did not alter a simulation
-result. Batch A was selected on the argument that its changes could not
-alter a result and one of them did; this is that argument replaced with
-a measurement."
+Four clean runs at the same commit, seed and configuration disagree on
+contacts, snapshot counts, halo object counts and the handoff split, so
+the planned equality gate would have failed with zero code change.
+
+Gates instead on what is actually stable: 21 counters that hold their
+value on every clean run, and object conservation. The noisy fields are
+bounded by their measured pre-change spread, and the once-at-exit
+structure of the counter read is recorded as the part the numbers
+cannot establish.
+
+Also contradicts CLAUDE.md's 'end state and conservation then reproduce
+exactly' - conservation does, end state does not."
 ```
 
 ---
@@ -869,8 +1089,8 @@ a measurement."
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
-    -Name epoch-off -Sweep seconds -Values "0" -Repeats 3 `
-    -Servers 2 -Objects 400 -Workload uniform -Ticks 1800 -HaloWidth 8 -HaloReliable
+    -Name epoch-off -Sweep ticks -Values "1800" -Repeats 3 `
+    -Servers 2 -Objects 400 -Workload uniform -Seed 42 -HaloWidth 8 -HaloReliable
 ```
 
 - [ ] **Step 2: Take three repeats with alignment**
@@ -879,8 +1099,8 @@ The alignment quantum is 100 ms — comfortably longer than the few-millisecond 
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
-    -Name epoch-on -Sweep seconds -Values "0" -Repeats 3 `
-    -Servers 2 -Objects 400 -Workload uniform -Ticks 1800 -HaloWidth 8 -HaloReliable `
+    -Name epoch-on -Sweep ticks -Values "1800" -Repeats 3 `
+    -Servers 2 -Objects 400 -Workload uniform -Seed 42 -HaloWidth 8 -HaloReliable `
     -EpochAlignUs 100000
 ```
 
@@ -974,12 +1194,14 @@ explanation for, and recorded either way."
 
 ---
 
-### Task 8: Correct two stale claims in SPATIAL-PARTITIONING.md
+### Task 8: Correct three stale claims, measured false during this phase
 
-Both are stale today, independent of anything Phase A changes. They land here because Phase A is the phase with no blast radius (spec §2.5).
+Two are stale independently of anything Phase A changes. The third was **measured false by
+this phase's own runs**, which is why it lands here rather than in the spec's original list.
 
 **Files:**
 - Modify: `docs/SPATIAL-PARTITIONING.md:7`, `:50`, and the summary table row
+- Modify: `CLAUDE.md:218` (the reproducibility claim — see Step 6 below)
 
 **Interfaces:**
 - Consumes: nothing. Produces: nothing. Purely documentation.
@@ -1027,11 +1249,28 @@ Select-String -Path docs\SPATIAL-PARTITIONING.md -Pattern "150|scaffold|stub|TOD
 
 Expected: only the corrected text and the summary-table row. Any other hit is another instance of the same staleness — fix it in this commit.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Correct the reproducibility claim in CLAUDE.md**
+
+`CLAUDE.md:218` currently reads, of `--run-ticks` with `--fixed-step`:
+
+> End state and conservation then reproduce exactly; handoff *event* counts still vary by ±1,
+> which would need a global tick barrier to remove.
+
+Both halves are contradicted by this phase's measurements. Replace that sentence with:
+
+```markdown
+Conservation then reproduces exactly — the world total is identical on every run — but **end state does not**. Measured 2026-08-23 across four clean runs at an identical commit, seed and configuration: `contacts` varied ~1%, `snapSent` ~1.5%, halo object counts ~10%, and the per-server object split moved between 201/199 and 200/200. Handoff *event* counts vary by more than the ±1 previously claimed here: `hoSent` ranged 78–83 across six runs. A set of counters IS stable across clean runs and is what `tools/gate-compare.py` pins; see `docs/superpowers/specs/2026-08-23-backlog-completion-design.md` §1.3 for the full field-by-field breakdown and for what a verification gate can therefore check.
+```
+
+Keep the rest of that paragraph — the `--run-seconds` description and the closing
+"use `--run-ticks` for correctness/conservation experiments" guidance — unchanged. The
+guidance is still right; only the strength of the reproducibility claim was wrong.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add docs/SPATIAL-PARTITIONING.md
-git commit -m "docs: correct two stale claims in SPATIAL-PARTITIONING
+git add docs/SPATIAL-PARTITIONING.md CLAUDE.md
+git commit -m "docs: correct three stale claims, two long-standing and one measured false
 
 World bounds have been a --world flag since E1's locality sweep needed
 to grow the world with the server count; the doc still described a fixed
@@ -1068,14 +1307,34 @@ powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
     -HaloWidth 8 -DrainSeconds 0 -Clients 1
 ```
 
-- [ ] **Step 2: Re-run E8 at two clients**
+- [ ] **Step 2: Re-run E8 at two clients — with the world held constant**
+
+**`--objects N` is per client, not per world.** `ServerWorldManager::CreatePlayerObjects`
+creates N objects for *each* connected client; measured, `objPreseed` reads 400 with one
+client and 800 with two. Every experiment in the suite to date used a single client, so
+the distinction never mattered — here it decides whether the result means anything.
+
+Passing `-Objects 4000 -Clients 2` would compare 4,000 objects at one client against
+**8,000 objects at two**, conflating client scaling with world scaling. It would also
+appear to confirm the hypothesis, because both effects push snapshot traffic the same
+way. Halve the per-client count instead, so both runs simulate 4,000 objects:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
     -Name bytes-2client -Sweep interestRadius -Values "0,25,50,100" -Repeats 3 `
-    -Servers 2 -Objects 4000 -Workload uniform -Seconds 20 `
+    -Servers 2 -Objects 2000 -Workload uniform -Seconds 20 `
     -HaloWidth 8 -DrainSeconds 0 -Clients 2
 ```
+
+**Confirm before analysing** that both experiments report the same world size, or the
+comparison is void:
+
+```powershell
+Select-String -Path runs\exp-bytes-1client\*\mid.log,runs\exp-bytes-2client\*\mid.log -Pattern "objPreseed=\d+" | ForEach-Object { ($_.Line -replace '.*(objPreseed=\d+).*','$1') } | Sort-Object -Unique
+```
+
+Expected: `objPreseed=4000` from both. Anything else means the world was not held
+constant and the client-count result must not be reported.
 
 - [ ] **Step 3: Analyse both**
 

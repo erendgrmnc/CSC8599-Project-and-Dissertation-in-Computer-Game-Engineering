@@ -80,6 +80,9 @@ param(
     # Client area of interest. 0 asks for every object.
     [double]$InterestRadius = 0,
 
+    # Clients per run. See measure.ps1 -Clients.
+    [int]$Clients = 1,
+
     # Parallel physics workers per server. 0 keeps everything on the server's thread.
     [int]$PhysicsThreads = 0,
 
@@ -141,6 +144,7 @@ $manifest = [ordered]@{
         haloWidth = $HaloWidth; haloLookahead = $HaloLookahead
         haloReliable = [bool]$HaloReliable
         interestRadius = $InterestRadius
+        clients = $Clients
         physicsThreads = $PhysicsThreads
         rebalanceInterval = $RebalanceInterval
         rebalanceAlpha = $RebalanceAlpha; rebalanceThreshold = $RebalanceThreshold
@@ -213,6 +217,7 @@ foreach ($value in $valueList) {
             -ImpulseTest $ImpulseTest -MisrouteEvery $MisrouteEvery -BlastEvery $BlastEvery `
             -SpawnEvery $SpawnEvery -DestroyEvery $DestroyEvery -DriveEvery $DriveEvery `
             -HandoffLookahead $HandoffLookahead -EpochAlignUs $EpochAlignUs -DrainSeconds $DrainSeconds `
+            -Clients $Clients `
             -HandoffRetryTicks $HandoffRetryTicks -HandoffMaxAttempts $HandoffMaxAttempts `
             -HaloWidth $runHaloWidth -HaloLookahead $HaloLookahead -HaloReliable:$HaloReliable `
             -InterestRadius $runInterest -PhysicsThreads $runThreads `

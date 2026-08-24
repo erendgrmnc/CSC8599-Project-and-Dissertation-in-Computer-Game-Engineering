@@ -61,6 +61,27 @@ def predicted_halo_floor(lookahead_ticks, substep_hz=DEFAULT_SUBSTEP_HZ):
     return HALO_ASSUMED_MAX_SPEED * lag + 2.0 * HALO_ASSUMED_MAX_RADIUS
 
 
+# IPv4 (20) + UDP (8). ENet's own protocol header is already inside totalSentData,
+# which counts what enet_socket_send actually wrote, so charging 36 here would
+# double-count it.
+IP_UDP_HEADER_BYTES = 28
+
+
+def wire_bytes(sent_data, sent_packets, header_bytes=IP_UDP_HEADER_BYTES):
+    """Real bytes on the wire, from ENet's post-coalescing per-host counters.
+
+    E8's published figures modelled this as payload + 36 B per PACKET, which holds
+    only if every packet became its own datagram. These counters are per DATAGRAM,
+    measured after ENet coalesces a peer's queued commands, so no model is needed -
+    and the difference between the two is the size of the coalescing effect.
+    """
+    if sent_data < 0 or sent_packets < 0:
+        raise ValueError(
+            "ENet totals are unsigned; a negative means the @@FINAL line misparsed"
+        )
+    return sent_data + header_bytes * sent_packets
+
+
 def find_knee(crossings_by_width):
     """The smallest swept width from which NO wider swept width shows a crossing.
 
@@ -268,11 +289,24 @@ def ap_frame_times(rows, bucket_seconds=AP_BUCKET_SECONDS,
     return buckets
 
 
+# cli.log (single client) or cli-0.log, cli-1.log, ... (multi-client).
+#
+# Deliberately NOT a cli*.log glob: that would also match cli-late.log, the
+# short-lived join-path client, whose totals must not enter the I4 tally.
+CLIENT_LOG_PATTERN = re.compile(r"^cli(-\d+)?\.log$")
+
+
 def read_final_lines(run_dir):
     """@@FINAL totals are exact end-of-run values; @@STAT is a 2 Hz sample and is
     never used for a reported number."""
     finals = []
-    for name in ("mid.log", "cli.log"):
+    client_logs = []
+    if os.path.isdir(run_dir):
+        client_logs = sorted(
+            entry for entry in os.listdir(run_dir) if CLIENT_LOG_PATTERN.match(entry)
+        )
+
+    for name in ["mid.log"] + client_logs:
         path = os.path.join(run_dir, name)
         if not os.path.exists(path):
             continue
@@ -441,6 +475,17 @@ def summarise_run(run_dir):
         # count.
         preseed = max((int(f.get("objPreseed", 0)) for f in server_finals), default=0)
         invariants["conservation_delta"] = owned - (preseed + spawned - destroyed)
+
+        # Measured wire cost, summed across servers. Deliberately a total rather
+        # than a rate: the rate depends on which seconds of the run you count, and
+        # E8's own figures are quoted against its configured 20 s window, so the
+        # division belongs in the write-up next to that window, not here.
+        invariants["net_cli_wire_bytes"] = wire_bytes(
+            total(server_finals, "netCliBytes"), total(server_finals, "netCliPkts")
+        )
+        invariants["net_peer_wire_bytes"] = wire_bytes(
+            total(server_finals, "netPeerBytes"), total(server_finals, "netPeerPkts")
+        )
 
         # A workload that spawns at runtime grows its population, so a rising owned
         # total is expected rather than a double-owner. See ownership_anomalies.

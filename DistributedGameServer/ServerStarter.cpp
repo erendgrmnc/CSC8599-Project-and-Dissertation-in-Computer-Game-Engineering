@@ -272,6 +272,11 @@ int StartGameServer(int argc, char* argv[]) {
 			handoffsDuplicate = worldManager->GetHandoffsDuplicate();
 		}
 
+		// Read after the world-manager block for the same reason that block exists:
+		// a server that never started still reaches this line, and must report
+		// zeroes rather than crash.
+		const auto netTotals = serverManager->GetNetworkByteTotals();
+
 		// Final totals rather than a 2 Hz sample, so the I4 and I5 invariants can be
 		// checked exactly instead of approximately.
 		std::cout << "@@FINAL role=server id=" << serverId
@@ -337,6 +342,16 @@ int StartGameServer(int argc, char* argv[]) {
 			// suppressed. This pair is the interest-management result.
 			<< " snapSent=" << Profiler::GetSnapshotsSent()
 			<< " snapSupp=" << Profiler::GetSnapshotsSuppressed()
+			// Real wire cost, not a model. ENet counts these after coalescing
+			// commands into datagrams, so E8 no longer has to assume one datagram
+			// per packet. Split by host family: client-facing carries snapshots,
+			// peer-facing carries halo and handoffs. Header overhead is NOT added
+			// here - analyse.py owns that arithmetic, because which headers to
+			// charge is an analysis choice rather than a runtime fact.
+			<< " netCliBytes=" << netTotals.clientBytes
+			<< " netCliPkts=" << netTotals.clientPackets
+			<< " netPeerBytes=" << netTotals.peerBytes
+			<< " netPeerPkts=" << netTotals.peerPackets
 			<< "\n";
 		return 0;
 	}
