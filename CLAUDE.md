@@ -228,6 +228,24 @@ The midware spawns `./DistributedPhysicsServer/EntryPoint.exe` **relative to its
 > came to be reported as a soundness failure in E5 round 1. The fixed 30 is now a **drop tolerance**,
 > not a ceiling.
 >
+> **There is a THIRD limit, on total lag, and it is the one that actually bites.** The halo works
+> while the total sample-to-apply lag - `L * dt` plus any link delay - stays under roughly 200 ms,
+> and fails above roughly 267 ms *at every width, including widths above the predicted floor*.
+> Measured along two independent axes (E5 rounds 1 and 3): lookahead 32 at zero latency and
+> lookahead 40 at 300 ms both pin at 60 missed contacts of 100, flat across every width swept. The
+> cause is that a halo shadow is dead-reckoned from its sample tick with constant velocity, so past
+> some lag the shadow is simply in the wrong place and no band width covers a placement error. Two
+> practical consequences: **raising `--halo-lookahead` to absorb link latency does not work** (it
+> was tried, at L=40/300 ms, and only moved the lag into the other term), and **a wider band is not
+> always safer** - at 200 ms of injected delay, width 12 caught every contact while width 28, the
+> bound's own prescription, did not, because publishing that many shadows over a delayed link costs
+> more than the extra width buys.
+>
+> A fourth, softer limit sits behind that one: `ReimposeHaloState` clamps extrapolation to
+> `3 * L` ticks, so injected delay beyond `3 * L * dt` (200 ms at L=8, 400 ms at L=16) leaves a
+> shadow extrapolated over less time than it is actually stale. Every E5 round-3 point was kept
+> inside that clamp deliberately; a sweep that crosses it measures the clamp, not the bound.
+>
 > **`--link-latency-ms M` / `--link-jitter-ms J`** inject one-way delay on the **server-to-server**
 > path only — the client path is deliberately not delayed, because the halo bound is a statement
 > about server-to-server lag and delaying snapshots would move E3 and E8 without moving E5. Jitter is

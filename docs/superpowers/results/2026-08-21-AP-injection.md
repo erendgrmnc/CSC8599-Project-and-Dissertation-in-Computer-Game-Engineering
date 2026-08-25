@@ -255,8 +255,13 @@ term is absent because latency was always zero.
 > frame time is already inside `L * dt`. Injected jitter is what stands in for frame-to-frame
 > variability.
 >
-> The **code** gap is closed; the **evidence** gap is not. Every measurement on record is still the
-> `T_L = 0` case, and stays so until the E5 latency sweep runs.
+> **Evidence gap closed 2026-08-25 (E5 round 3, 302 runs).** The `T_L` term is swept and holds:
+> below the scheduling lookahead injected latency does not move the required width at all, and above
+> it the width rises but stays under the bound. The sweep also found the limit this prediction did
+> not anticipate — a ceiling on **total** sample-to-apply lag at roughly 200-267 ms, above which no
+> width works — which bears directly on the AP comparison, because AP's `T_T` grows with `T_L` and
+> the analogous halo parameter cannot be grown to compensate. `T_J` is implemented and asserted but
+> remains unswept. See `docs/superpowers/results/2026-08-19-E5-soundness.md`.
 
 ## 7. Defects found by running this benchmark
 

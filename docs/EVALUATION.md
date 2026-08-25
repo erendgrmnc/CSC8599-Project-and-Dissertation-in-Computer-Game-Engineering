@@ -38,8 +38,10 @@ the run directory that produced it or a named results document.
   band mechanism is enabled; without it they silently pass through each other at the border.
 - **The soundness condition.** The halo width formula never under-predicts the width actually
   required to catch every border contact, at any tested lookahead `L`. Since 2026-08-25 the formula
-  is `w_min = v_max * (L * dt + T_L + T_J) + 2*r_max`; the validated evidence is the `T_L = T_J = 0`
-  special case, which is exactly what the published expression `v_max * L * dt + 2*r_max` states.
+  is `w_min = v_max * (L * dt + T_L + T_J) + 2*r_max`. The `T_L` term was swept on 2026-08-25 (302
+  runs) and holds; `T_J` is implemented and asserted but unswept. The condition carries a measured
+  precondition: it holds only while **total** sample-to-apply lag stays under roughly 200 ms, above
+  which no band width catches every contact.
 - **The client-facing cost bound.** A client's snapshot traffic is a property of its interest radius
   (what it can see), not of total world size.
 - **Dynamic balancing.** Moving region borders at runtime reduces the cost borne by the busiest
@@ -496,11 +498,13 @@ The bound is now stated over link delay as well:
     w_min = v_max * (L * dt + T_L + T_J) + 2 * r_max
 
 with `T_L` the one-way link latency and `T_J` the worst-case jitter on top of it (worst-case, not
-mean: a band sized for average delay misses contacts on the slow tail). **Everything measured below
-is the `T_L = T_J = 0` case**, where this reduces exactly to the published
-`w_min = v_max * L * dt + 2*r_max` — an identity asserted in `tools/InteractionTests`
-(`HaloBoundTests`), which is what keeps these 120 runs valid as the baseline. The latency dimension
-is implemented but not yet swept.
+mean: a band sized for average delay misses contacts on the slow tail). **The 120 runs below are the `T_L = T_J = 0` case**, where this
+reduces exactly to the published `w_min = v_max * L * dt + 2*r_max` — an identity asserted in
+`tools/InteractionTests` (`HaloBoundTests`), which is what keeps them valid as the baseline. The
+`T_L` term was swept separately on 2026-08-25 (round 3, 302 runs): below the scheduling lookahead
+injected latency does not move the knee at all, above it the knee rises but stays under the floor,
+and the whole condition is bounded by a ceiling on total lag. See
+`docs/superpowers/results/2026-08-19-E5-soundness.md`. `T_J` remains unswept.
 
 **Configuration.** `headon`, 2 servers, 100 objects, 1,800 paced ticks, `--halo-reliable`, 3 repeats
 per point. 120 runs total across two rounds (`runs/exp-haloL2`, `exp-haloL16`, `exp-haloL32` — round 1;
@@ -532,9 +536,11 @@ more conservative, not less, as lookahead grows. **The functional form is explic
 mid-experiment prediction (`0.25*L + 1`, giving 5 at L=16 and 7 at L=24) was stated in advance and
 refuted twice (measured knees were 4 and 6); the refutation is reported as a refutation, not re-fit.
 
-**The declared envelope: the condition has an upper bound on lookahead, between 24 and 32.** At every
-lookahead up to 24, widening the band drives missed contacts to *exactly zero*. At lookahead 32 it does
-not, and no width recovers it: crossings sit at 60 (of 100 objects) at widths 17, 18, 19, 20, 21 and 22
+**The declared envelope: the condition has an upper bound on total sample-to-apply lag, between 200
+and 267 ms.** Round 1 found this as an upper bound on *lookahead*, between 24 and 32; round 3's
+latency sweep showed the same failure appears whenever total lag crosses that range, whichever term
+supplies it — lookahead, link latency, or both. At every lag up to 200 ms, widening the band drives
+missed contacts to *exactly zero*. At 267 ms (lookahead 32) it does not, and no width recovers it: crossings sit at 60 (of 100 objects) at widths 17, 18, 19, 20, 21 and 22
 alike — flat, and specifically unchanged at and above the conservative floor of 20.
 
 | lookahead | crossings vs width | knee |
@@ -557,6 +563,14 @@ object actually is. A contact resolved against a shadow that far out of position
 the wrong geometry, and widening the band cannot fix a placement error. **This is an inference by
 elimination, not a measurement**: confirming it means disabling extrapolation and re-running, which is
 a simulation-affecting change and is recorded for the build phase rather than claimed here.
+
+Round 3 (2026-08-25) strengthens the elimination without closing it. At lookahead 40 with 300 ms of
+injected link delay — total lag 333 ms — crossings pin at 60 flat across widths 16-40, exactly as at
+lookahead 32, while `haloLate` reads 135-385 instead of ~146,000. Late delivery is therefore excluded
+by measurement rather than by assumption at a high-lag point, the staleness horizon tracks the
+lookahead since Phase C, and invariant I8 holds throughout, so server divergence is excluded too. The
+extrapolation term remains the only one standing, and the boundary is now known to be a function of
+total lag rather than of lookahead.
 
 The practical statement is therefore weaker than "the formula holds" and stronger than "L=32 was never
 tested": the formula is sound over the measured range L in [2, 24], and there exists an upper bound on
@@ -628,14 +642,15 @@ and their contact counts are not.**
   uneven. **Do not quote the 2->4 segment as a scaling limit of the design** - it is a measurement of
   this machine. The 1->2 segment (50.4 s -> 34.8 s wall for the same simulated work) is the safer
   figure, and the physics column is the safest of all.
-- **Latency injection exists, but has not yet been swept.** `--link-latency-ms` and
-  `--link-jitter-ms` delay the **server-to-server** path (Phase C, 2026-08-25), and
-  `MinimumSafeHaloWidth` now carries the latency and jitter terms, with the published expression
-  falling out exactly at zero - asserted in `tools/InteractionTests`. **The measurements in this
-  document all still run at zero injected latency**, so every claim here remains a zero-latency
-  result until the E5 latency sweep is run. The client path is deliberately not delayed: the halo
-  bound is a statement about server-to-server lag, and delaying snapshots would move E3 and E8
-  without moving E5.
+- **Latency is swept for E5 only; every other experiment here is a zero-latency result.**
+  `--link-latency-ms` and `--link-jitter-ms` delay the **server-to-server** path (Phase C,
+  2026-08-25). E5 round 3 swept `T_L` over 302 runs at three lookaheads and validated the latency
+  term of the soundness bound. **E1-E4 and E6-E8 were all measured at zero injected latency and
+  remain zero-latency results**, so no throughput, scaling or bandwidth figure in this document
+  should be read as holding over a WAN. The client path is deliberately not delayed: the halo bound
+  is a statement about server-to-server lag, and delaying snapshots would move E3 and E8 without
+  moving E5 — which also means E8's bandwidth figures say nothing about latency tolerance.
+  `T_J` (jitter) is implemented and asserted but has not been swept at all.
 - ~~**No AP-comparable injection workload.**~~ **Closed.** `--workload injection` reproduces Aura
   Projection's published benchmark (160 objects/s for 60 s), measured at 1 and 2 servers with a
   4-server scaling point. See `docs/superpowers/results/2026-08-21-AP-injection.md`, which also

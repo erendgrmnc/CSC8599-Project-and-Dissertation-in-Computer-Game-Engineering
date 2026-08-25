@@ -1,9 +1,10 @@
 # E5 — the halo soundness sweep
 
-Date: 2026-08-19 / 2026-08-20
+Date: 2026-08-19 / 2026-08-20 (rounds 1-2, zero latency); 2026-08-25 (round 3, the latency
+dimension - see the bottom of this document)
 Runs: round 1 — `runs/exp-haloL2`, `runs/exp-haloL16`, `runs/exp-haloL32` (54 runs, kept for the
 record); round 2 — `runs/exp-haloL2b`, `runs/exp-haloL8b`, `runs/exp-haloL16b`, `runs/exp-haloL24b`
-(66 runs). 120 runs total, 0 failed (`ok: 2/2 servers` on every point, no re-runs needed at the
+(66 runs). 120 runs total in rounds 1-2, plus 302 in round 3; 0 failed (`ok: 2/2 servers` on every point, no re-runs needed at the
 run-execution level).
 
 This document went through two rounds because the first round's sweep design could not answer the
@@ -172,6 +173,20 @@ raise `HALO_STALE_TICKS` to track `--halo-lookahead`, or warn when it doesn't.
 > exactly to the published expression at `T_L = T_J = 0` (asserted), and a paced gate run at zero
 > injected latency reproduced the pre-change baseline on all 20 stable fields and both conserved
 > totals.
+
+> **Confirmed along a second axis (round 3, 2026-08-25).** Batch A attributed this to extrapolation
+> error *by elimination*, having refuted the staleness account. Round 3's latency sweep reaches the
+> same failure from the other direction: at L=40 with 300 ms of injected link delay - total lag 333
+> ms against this point's 267 ms - crossings pin at **60, flat across widths 16-40**, the same number
+> and the same flatness recorded here. That run has `haloLate` at 135-385 rather than ~146,000, so
+> late delivery is excluded; the staleness horizon tracks the lookahead since Phase C §4.2, so
+> retirement is excluded; and invariant I8 holds, so server divergence is excluded. What remains is
+> linear dead reckoning over a lag long enough for velocity to change. This does not *measure* the
+> extrapolation term - that still needs a run with dead reckoning disabled - so the attribution is
+> still by elimination. What changed is its strength and its scope: the elimination now holds at a
+> point where lateness is excluded by direct measurement rather than assumed, and the boundary
+> generalises from "an upper bound on lookahead" to a limit on **total** sample-to-apply lag,
+> roughly 200-267 ms, whichever term supplies it.
 
 L=32 is therefore reported as **out of the implementation's tested envelope**, not as a soundness
 falsification within it — the formula was never actually tested at L=32, because the mechanism
@@ -380,3 +395,206 @@ at half the formula's assumed maximum speed — a design error caught by inspect
 data rather than by construction. Round 1 is kept on record above rather than deleted, both
 because its L=2/L=16 sufficiency and its L=32 finding are real results, and because a results
 document that hides its own false start is worth less than one that shows it.
+
+---
+
+# Round 3 — the latency dimension (2026-08-25)
+
+Date: 2026-08-25. Runs: 302 across 23 experiment directories, including a 4-run timing probe
+(`runs/exp-cL{8,16,24}lat0`, `runs/exp-e5L*lat*`). Phase C of `docs/superpowers/specs/2026-08-23-backlog-completion-design.md`
+§4.5. 0 runs failed at the execution level (`ok: 2/2 servers` throughout).
+
+Rounds 1 and 2 measured the `T_L = T_J = 0` special case. The bound is now stated over link delay,
+
+```
+w_min = v_max * (L * dt + T_L + T_J) + 2 * r_max
+```
+
+and this round sweeps the `T_L` term. `--link-latency-ms` delays the **server-to-server** path only;
+the client path is deliberately undelayed, because the bound is a claim about peer lag and delaying
+snapshots would move E3 and E8 without moving E5.
+
+## Controls first: the published knees, re-measured on this binary
+
+Phase C changed server code (`HaloBound.h`, the staleness horizon, the delay queue). Round 2's knees
+were measured on a different build, so a knee that moved under latency could have been Phase C's own
+doing. Gate 4.4.1 pinned 20 stable *counters*; it did not re-establish the *result*.
+
+| lookahead | round 2 knee | control knee (2026-08-25 binary) | floor |
+|---|---|---|---|
+| 8 | 3 | **3** | 8 |
+| 16 | 4 | **4** | 12 |
+| 24 | 6 | **6** | 16 |
+
+Exact reproduction, including the partial-failure median of 44 crossings at L=8 width 2. Everything
+below is therefore attributable to injected delay and not to the build.
+
+## Result 1 — below the scheduling lookahead, latency does not move the knee at all
+
+| lookahead | `L*dt` | `T_L` = 0 | 25 | 50 | 100 | 150 |
+|---|---|---|---|---|---|---|
+| 8 | 66.7 ms | 3 | **3** | **3** | 4 | 5 |
+| 16 | 133 ms | 4 | — | **4** | **4** | — |
+| 24 | 200 ms | 6 | — | **6** | **6** | — |
+
+Bold marks latency strictly below `L*dt`: six points across three lookaheads, nine counting the
+zero-latency controls. The knee is unchanged at every one, and the crossing profile is identical
+width-for-width rather than merely equal at the knee.
+
+`haloLate` confirms the mechanism independently rather than by inference: it is **exactly 0** at the
+passing widths of eight of the nine points at or below the threshold, and non-zero at every point
+above it. Updates are still meeting their scheduled slot.
+
+The ninth is worth stating rather than rounding off. L=8 / `T_L`=50 reports 1,950 and 2,860 late
+updates at its passing widths, and it is the point with both the smallest absolute budget (66.7 ms)
+and 75% of it consumed — so the few milliseconds of real loopback and scheduling delay on top of the
+injected amount are enough to push a fraction of updates past the slot. L=16 / `T_L`=100 consumes
+the same 75% of a larger budget and reports 0. **The knee is 3 either way**, which is the stronger
+form of the result: the budget can be nearly exhausted, and start visibly overflowing, before the
+required width moves at all.
+
+**The lookahead is a delay budget, and latency spends it rather than adding to it.** A halo update is
+scheduled to apply at `senderTick + L`; while the packet arrives before that tick, when it arrived is
+invisible to the receiver. This is the one structural claim of this round, and it is why the
+implementation's effective sample-to-apply lag behaves like `max(L*dt, T_L)` rather than the sum.
+
+The published `L*dt + T_L` therefore remains a true upper bound — every point is SOUND — but a
+demonstrably loose one, and the slack *grows* with latency: at L=24 / `T_L`=100 the knee is 6 against
+a floor of 22.
+
+## Result 2 — an upper bound on total lag, reached along two independent axes
+
+Above roughly 200 ms of total lag the picture changes qualitatively. Crossings stop responding to
+width.
+
+| total lag | source | floor | widths swept | crossings |
+|---|---|---|---|---|
+| 200 ms | L=24, `T_L`=0 | 16 | 4–7 | knee 6, clean |
+| 200 ms | L=16, `T_L`=200 | 24 | 4–24 | non-monotone: 100, 100, 74 at w=4/5/6, then 0 at 7/8/10/24 but 2 at 9/12, 15 at 16, 8 at 20 |
+| 200 ms | L=24, `T_L`=200 | 28 | 6–28 | 0 at 12 and 20, **8 at 28 — the floor itself** |
+| **267 ms** | **L=32, `T_L`=0** (round 1) | 20 | 17–22 | **60, flat** |
+| 300 ms | L=16, `T_L`=300 | 30 | 9–32 | 46–60, flat (w=32 is above the floor) |
+| 300 ms | L=24, `T_L`=300 | 34 | 7–38 | 15–60; **0 of 10 repeats passed at the floor** |
+| **333 ms** | **L=40, `T_L`=300** | 42 | 16–40 | **60, flat** |
+
+Two things this rules out.
+
+**It is not lateness.** The L=40 / `T_L`=300 point was run to test the delay-budget model: if the
+lookahead absorbs latency, raising `L` until `L*dt >= T_L` should restore the halo at 300 ms. It
+absorbed the latency exactly as predicted — `haloLate` fell from ~146,000 at L=24 / `T_L`=300 to
+**135–385** across every width at L=40, so updates arrive on schedule — and crossings stayed pinned at 60 at every width. **The prediction is refuted,
+and its refutation is what identifies the real cause**: with timing corrected the failure is
+unchanged, so irregular refresh cadence was not it.
+
+That configuration is only reachable *because* of Phase C §4.2. The old fixed `HALO_STALE_TICKS = 30`
+retired a shadow before an L=40 update could ever apply, so this experiment could not have been run
+before the horizon was made to track the lookahead.
+
+**It is not divergence between servers.** Invariant I8 (both servers resolving equal contact counts)
+holds on **all** runs of the to-floor pass including every 300 ms point. The two servers agree with
+each other; they are agreeing on shadows that are in the wrong place.
+
+What is left is the lag itself. A shadow is dead-reckoned from its sample tick with constant
+velocity. Over 333 ms at `headon`'s 30 units/s that is a 10-unit straight-line extrapolation through
+a region where objects meet and reverse, so the extrapolated position is wrong by more than any band
+width can cover — the error is temporal, and width is a spatial control.
+
+**This independently confirms the round-1 L=32 finding, and upgrades its status.** Round 1 recorded
+L=32 as 60 crossings flat across widths 17–22; Batch A refuted the `HALO_STALE_TICKS` explanation and
+attributed it to extrapolation error **by elimination**. The high-lag points here reproduce the same
+number with the same flatness, reached by a different route, with lateness and staleness both
+independently excluded at a point where round 1 could only assume them. The attribution is still
+by elimination - measuring the extrapolation term directly needs a run with dead reckoning
+disabled, which is a simulation-affecting change and remains build-phase work - but the
+elimination now rests on a second, independent axis, and the boundary generalises from lookahead
+to total lag.
+
+## Result 3 — at equal nominal lag, latency is worse than lookahead
+
+Lag-equivalence is not exact, and this is the one place the `max` model is optimistic. L=24 /
+`T_L`=0 and L=24 / `T_L`=200 both carry 200 ms of nominal lag, but the first has a clean knee at 6
+while the second passes at 12 and 20 and **fails at 28**. Monotonicity in width — wider is safer,
+the assumption underlying both the bound and `find_knee` — breaks.
+
+The cost of the band is measurable and rises with width at fixed latency:
+
+| L=24, `T_L`=200 | shadow-ticks | late fraction | peer MB | crossings |
+|---|---|---|---|---|
+| w=12 | 26,255 | 0.80 | 1.3 | 0, 0, 0 |
+| w=20 | 67,590 | 0.95 | 4.1 | 0, 0, 15 |
+| w=28 (floor) | 145,640 | 0.99 | 9.3 | 0, 15, 8 |
+| *w=6, `T_L`=0* | *59,780* | *0.00* | *3.6* | *0, 0, 0* |
+
+The bound treats width as free. The implementation pays for it in published shadows, peer bandwidth
+and late-applied updates, and near the lag ceiling that cost is large enough to matter. **At 200 ms,
+following the bound's prescription (28) performed worse than ignoring it (12).** That is a cost term
+absent from the derivation, not an error in it.
+
+## What this round establishes
+
+- **Soundness holds over the latency term wherever the mechanism is inside its lag envelope.** Every
+  point at total lag <= 200 ms has its knee at or below the floor, with slack that widens as latency
+  grows (5 at L=8/`T_L`=0 up to 16 at L=24/`T_L`=100).
+- **The knee depends on total lag, not on `L` and `T_L` separately** — within the lookahead-dominated
+  regime. Three lookaheads x three latencies each reproduce their own zero-latency knee exactly.
+- **A lag ceiling exists at roughly 200–267 ms**, above which no width catches every contact. It is a
+  property of linear extrapolation over a collision-dense workload, not of the width formula, and it
+  bounds `L*dt + T_L` jointly — so a deployment cannot buy latency tolerance by raising the lookahead.
+- **The functional form is not re-fitted here.** Round 2 stated a mid-experiment prediction
+  (`0.25*L + 1`) and reported it refuted rather than absorbing it; the same discipline applies now.
+  The measured knees are consistent with the bound's *structure* at the workload's real 30 units/s,
+  but eleven points at 1-unit resolution do not fix a curve, and no constant was fitted to them.
+
+## Sweep-design errors made and corrected in this round
+
+Recorded because both are the same class of error rounds 1 and 2 already hit, and both were caught
+from the data rather than by construction.
+
+1. **Sweeping far below the floor cannot falsify a bound.** Passes 1 and 2 targeted the actual-speed
+   knee, correct while the knee sits far below the floor — it did at every zero-latency point. At 300
+   ms it does not. Crossings never reached zero across widths 9–14 and that was very nearly recorded
+   as "no width works", when the bound *predicts* 30 and 34 at those points and neither had been
+   sampled. This is round 1's error running the other way: round 1 swept *around* the floor and could
+   only return all-pass or all-fail; this swept *below* it and could only return all-fail. A
+   soundness verdict needs the floor inside the window, and the third pass put it there.
+2. **Generalising a regime from one point.** "Reliable only at the floor" was written from L=16 /
+   `T_L`=200 and contradicted by L=24 / `T_L`=200, where the floor is the width that fails. The
+   corrected statement is about monotonicity breaking, not about the floor being the answer.
+
+## Limitations
+
+- **One synthetic workload, and the lag ceiling is a property of it.** `headon` is collision-dense at
+  the border by construction, which is exactly where linear extrapolation over a long lag is worst.
+  A workload with smoother trajectories would push the ceiling higher; one with faster direction
+  changes would lower it. The ceiling is therefore reported as measured-here, not as a constant of
+  the design. §4.7's oblique/mixed-speed variant remains unrun.
+- **Injected delay is not measured delay.** Loopback on one machine, delay applied at the send side
+  with monotonic release per target; no reordering, no loss, no bandwidth limit. `--halo-reliable`
+  is on, so nothing drops.
+- **The delay is applied to the whole peer path, handoffs included.** `ownership_gap_ticks` rises
+  from 0–30 at `T_L` <= 100 to 77–128 at `T_L` = 300, which is the §0.7 ownership gap widening by
+  roughly the injected delay. That is backlog item 2 being *measured* rather than argued, and it is
+  a confound for any conservation-sensitive reading of these runs — not for the crossing counts the
+  knees come from.
+- **Above the lag ceiling the runs are not reproducible.** Identical repeats at L=16 / `T_L`=200
+  width 7 gave 15 / 2 / 0 crossings and `haloLate` of 45,995 / 14,893 / 14,056. Repeats were raised
+  from 3 to 5 there, and to 10 at the L=24 / `T_L`=300 floor point. Below the ceiling the runs are as
+  reproducible as round 2's.
+- **Jitter was not swept.** `--link-jitter-ms` is implemented, enters the bound at its maximum, and
+  is asserted in `tools/InteractionTests`, but every run here used `T_J = 0`.
+
+## Bottom line
+
+The latency term of the bound is validated: below the scheduling lookahead, injected delay does not
+move the knee at all, and above it the knee rises but stays well under the floor. The lookahead is a
+delay budget that latency spends rather than adds to, which is why the implementation's effective lag
+behaves like `max(L*dt, T_L)` and the published sum is sound but loose.
+
+The sweep also found what the zero-latency rounds could not: a ceiling on **total** sample-to-apply
+lag at roughly 200–267 ms, above which no band width catches every contact. It is not lateness
+(`haloLate` ~ 0 at L=40 / `T_L`=300 and the failure is unchanged), not staleness (the horizon tracks
+the lookahead since §4.2), and not server divergence (I8 holds throughout) — it is linear
+extrapolation over a lag long enough for velocity to change. That both confirms round 1's L=32
+finding along an independent axis and converts its attribution from elimination to construction, and
+it adds a precondition the derivation never stated: the width bound holds only while total lag stays
+inside the horizon over which dead reckoning is accurate.
