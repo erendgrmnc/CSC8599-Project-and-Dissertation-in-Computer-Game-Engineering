@@ -47,18 +47,37 @@ HALO_ASSUMED_MAX_RADIUS = 2.0
 DEFAULT_SUBSTEP_HZ = 120
 
 
-def predicted_halo_floor(lookahead_ticks, substep_hz=DEFAULT_SUBSTEP_HZ):
+def predicted_halo_floor(lookahead_ticks, substep_hz=DEFAULT_SUBSTEP_HZ,
+                         link_latency_ms=0.0, link_jitter_ms=0.0):
     """The narrowest halo band that can still catch every border contact.
+
+    Mirrors NCL::Distributed::MinimumSafeHaloWidth in
+    CSC8503CoreClasses/DistributedSystemCommonFiles/HaloBound.h:
+
+        w_min = v_max * (L * dt + T_L + T_J) + 2 * r_max
+
+    The bracket is the total lag between an object's state being SAMPLED by its
+    owner and APPLIED on the neighbour: the deliberate scheduling lookahead, plus
+    one-way link latency, plus worst-case jitter on top of it. Jitter enters at its
+    maximum rather than its mean because this is a bound - a band sized for average
+    delay misses contacts on the slow tail.
 
     Deliberately conservative: it uses an ASSUMED maximum speed of 60 units/s, not
     the speed the workload actually runs at, so the value it returns is an upper
     bound on what is needed rather than an estimate of it. An object faster than
     the assumed maximum falls outside the guarantee.
+
+    At T_L = T_J = 0 this returns exactly the published zero-latency expression,
+    which is what keeps E5's 120-run zero-latency sweep valid as a baseline.
     """
     if substep_hz <= 0:
         raise ValueError("substep_hz must be positive")
-    lag = max(0, lookahead_ticks) / float(substep_hz)
-    return HALO_ASSUMED_MAX_SPEED * lag + 2.0 * HALO_ASSUMED_MAX_RADIUS
+    scheduling_lag = max(0, lookahead_ticks) / float(substep_hz)
+    # Clamped rather than trusted, exactly as the header does: a negative injected
+    # delay is a configuration error, and letting it SHRINK the floor would report a
+    # misconfigured run as sound against a line no run could have used.
+    link_lag = (max(0.0, link_latency_ms) + max(0.0, link_jitter_ms)) / 1000.0
+    return HALO_ASSUMED_MAX_SPEED * (scheduling_lag + link_lag) + 2.0 * HALO_ASSUMED_MAX_RADIUS
 
 
 # IPv4 (20) + UDP (8). ENet's own protocol header is already inside totalSentData,
@@ -111,8 +130,16 @@ def print_knee_report(manifest, rows):
     if manifest.get("sweep") != "haloWidth":
         return None
 
-    lookahead = int(manifest.get("fixed", {}).get("haloLookahead", 4))
-    floor = predicted_halo_floor(lookahead)
+    fixed = manifest.get("fixed", {})
+    lookahead = int(fixed.get("haloLookahead", 4))
+    # Injected server-to-server delay is part of the sample-to-apply lag, so it moves
+    # the floor. Read from the run's own manifest rather than assumed zero: reporting
+    # a latency run against the zero-latency line would compare a measurement to a
+    # bound that run never used, and would read as extra slack rather than as a
+    # different claim.
+    latency = float(fixed.get("linkLatencyMs", 0.0) or 0.0)
+    jitter = float(fixed.get("linkJitterMs", 0.0) or 0.0)
+    floor = predicted_halo_floor(lookahead, link_latency_ms=latency, link_jitter_ms=jitter)
 
     # Run-level invariants are duplicated onto every server row, so dedupe by
     # (point, repeat) before taking a median - otherwise the sample is weighted by
@@ -130,7 +157,10 @@ def print_knee_report(manifest, rows):
     sound = (knee is not None) and (knee <= floor + 1e-9)
 
     print()
-    print(f"halo soundness: lookahead {lookahead} ticks, "
+    delay_note = ""
+    if latency or jitter:
+        delay_note = f", link {latency:g} ms +{jitter:g} ms jitter"
+    print(f"halo soundness: lookahead {lookahead} ticks{delay_note}, "
           f"predicted floor w_min = {floor:g}")
     print(f"{'width':>8} {'crossings (median)':>19} {'repeats':>8} {'vs floor':>10}")
     print("-" * 49)
@@ -146,7 +176,8 @@ def print_knee_report(manifest, rows):
         verdict = "SOUND" if sound else "UNSOUND - the bound was optimistic"
         print(f"empirical knee : {knee:g}  (predicted {floor:g})  -> {verdict}")
 
-    return {"lookahead": lookahead, "floor": floor, "knee": knee, "sound": sound}
+    return {"lookahead": lookahead, "floor": floor, "knee": knee, "sound": sound,
+            "latency": latency, "jitter": jitter}
 
 
 def percentile(values, pct):
@@ -632,19 +663,45 @@ def print_tracking_report(knees):
     prediction across lookaheads is a validated condition - and a knee that stops
     tracking at long lookahead, while still never exceeding its floor, is the
     'halo lag is permanent, keep the lookahead small' argument, measured.
+
+    The delay columns appear only when some analysed run actually injected delay.
+    That is not cosmetic: E5's zero-latency rounds quote this table verbatim, and
+    silently adding columns to it would make the published output no longer
+    reproducible from the runs it was taken from.
     """
+    delayed = any(entry.get("latency") or entry.get("jitter") for entry in knees)
+
+    def sort_key(entry):
+        return (entry["lookahead"], entry.get("latency") or 0.0,
+                entry.get("jitter") or 0.0)
+
     print()
     print("=" * 72)
-    print("halo soundness across lookaheads")
-    print(f"{'lookahead':>10} {'floor':>8} {'knee':>8} {'slack':>8} {'verdict':>10}")
-    print("-" * 48)
-    for entry in sorted(knees, key=lambda e: e["lookahead"]):
+    if not delayed:
+        print("halo soundness across lookaheads")
+        print(f"{'lookahead':>10} {'floor':>8} {'knee':>8} {'slack':>8} {'verdict':>10}")
+        print("-" * 48)
+        for entry in sorted(knees, key=sort_key):
+            knee = entry["knee"]
+            knee_text = "none" if knee is None else f"{knee:g}"
+            slack = "-" if knee is None else f"{entry['floor'] - knee:g}"
+            verdict = "sound" if entry["sound"] else "UNSOUND"
+            print(f"{entry['lookahead']:>10} {entry['floor']:>8g} {knee_text:>8} "
+                  f"{slack:>8} {verdict:>10}")
+        return
+
+    print("halo soundness across lookaheads and injected link delay")
+    print(f"{'lookahead':>10} {'latency':>9} {'jitter':>8} {'floor':>8} "
+          f"{'knee':>8} {'slack':>8} {'verdict':>10}")
+    print("-" * 74)
+    for entry in sorted(knees, key=sort_key):
         knee = entry["knee"]
         knee_text = "none" if knee is None else f"{knee:g}"
         slack = "-" if knee is None else f"{entry['floor'] - knee:g}"
         verdict = "sound" if entry["sound"] else "UNSOUND"
-        print(f"{entry['lookahead']:>10} {entry['floor']:>8g} {knee_text:>8} "
-              f"{slack:>8} {verdict:>10}")
+        print(f"{entry['lookahead']:>10} {entry.get('latency') or 0:>8g}m "
+              f"{entry.get('jitter') or 0:>7g}m {entry['floor']:>8g} "
+              f"{knee_text:>8} {slack:>8} {verdict:>10}")
 
 
 def print_ap_frame_report(frame_series, sweep_name="point"):

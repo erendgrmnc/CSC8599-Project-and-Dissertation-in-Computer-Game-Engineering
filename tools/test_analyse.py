@@ -6,6 +6,7 @@ checkable on the machine that produced the data with no environment setup.
 Run: python tools/test_analyse.py
 """
 
+import io
 import os
 import sys
 import unittest
@@ -527,6 +528,171 @@ class ConservationFieldTests(unittest.TestCase):
         # 100 + 7 - 3 = 104.
         self.assertEqual(invariants["conservation_delta"], 0)
 
+
+
+class GeneralisedHaloFloorTests(unittest.TestCase):
+    """The latency dimension of the floor, mirroring HaloBound.h.
+
+    This is the Python half of Phase C gate 4.4.2. The C++ assert harness pins the
+    server's own arithmetic; this pins the analyser's mirror of it. Both are needed:
+    the two are separate transcriptions of one formula, and a drift between them
+    would be invisible to either one alone - the analyser would judge every run
+    against a line the server never used.
+    """
+
+    @staticmethod
+    def _published_zero_latency_floor(lookahead, substep_hz=120):
+        # Written longhand, exactly as HaloBoundTests.cpp does. Calling the
+        # generalised function to compute the expected value would assert nothing.
+        return 60.0 * (lookahead / float(substep_hz)) + 2.0 * 2.0
+
+    def test_reduces_to_the_published_expression_at_zero_delay(self):
+        for lookahead in (0, 2, 4, 8, 16, 24, 30):
+            self.assertAlmostEqual(
+                analyse.predicted_halo_floor(lookahead, link_latency_ms=0.0,
+                                             link_jitter_ms=0.0),
+                self._published_zero_latency_floor(lookahead),
+                msg="lookahead {}".format(lookahead))
+
+    def test_latency_adds_travel_distance_at_the_assumed_maximum_speed(self):
+        # 60 units/s for 50 ms is exactly 3 units.
+        base = analyse.predicted_halo_floor(4)
+        self.assertAlmostEqual(
+            analyse.predicted_halo_floor(4, link_latency_ms=50.0), base + 3.0)
+        self.assertAlmostEqual(
+            analyse.predicted_halo_floor(4, link_latency_ms=100.0), base + 6.0)
+
+    def test_jitter_adds_at_its_maximum_not_its_mean(self):
+        self.assertAlmostEqual(
+            analyse.predicted_halo_floor(4, link_jitter_ms=50.0),
+            analyse.predicted_halo_floor(4, link_latency_ms=50.0))
+        self.assertAlmostEqual(
+            analyse.predicted_halo_floor(4, link_latency_ms=25.0, link_jitter_ms=25.0),
+            analyse.predicted_halo_floor(4, link_latency_ms=50.0))
+
+    def test_negative_delays_cannot_shrink_the_floor(self):
+        base = analyse.predicted_halo_floor(4)
+        self.assertAlmostEqual(
+            analyse.predicted_halo_floor(4, link_latency_ms=-50.0), base)
+        self.assertAlmostEqual(
+            analyse.predicted_halo_floor(4, link_jitter_ms=-50.0), base)
+
+    def test_matches_the_cpp_constants_at_a_swept_latency_point(self):
+        # L=8 at 100 ms: 60 * (8/120 + 0.1) + 4 = 60 * 0.16667 + 4 = 14.
+        self.assertAlmostEqual(
+            analyse.predicted_halo_floor(8, link_latency_ms=100.0), 14.0)
+
+
+class KneeReportLatencyWiringTests(unittest.TestCase):
+    """The manifest's injected delay must reach the floor the knee is judged against.
+
+    Reading the delay is the whole point: a latency run compared against the
+    zero-latency line is being compared to a bound it never used. The failure is
+    one-directional and quiet - the zero-latency floor is LOWER, so a knee the
+    generalised bound comfortably covers would be reported as UNSOUND, and Phase C
+    would publish a falsification of its own bound that is really a wiring bug.
+    """
+
+    def _rows(self, crossings_by_width):
+        rows = []
+        for width, value in crossings_by_width.items():
+            for repeat in (1, 2, 3):
+                for server in (0, 1):
+                    rows.append({"point": width, "repeat": repeat,
+                                 "server": server, "ho_sent": value})
+        return rows
+
+    def test_latency_in_the_manifest_raises_the_floor(self):
+        manifest = {"sweep": "haloWidth",
+                    "fixed": {"haloLookahead": 8, "linkLatencyMs": 100.0}}
+        result = analyse.print_knee_report(manifest, self._rows({3: 100, 4: 0, 5: 0}))
+        self.assertAlmostEqual(result["floor"], 14.0)
+        self.assertEqual(result["latency"], 100.0)
+
+    def test_a_knee_above_the_zero_latency_floor_is_sound_once_latency_is_read(self):
+        # Knee 10 sits ABOVE the zero-latency floor for L=8 (8.0) and below the
+        # 100 ms floor (14.0). Judged against the wrong line this reads UNSOUND.
+        manifest = {"sweep": "haloWidth",
+                    "fixed": {"haloLookahead": 8, "linkLatencyMs": 100.0}}
+        rows = self._rows({8: 100, 9: 40, 10: 0, 11: 0})
+        result = analyse.print_knee_report(manifest, rows)
+        self.assertEqual(result["knee"], 10)
+        self.assertTrue(result["sound"])
+
+        no_latency = {"sweep": "haloWidth", "fixed": {"haloLookahead": 8}}
+        self.assertFalse(analyse.print_knee_report(no_latency, rows)["sound"])
+
+    def test_jitter_is_read_as_well_as_latency(self):
+        manifest = {"sweep": "haloWidth",
+                    "fixed": {"haloLookahead": 8, "linkJitterMs": 100.0}}
+        result = analyse.print_knee_report(manifest, self._rows({3: 100, 4: 0}))
+        self.assertAlmostEqual(result["floor"], 14.0)
+        self.assertEqual(result["jitter"], 100.0)
+
+    def test_a_manifest_without_delay_keys_still_reports_the_published_floor(self):
+        # Every pre-Phase-C run has no such keys. They must read as zero rather than
+        # raising, or the 120-run zero-latency baseline stops being analysable.
+        manifest = {"sweep": "haloWidth", "fixed": {"haloLookahead": 16}}
+        result = analyse.print_knee_report(manifest, self._rows({4: 100, 5: 0}))
+        self.assertAlmostEqual(result["floor"], 12.0)
+        self.assertEqual(result["latency"], 0.0)
+        self.assertEqual(result["jitter"], 0.0)
+
+    def test_a_null_delay_field_is_treated_as_zero(self):
+        manifest = {"sweep": "haloWidth",
+                    "fixed": {"haloLookahead": 16, "linkLatencyMs": None,
+                              "linkJitterMs": None}}
+        result = analyse.print_knee_report(manifest, self._rows({4: 100, 5: 0}))
+        self.assertAlmostEqual(result["floor"], 12.0)
+
+
+class TrackingReportShapeTests(unittest.TestCase):
+    """The zero-latency table is quoted verbatim in E5. It must not gain columns."""
+
+    @staticmethod
+    def _capture(knees):
+        buffer = io.StringIO()
+        stdout = sys.stdout
+        sys.stdout = buffer
+        try:
+            analyse.print_tracking_report(knees)
+        finally:
+            sys.stdout = stdout
+        return buffer.getvalue()
+
+    def _entry(self, lookahead, floor, knee, latency=0.0, jitter=0.0):
+        return {"lookahead": lookahead, "floor": floor, "knee": knee,
+                "sound": knee is not None and knee <= floor,
+                "latency": latency, "jitter": jitter}
+
+    def test_all_zero_delay_keeps_the_published_table_shape(self):
+        text = self._capture([self._entry(2, 5.0, 1), self._entry(8, 8.0, 3)])
+        self.assertIn("halo soundness across lookaheads", text)
+        self.assertNotIn("latency", text)
+        self.assertNotIn("jitter", text)
+
+    def test_any_injected_delay_adds_the_delay_columns(self):
+        text = self._capture([self._entry(8, 8.0, 3),
+                              self._entry(8, 14.0, 4, latency=100.0)])
+        self.assertIn("injected link delay", text)
+        self.assertIn("latency", text)
+        self.assertIn("jitter", text)
+
+    def test_entries_sharing_a_lookahead_are_both_reported(self):
+        # The summary used to key on lookahead alone. A latency sweep puts several
+        # points at the SAME lookahead, and collapsing them would silently drop
+        # every point but one - the sweep would look like it had run and reported
+        # nothing.
+        text = self._capture([self._entry(8, 8.0, 3),
+                              self._entry(8, 11.0, 3, latency=50.0),
+                              self._entry(8, 14.0, 4, latency=100.0)])
+        rows = [line for line in text.splitlines() if line.strip().startswith("8 ")]
+        self.assertEqual(len(rows), 3)
+
+    def test_entries_missing_delay_keys_do_not_crash_the_summary(self):
+        text = self._capture([{"lookahead": 4, "floor": 6.0, "knee": 2,
+                               "sound": True}])
+        self.assertIn("halo soundness across lookaheads", text)
 
 if __name__ == "__main__":
     unittest.main()
