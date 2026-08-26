@@ -10,6 +10,7 @@
 #include "PhysicsSystem.h"
 #include "DistributedSystemCommonFiles/TaskPool.h"
 #include "DistributedSystemCommonFiles/HaloBound.h"
+#include "DistributedSystemCommonFiles/ObliqueWorkload.h"
 #include "Profiler.h"
 #include "TestObject.h"
 #include "glad/gl.h"
@@ -64,6 +65,16 @@ namespace {
 	// recorded is the head-on one and the count is exactly the number of pairs that
 	// actually collided.
 	constexpr float HEADON_LANE_SPACING = 6.0f;
+
+	// "oblique" workload. Identical placement and identical time-to-contact to headon;
+	// only the approach ANGLE and therefore the speed MAGNITUDE differ. See
+	// DistributedSystemCommonFiles/ObliqueWorkload.h for why both are varied and why the
+	// angle is a slow function of position rather than drawn from the seed.
+	//
+	// 45 degrees is the widest angle that keeps |v| = HEADON_SPEED / cos(theta) = 42.4
+	// inside the bound's assumed maximum of 60. ObliqueSpeedIsWithinBound asserts it
+	// rather than leaving the two constants to drift apart.
+	constexpr float OBLIQUE_MAX_ANGLE_RADIANS = 0.7853981634f;
 
 	// "cluster" workload: objects packed into one part of the world, milling about but
 	// not migrating.
@@ -1142,14 +1153,51 @@ void NCL::DistributedGameServer::ServerWorldManager::ApplyWorkloadInitialState(
 		return;
 	}
 
-	if (mWorkload == "headon") {
+	if (mWorkload == "headon" || mWorkload == "oblique") {
 		// Direction from the object's own position rather than its grid index: the
 		// index-to-row mapping depends on how SetupWorld shaped the grid, and reading
 		// it back here would be a second place to keep that in step. Sign of x is the
 		// same answer and cannot drift.
-		const float x = obj.GetTransform().GetPosition().x;
-		physicsComp->SetLinearVelocity(
-			Maths::Vector3((x < 0.0f) ? HEADON_SPEED : -HEADON_SPEED, 0.0f, 0.0f));
+		const Maths::Vector3 position = obj.GetTransform().GetPosition();
+		const bool leftSide = position.x < 0.0f;
+
+		if (mWorkload == "headon") {
+			physicsComp->SetLinearVelocity(
+				Maths::Vector3(leftSide ? HEADON_SPEED : -HEADON_SPEED, 0.0f, 0.0f));
+			return;
+		}
+
+		// The bound's assumed maximum speed is a PREMISE of the soundness condition, so
+		// a workload that launched faster would be testing it against a violated one.
+		// Warned about loudly rather than silently clamped: a clamp would quietly change
+		// the workload into a different experiment than the one requested.
+		if (!NCL::Distributed::ObliqueSpeedIsWithinBound(HEADON_SPEED,
+			OBLIQUE_MAX_ANGLE_RADIANS)) {
+			std::cout << "WARNING: oblique workload launches at "
+				<< NCL::Distributed::ObliqueMaxSpeed(HEADON_SPEED, OBLIQUE_MAX_ANGLE_RADIANS)
+				<< " u/s, above the halo bound's assumed maximum of "
+				<< NCL::Distributed::HALO_ASSUMED_MAX_SPEED
+				<< ". Soundness results from this run are not comparable.\n";
+		}
+
+		// Oblique: the angle is a slow linear function of z across the world extent, for
+		// the same reason the direction above comes from position - it needs no grid
+		// knowledge and cannot fall out of step with SetupWorld. Adjacent lanes are 6
+		// units apart in a 300-unit world, so they differ by under a degree and
+		// neighbouring pairs barely drift relative to one another.
+		float worldMinX = 0.0f, worldMaxX = 0.0f, worldMinZ = 0.0f, worldMaxZ = 0.0f;
+		float fraction = 0.0f;
+		if (GetWorldExtent(worldMinX, worldMaxX, worldMinZ, worldMaxZ)
+			&& worldMaxZ > worldMinZ) {
+			fraction = (position.z - worldMinZ) / (worldMaxZ - worldMinZ);
+		}
+
+		const float theta = NCL::Distributed::ObliqueAngleAtFraction(
+			fraction, OBLIQUE_MAX_ANGLE_RADIANS);
+		const NCL::Distributed::ObliqueLaunch launch =
+			NCL::Distributed::ObliqueVelocityAtAngle(theta, HEADON_SPEED, leftSide);
+
+		physicsComp->SetLinearVelocity(Maths::Vector3(launch.vx, 0.0f, launch.vz));
 		return;
 	}
 
@@ -1367,7 +1415,7 @@ void DistributedGameServer::ServerWorldManager::CreatePlayerObjects(int playerCo
 			}
 		}
 
-		if (mWorkload == "headon") {
+		if (mWorkload == "headon" || mWorkload == "oblique") {
 			rows = 2;
 			cols = std::max(1, (objectsPerPlayer + 1) / 2);
 			rowSpacing = 2.0f * HEADON_HALF_GAP;
