@@ -2376,36 +2376,40 @@ int DistributedGameServer::ServerWorldManager::GetObjectServer(const Maths::Vect
 // rejects. Both servers then disown it. This nudge makes the receiver's test
 // agree with the handoff that just happened.
 //
-// The bounds mirror IsObjectInBorder exactly - half-open on X (>= min, < max),
-// closed on Z (>= min, <= max) - so a position this returns always satisfies it.
-// When the incoming position is already inside, every clamp is a no-op.
+// The bounds are NOT restated here. They were, and the copy went stale: it claimed to
+// "mirror IsObjectInBorder exactly - half-open on X, closed on Z", which was true only
+// before the ownership unification. IsObjectInBorder now delegates to OwningServerFor,
+// which is half-open on BOTH axes, so the closed-Z clamp returned a coordinate a
+// different server owns on any interior Z seam - masked at 2 servers (1-D split, so
+// maxZ is the world's and the closed-outer-edge exception applies) and live at 4.
+// Fixed 2026-08-26 by moving the geometry to NCL::Interaction::ClampIntoRegion, beside
+// the rule it has to agree with, where it is asserted against OwningServerFor directly
+// at both 2- and 4-server partitions (tools/InteractionTests/RegionOwnershipTests.cpp).
 //
-// NOTE: called, but for OBSERVATION only. ApplyIncomingObject computes this clamp on
-// every non-reclaim arrival and DISCARDS the result, counting the cases where it would
-// have moved the object into mHandoffsClamped (hoClamp). So incoming handoffs still get
-// no positional nudge - what changed is that the codebase now measures how often one
-// would be needed, and that measurement shows the case is reachable under load: hoClamp
-// fires on the 8,000-object and rebalancing runs and never on the healthy-path runs.
-// Actually APPLYING the clamp moves incoming objects and so changes measured handoff
-// behaviour; that belongs with the ownership unification (increment 2 of the
-// interactions design), not here.
+// Both inputs come from GetRegionBounds() - the same partition GetObjectServer feeds to
+// OwningServerFor - and NOT from mServerBorderData. Reading the region from one source
+// and the rule from another is how the two drifted apart in the first place.
+//
+// NOTE: still called for OBSERVATION only at this commit. ApplyIncomingObject computes
+// the clamp on every non-reclaim arrival and DISCARDS the result, counting into
+// mHandoffsClamped (hoClamp) the cases where it would have moved the object. Applying
+// it changes measured handoff behaviour, so it lands as its own change.
 Maths::Vector3 DistributedGameServer::ServerWorldManager::CalculateIncomingObjectOffsetPosition(const Maths::Vector3& position) const {
-	// One centimetre in world units - large enough to survive the float rounding
-	// that put the object on the edge, far below the 2-unit object spacing.
-	constexpr float INWARD_EPSILON = 0.01f;
+	const auto& regions = GetRegionBounds();
 
-	Vector3 offsetPos = position;
+	float worldMinX = 0.0f, worldMaxX = 0.0f, worldMinZ = 0.0f, worldMaxZ = 0.0f;
+	if (!GetWorldExtent(worldMinX, worldMaxX, worldMinZ, worldMaxZ)) {
+		// No partition: OwningServerFor returns -1 for every point, so there is no
+		// region to clamp into and no correction to make.
+		return position;
+	}
 
-	// X's upper bound is exclusive, so max itself is not a legal position here.
-	// std::clamp is undefined when lo > hi, which a degenerate region would cause.
-	const float highX = std::max(mServerBorderData->minXVal, mServerBorderData->maxXVal - INWARD_EPSILON);
-	offsetPos.x = std::clamp(position.x, mServerBorderData->minXVal, highX);
-
-	// Z's upper bound is inclusive, so max is legal and needs no epsilon.
-	const float highZ = std::max(mServerBorderData->minZVal, mServerBorderData->maxZVal);
-	offsetPos.z = std::clamp(position.z, mServerBorderData->minZVal, highZ);
-
-	return offsetPos;
+	for (const NCL::Interaction::RegionBounds& region : regions) {
+		if (region.serverId == mServerID) {
+			return NCL::Interaction::ClampIntoRegion(region, worldMaxX, worldMaxZ, position);
+		}
+	}
+	return position;
 }
 
 NCL::CSC8503::GameObject* NCL::DistributedGameServer::ServerWorldManager::AddDistributedControllableObject(const Transform& transform, int playerID) const {

@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <vector>
 
 #include "Vector3.h"
@@ -59,5 +60,43 @@ namespace NCL::Interaction {
 		}
 
 		return -1;
+	}
+
+	// Clamps a point strictly inside `region`, under the SAME rule OwningServerFor
+	// applies - so OwningServerFor(regions, ClampIntoRegion(r, ..., p)) == r.serverId.
+	//
+	// It lives here, next to the rule, deliberately. It used to live in
+	// ServerWorldManager as CalculateIncomingObjectOffsetPosition with its own copy of
+	// the bounds, and the copy went stale: it clamped Z with an INCLUSIVE upper bound,
+	// matching what IsObjectInBorder did before the ownership unification above. On an
+	// interior Z seam that returned a coordinate a different server owns - the
+	// disowned-object case this file exists to prevent, on the one path that had not
+	// been unified. Two definitions of one rule was the defect; one definition is the
+	// fix.
+	//
+	// worldMaxX / worldMaxZ carry the same outer-edge exception OwningServerFor makes:
+	// a region on the world boundary owns its maximum, so clamping there must NOT step
+	// inward.
+	inline Maths::Vector3 ClampIntoRegion(const RegionBounds& region,
+		float worldMaxX, float worldMaxZ, const Maths::Vector3& point) {
+		// One centimetre in world units - large enough to survive the float rounding
+		// that put the object on the edge, far below the 2-unit object spacing.
+		constexpr float INWARD_EPSILON = 0.01f;
+
+		// An exclusive upper bound means the maximum itself is not a legal position, so
+		// the reachable ceiling is one epsilon below it. A region whose maximum IS the
+		// world's owns that maximum, so its ceiling is the maximum itself. std::max
+		// guards a degenerate region where the epsilon would invert the range, which
+		// would make std::clamp undefined.
+		const float ceilingX = (region.maxX == worldMaxX)
+			? region.maxX : std::max(region.minX, region.maxX - INWARD_EPSILON);
+		const float ceilingZ = (region.maxZ == worldMaxZ)
+			? region.maxZ : std::max(region.minZ, region.maxZ - INWARD_EPSILON);
+
+		Maths::Vector3 clamped = point;
+		clamped.x = std::clamp(point.x, region.minX, ceilingX);
+		clamped.z = std::clamp(point.z, region.minZ, ceilingZ);
+		// Y is untouched: the partition is in XZ only.
+		return clamped;
 	}
 }
