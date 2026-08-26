@@ -778,6 +778,16 @@ namespace NCL {
 				uint64_t releaseAtTick = 0;
 			};
 			std::map<int, ScheduledRelease> mScheduledReleases;
+
+			// The last transfer accepted for each object id, so a custody resend that
+			// arrives after the object was handed ONWARD is recognised as a resend
+			// rather than re-installed as a second copy (backlog item 15). std::map
+			// for deterministic iteration, matching mScheduledReleases above.
+			//
+			// Never pruned. An entry is 16 bytes against an object's several hundred,
+			// ids are never recycled (NetworkIdSpace.h), and pruning would reintroduce
+			// the "no record, so accept it" case the guard exists to close.
+			std::map<int, NCL::Distributed::AcceptedTransfer> mAcceptedTransfers;
 			void FlushScheduledReleases();
 
 			// Adopts any queued partition whose effective tick has arrived.

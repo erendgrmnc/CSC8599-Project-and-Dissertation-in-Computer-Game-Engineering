@@ -394,3 +394,61 @@ TEST(RedundantReclaimAndDuplicateGuardAreNeverBothTrue) {
 		}
 	}
 }
+
+// --- IsResendOfAcceptedTransfer -------------------------------------------------
+//
+// THE REGRESSION TESTS FOR BACKLOG ITEM 15. IsDuplicateHandoffArrival above tests OBJECT
+// STATE, and object state cannot tell "a resend of a transfer I accepted and have since
+// passed on" from "a genuine new handoff of an object coming back to me" - both are
+// present-and-inactive, because pool entries are never erased. So the resend fell through
+// and the object was re-installed here while the server it had been handed to still owned
+// it. On three repeats of E4's rebalancing configuration, one ended holding 1,303 MORE
+// objects than the world contains (docs/superpowers/results/2026-08-24-B-e4-attribution.md).
+//
+// Duplication is a worse failure than loss for a physics simulation: the object exists
+// twice, is integrated twice, and can collide with itself.
+//
+// The distinguishing fact is on the TRANSFER, not the object. Custody holds the packet
+// verbatim, so a resend reproduces (senderServerID, senderTick) exactly.
+
+TEST(ResendOfTheTransferAlreadyAcceptedIsRecognised) {
+	// The exact defect: same sender, same tick, object long since handed onward.
+	AcceptedTransfer accepted{ 2, 4096 };
+	CHECK(IsResendOfAcceptedTransfer(false, true, accepted, 2, 4096));
+}
+
+TEST(GenuineLaterTransferOfTheSameObjectIsNotAResend) {
+	// The object left and came back. Same sender, LATER tick - it must be accepted, or
+	// this guard converts a duplication defect into a loss defect.
+	AcceptedTransfer accepted{ 2, 4096 };
+	CHECK(!IsResendOfAcceptedTransfer(false, true, accepted, 2, 5120));
+}
+
+TEST(TransferFromADifferentSenderAtTheSameTickIsNotAResend) {
+	// Servers share no epoch, so equal tick numbers from two servers mean nothing. This
+	// is why the identity carries the sender id and not the tick alone.
+	AcceptedTransfer accepted{ 2, 4096 };
+	CHECK(!IsResendOfAcceptedTransfer(false, true, accepted, 3, 4096));
+}
+
+TEST(FirstTransferOfAnObjectIsNotAResend) {
+	AcceptedTransfer accepted{};
+	CHECK(!IsResendOfAcceptedTransfer(false, false, accepted, 2, 4096));
+}
+
+TEST(ReclaimIsNeverTreatedAsAResend) {
+	// A reclaim is the SENDER re-applying its own packet after the peer link died. It
+	// carries the original identity by construction and would match every time - and
+	// dropping it strands the object nowhere, the loss custody exists to prevent.
+	// IsRedundantReclaim is what handles that case.
+	AcceptedTransfer accepted{ 2, 4096 };
+	CHECK(!IsResendOfAcceptedTransfer(true, true, accepted, 2, 4096));
+}
+
+TEST(AnEarlierTickThanTheAcceptedOneIsAlsoAResend) {
+	// Reordered delivery: a resend can arrive AFTER a later transfer was accepted. The
+	// test is "not strictly newer", not "equal", or an out-of-order resend re-installs
+	// the object exactly as before.
+	AcceptedTransfer accepted{ 2, 5120 };
+	CHECK(IsResendOfAcceptedTransfer(false, true, accepted, 2, 4096));
+}

@@ -287,4 +287,46 @@ namespace NCL::Distributed {
 		}
 		return result;
 	}
+
+	// The identity of a transfer this server has already accepted for one object.
+	// (senderServerID, senderTick) rather than a new sequence field: both are already on
+	// StartSimulatingObjectPacket, so this costs no wire-format change, and custody holds
+	// the packet verbatim so a resend reproduces both exactly.
+	struct AcceptedTransfer {
+		int       senderServerID = -1;
+		long long senderTick = -1;
+	};
+
+	// True when an arriving transfer is a resend of one already accepted for this object.
+	//
+	// IsDuplicateHandoffArrival above cannot answer this. It tests object STATE, and a
+	// resend that arrives after the object was handed ONWARD finds it present-but-inactive
+	// - pool entries are never erased, because ids are never recycled - which is
+	// indistinguishable from a genuine new handoff of an object returning here. So the
+	// arrival fell through and was re-installed while the server it had been handed to
+	// still owned it: two owners, one object, integrated twice. Backlog item 15; one
+	// repeat of three ended holding 1,303 more objects than the world contains.
+	//
+	// The test is "not strictly newer than what we accepted", not "equal to it", because
+	// delivery can reorder: a resend may arrive AFTER a later transfer of the same object
+	// was already accepted, and an equality test would let that one through.
+	//
+	// A reclaim is exempt, for the same reason IsDuplicateHandoffArrival exempts it: a
+	// reclaim is the sender re-applying its own packet after the peer link died, so it
+	// carries the original identity by construction and would match every time - and
+	// dropping it strands the object nowhere, the loss custody exists to prevent.
+	// IsRedundantReclaim is what handles the reclaim case.
+	inline bool IsResendOfAcceptedTransfer(bool isReclaim, bool hasAcceptedRecord,
+		const AcceptedTransfer& accepted, int arrivingSenderID, long long arrivingSenderTick) {
+		if (isReclaim) {
+			return false;
+		}
+		if (!hasAcceptedRecord) {
+			return false;
+		}
+		if (arrivingSenderID != accepted.senderServerID) {
+			return false;
+		}
+		return arrivingSenderTick <= accepted.senderTick;
+	}
 }

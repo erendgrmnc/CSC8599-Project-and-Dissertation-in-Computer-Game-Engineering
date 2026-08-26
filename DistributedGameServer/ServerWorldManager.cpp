@@ -2037,6 +2037,31 @@ bool DistributedGameServer::ServerWorldManager::ApplyIncomingObject(StartSimulat
 		return true;
 	}
 
+	// The guard above tests object STATE, which cannot see a resend that arrives after
+	// this server handed the object ONWARD: the pool entry is never erased, so the
+	// object is present-but-inactive, exactly like a genuine new handoff of an object
+	// coming back to us. Falling through re-installed it here while the server it had
+	// been handed to still owned it - backlog item 15, one repeat of three ending with
+	// 1,303 more objects than the world contains.
+	//
+	// The transfer's own identity settles it. Counted into mHandoffsDuplicate like the
+	// state-based case above: both are a second arrival of one transfer, and hoDup is
+	// the axis they are reported on so neither enters the I5 parity sum.
+	{
+		const auto acceptedEntry = mAcceptedTransfers.find(packet->objectID);
+		const bool hasAccepted = acceptedEntry != mAcceptedTransfers.end();
+		const NCL::Distributed::AcceptedTransfer accepted =
+			hasAccepted ? acceptedEntry->second : NCL::Distributed::AcceptedTransfer{};
+		if (NCL::Distributed::IsResendOfAcceptedTransfer(isReclaim, hasAccepted, accepted,
+			packet->senderServerID, packet->mSenderTick)) {
+			++mHandoffsDuplicate;
+			std::cout << "Resend of an already-accepted transfer for object "
+				<< packet->objectID << " (sender " << packet->senderServerID
+				<< ", tick " << packet->mSenderTick << ") - acked without re-installing.\n";
+			return true;
+		}
+	}
+
 	// A reclaim of an object we never actually let go of. See IsRedundantReclaim: the
 	// scheduled release runs on a simulation tick while the reclaim deadline is
 	// wall-clock, so at a large --handoff-lookahead the reclaim can land first. The
@@ -2167,6 +2192,16 @@ bool DistributedGameServer::ServerWorldManager::ApplyIncomingObject(StartSimulat
 		// We own it now. Recorded rather than erased so a stale relay that arrives
 		// here is answered with "us" instead of falling through to ObjectUnknown.
 		RecordObjectOwner(packet->objectID, mServerID);
+
+		// Recorded on ACCEPTANCE, not on arrival: a transfer that failed to install
+		// must not suppress its own resend, which is the whole point of the resend.
+		// Reclaims are excluded because they carry the original transfer's identity by
+		// construction, so recording one would make the next genuine transfer from that
+		// sender look like a resend of it.
+		if (!isReclaim) {
+			mAcceptedTransfers[packet->objectID] =
+				NCL::Distributed::AcceptedTransfer{ packet->senderServerID, packet->mSenderTick };
+		}
 
 		++mHandoffsReceived;
 
