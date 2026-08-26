@@ -453,3 +453,88 @@ wherever the machine happened to be loaded, not where the topology is largest.
 **Item 2 is substantially closed.** The window in which nobody owns an object falls from up to
 98% of ticks to 0-0.11%, and what remains is late delivery on a contended single machine, not
 release-on-send.
+
+---
+
+## Task 6 — the re-runs
+
+| experiment | verdict |
+|---|---|
+| **E1** locality, 1/2/4 servers | All invariants hold — regression clean |
+| **E2** cross-border, halo 0 vs 8 | All invariants hold; soundness reproduces exactly (width 0 → 100 crossings, width 8 → 0) |
+| **E4** 2 servers, 12 runs | Conservation exact on every run |
+| **E4** 4 servers, 12 runs | No surviving duplication; the guard rejected 3,906 duplicate arrivals |
+| **E7** 8,000 objects | Ownership gap NOT closed — see below |
+
+### Item 15 is closed, and the guard is doing visible work
+
+On `d6-E4-s4/rebalanceInterval400-r6`, server 2 resent **3,900** times and server 0 rejected
+**3,906** duplicate arrivals (`hoDup = 3906`) rather than re-installing them. Phase B's failing
+repeat, before the guard existed, turned 3,391 duplicate arrivals into **1,303 surviving
+duplicate objects**. None survive now.
+
+**The positive conservation deltas at 4 servers are end-of-run truncation, not duplication.**
+The correlation is exact on every repeat:
+
+| repeat | objPool sum | excess | `hoPending` | `hoDup` | `hoResent` |
+|---|---|---|---|---|---|
+| r1 | 4001 | +1 | 1 | 0 | 0 |
+| r2 | 4003 | +3 | 3 | 0 | 0 |
+| r3 | 4005 | +5 | 5 | 0 | 0 |
+| r4 | 4002 | +2 | 2 | 0 | 0 |
+| r5 | 4018 | +18 | 18 | 0 | 0 |
+| r6 | 4005 | +5 | 5 | 0 | 0 |
+
+`excess == hoPending`, with the duplication mechanism never firing (`hoDup = hoResent = 0`). A
+transfer still pending at exit has been installed by the receiver while the sender has not
+completed its release, so both ends count the object once. Structurally the same as backlog
+item 12, on a different counter. The large `+1953` on r6 is the same effect via
+`hoCustody = 1950`: `conservation_delta` adds custody on the assumption that a transfer in
+custody sits in *neither* pool, which stops holding once the receiver has installed it and only
+the ack is outstanding — which 3,900 resends guarantees.
+
+**Caveat.** 4-server E4 has no pre-Phase-D baseline, because it had never been run. The deltas
+are shown to be truncation rather than duplication, but they are not attributed to before or
+after this phase.
+
+### E7: the atomicity guarantee is bounded by the pacing budget
+
+At 8,000 objects the ownership gap is **not** closed at any lookahead:
+
+| L | `ownership_gap_ticks`, per repeat (of 1800) | `hoLate` | conservation |
+|---|---|---|---|
+| 8 (the new default) | 1777, 1774, 1778 | 151 | exact |
+| 16 | 1684, 1639, 1751 | 212 | exact |
+| 32 | 1642, 1618, 1610 | 104 | exact |
+| 64 | 1526, 1707, 1592 | 860 | exact |
+
+Raising L from 8 to 64 moves the gap from ~1776 to ~1600 of 1800. It does not close it, and
+`hoLate` is not even monotone in L. Conservation stays exact throughout — nothing is lost or
+duplicated; this is specifically the ownership gap.
+
+**The cause is the pacing budget, and it is measurable directly.**
+
+| configuration | `phys_p95` | pacing budget | holds? |
+|---|---|---|---|
+| 400 objects (where L = 8 was derived) | 1.0–1.1 ms | 8.33 ms | yes |
+| 8,000 objects (E7) | **10.2–10.4 ms** | 8.33 ms | **no** |
+
+Scheduled release is expressed in the **sender's tick numbers**: the sender releases at
+`senderTick + L` and the receiver installs at the same number. That is a shared clock only while
+both servers hold their pacing budget. Once physics per tick exceeds the budget the two servers
+stop advancing at the same rate, `senderTick + L` denotes different wall-clock instants on each,
+and no value of L can align release with install.
+
+This is the tick-epoch divergence `docs/EVALUATION.md` §5 already records — "two servers share
+no epoch once either stops holding its pacing budget" — stated there for halo scheduling. It
+bounds handoff scheduling identically, which nothing previously said.
+
+**So item 2 closes conditionally, and the condition is measurable rather than hand-waved:**
+scheduled release makes ownership atomic **while servers hold their pacing budget** (400
+objects: gap 0–0.11% of ticks), and does not **once they do not** (8,000 objects: ~98%, at every
+L tested). The honest statement is not "the ownership gap is fixed" but "the ownership gap is
+fixed below the pacing budget, and the pacing budget is the real limit."
+
+That is also a second instance of this project's recurring shape, after Phase C's finding that
+raising `--halo-lookahead` to absorb link latency does not work: **the obvious mitigation —
+raise the lookahead — was tested directly at 2x, 4x and 8x the default and failed.**
