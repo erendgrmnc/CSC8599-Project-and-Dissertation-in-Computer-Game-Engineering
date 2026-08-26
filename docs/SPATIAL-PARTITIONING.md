@@ -55,7 +55,21 @@ This paragraph previously described the path as scaffolded, with the ack a `TODO
 
 ### Incoming position offset
 
-`CalculateIncomingObjectOffsetPosition` (`ServerWorldManager.cpp:440` — note the name has no "ed") exists to nudge a handed-off object just inside the receiving region's bounds (so it isn't re-detected as out-of-bounds on arrival). It **is** called now, from `ApplyIncomingObject` on every non-reclaim arrival, but only to observe: the clamp is computed and the result is *discarded*, incrementing `hoClamp` when it would have moved the object. So incoming handoffs still get no positional nudge; what changed is that the codebase now measures how often one would be needed — and that measurement shows the case is reachable, including on the correctness-budget configuration when `--halo-width` is on. See `docs/EVALUATION.md` §7 item 7 and the verified-state warnings in `CLAUDE.md`.
+`CalculateIncomingObjectOffsetPosition` nudges a handed-off object just inside the receiving region's bounds, so it is not re-detected as out-of-bounds on arrival. Since 2026-08-26 the clamp is **applied**, not merely observed — to both `position` and `predictedPosition`, so the build-from-archetype path (for an object this server has never seen) and the promote-from-halo-shadow path cannot disagree about where the object is.
+
+The geometry itself lives in `NCL::Interaction::ClampIntoRegion` (`RegionOwnership.h`), beside the ownership rule it has to agree with; the server function is a thin adapter that reads its region from `GetRegionBounds()` — the same partition `GetObjectServer` feeds to `OwningServerFor`. That co-location is the point: the clamp previously kept its own copy of the bounds, and the copy went stale, clamping Z with an *inclusive* upper bound after `IsObjectInBorder` had started delegating to the half-open `OwningServerFor`. On an interior Z seam it returned a coordinate a different server owns — masked at 2 servers, live at 4, and inert only because the result was being discarded.
+
+`hoClamp` counts arrivals that **were** moved. It counted arrivals that *would* have been moved before 2026-08-26, so figures either side are not comparable. See `docs/EVALUATION.md` §7 item 7.
+
+### The partition changes topology on rebalance
+
+Not previously documented anywhere, and it surprises anyone reading the two paths together.
+
+The **initial** partition is a 2-D grid: `GameInstance::CalculateServerBorders` uses `numCols = ceil(sqrt(serverCount))`, `numRows = ceil(serverCount / numCols)`, so 4 servers get a 2×2 grid with interior seams on **both** axes.
+
+The **repartition** path emits 1-D X slices only — `SystemManager.cpp:386-389` sets every region to the full Z extent, commented "Slices span the whole Z extent. A 1-D split is all the forced-repartition flag needs to express".
+
+So the first rebalance on a 4-server run silently reshapes a 2×2 grid into 4 vertical strips, changing every region at once rather than moving one border. E4 ran at 2 servers, where the initial partition is already 1-D and the two topologies coincide, which is why this never bit. **Any 4-server rebalancing measurement is measuring a whole-partition reshape, not the incremental border movement the balancer is described as performing**, and should be reported as such.
 
 ## Summary
 

@@ -576,7 +576,8 @@ latency injection is the experiment that tests whether that defence survives rea
 
 ### 5.2 Work, bundled deliberately
 
-Both items land together so one re-measurement covers them:
+**Three** items land together so one re-measurement covers them — item 15 was found after
+this section was written and is designed in §5.8:
 
 - **Item 7** — `CalculateIncomingObjectOffsetPosition` currently computes the clamp at
   `ServerWorldManager.cpp:2019` and discards it, incrementing `hoClamp` when it would have moved an
@@ -685,6 +686,45 @@ Full sweep, as approved:
 
 E3, E6 and E8 are not conservation-sensitive and do not need re-running for this phase, provided the
 Phase D gate (§5.6) passes.
+
+---
+
+### 5.8 Item 15 — custody resends duplicate objects
+
+Written 2026-08-26, after the fact: this item was found on 2026-08-24, *after* §5 was drafted,
+and was assigned to Phase D by the roadmap status pass without a design section here. It is
+recorded now from what shipped.
+
+**The defect.** `IsDuplicateHandoffArrival` tests OBJECT STATE — present, network-active, not a
+halo shadow. A resend that arrives after this server handed the object *onward* finds it present
+but inactive, because pool entries are never erased (ids are never recycled, `NetworkIdSpace.h`).
+That is indistinguishable from a genuine new handoff of an object returning here, so the arrival
+fell through and was re-installed while the server it had been handed to still owned it. One
+repeat of three ended holding 1,303 more objects than the world contains.
+
+**The fix.** Object state cannot answer the question; the transfer's identity can. Custody holds
+the packet verbatim, so a resend reproduces `(senderServerID, mSenderTick)` exactly — both fields
+already on `StartSimulatingObjectPacket`, so **no wire-format change**.
+`NCL::Distributed::IsResendOfAcceptedTransfer` plus a per-object `mAcceptedTransfers` map.
+
+Three details that are not obvious:
+
+- The test is **"not strictly newer"**, not "equal". Delivery can reorder, so a resend may arrive
+  after a later transfer of the same object was already accepted; an equality test would let that
+  one through.
+- **Reclaims are exempt**, for the same reason `IsDuplicateHandoffArrival` exempts them: a reclaim
+  is the sender re-applying its own packet after the peer link died, so it carries the original
+  identity by construction and would match every time — and dropping it strands the object
+  nowhere, the loss custody exists to prevent.
+- The map is **never pruned**. An entry is 16 bytes against an object's several hundred, ids are
+  never recycled, and pruning would reintroduce the "no record, so accept it" case the guard
+  exists to close.
+
+**Gate.** `hoDup` and `hoResent` are both in `gate-compare.py`'s `STABLE` set, so the healthy path
+(where both read 0) is covered without a new instrument.
+
+**Outcome.** Closed. On a 4-server rebalancing repeat, 3,900 resends produced 3,906 duplicate
+arrivals, all rejected; none survived. See `docs/superpowers/results/2026-08-26-D-ownership.md`.
 
 ---
 

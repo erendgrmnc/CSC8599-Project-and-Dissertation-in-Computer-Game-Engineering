@@ -776,10 +776,27 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    so. A run intended to *pass* the gate must be drained (`--drain-seconds`) until `hoCustody` reads
    0; the E7 runs quoted here were not, and are reported as failures by the shipped analyser.
 
-   What custody does not touch is the ownership *gap* itself: at `--handoff-lookahead
-   0` — the default, and what most experiments in this document ran at — `ScheduleOutgoingObject`
-   releases on send exactly as before, so nobody owns the object for one network round trip. The
-   atomicity guarantee stays conditional on `--handoff-lookahead > 0`, the non-default case (§6).
+   **The ownership gap itself closed on 2026-08-26, below the pacing budget.**
+   `--handoff-lookahead` now defaults to **8**, derived from a 60-run sweep rather than chosen
+   (`docs/superpowers/results/2026-08-26-D-ownership.md`). At the correctness-budget
+   configuration the gap falls from up to 98% of ticks to 0-0.11%.
+
+   Three qualifications, all measured:
+
+   - **It is a threshold, not a dial.** L = 2 is *worse* than L = 0 — every repeat at ~1776 gap
+     ticks of 1800 against L = 0's bimodal 87/~1750, with ~60% of arrivals missing their slot.
+     Below the delivery latency, scheduling adds delay without buying atomicity.
+   - **Above the threshold, every residual gap is a late arrival**, one for one (`hoLate > 0` iff
+     gap > 0 across 18 runs). The residual is delivery tail latency, not a protocol defect.
+   - **It does not hold above the pacing budget.** At 8,000 objects (`phys_p95` 10.2-10.4 ms
+     against a budget of 8.33 ms) the gap is ~1776 of 1800 and **no lookahead closes it** — 8,
+     16, 32 and 64 all sit at ~1600-1780. Scheduled release is expressed in the sender's tick
+     numbers, which is a shared clock only while both servers hold pace. This is the same
+     tick-epoch divergence §5 records for halo scheduling, bounding handoff scheduling
+     identically.
+
+   So the guarantee is now conditional on **load**, not on a non-default flag: ownership is
+   atomic while servers hold their pacing budget, and is not once they do not.
 3. ~~**No guard on halo lookahead.**~~ **Withdrawn — this was a mis-diagnosis, not a defect.**
    Re-analysis of E5 round 1's own CSVs shows `haloLate = 0` and shadows present on 98.2% of ticks at
    lookahead 32, so nothing was retiring and `HALO_STALE_TICKS` was never involved. There is no
@@ -804,7 +821,7 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    What remains true is the *consequence*, and it stays recorded as a limitation in §6: the balancer
    equalises objects, so E4 ends with near-perfect object balance and a residual contact imbalance
    (14.2M vs 8.1M). That is a stated property of object-count balancing, not an unfixed bug.
-7. **`CalculateIncomingObjectOffsetPosition` is never called — confirmed reachable, stays open.**
+7. ~~**`CalculateIncomingObjectOffsetPosition` is never called.**~~ **Closed 2026-08-26.**
    `ServerWorldManager.cpp:440`. Incoming handoffs still get no positional nudge into the receiving
    region. Batch B added `hoClamp`, a counter that computes the clamp this function would apply and
    discards it without changing behaviour, purely to observe whether the gap is real. It fired 25,434
@@ -830,9 +847,26 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    the clamp returns a position this server does not own — the disowned-object case the unification
    exists to prevent. Masked at 2 servers (1-D split, `maxZ == worldMaxZ`, closed-outer-edge
    exception) and reachable at 4 (`CalculateServerBorders` builds a 2×2 grid); inert today only
-   because the result is discarded. The Z bound must be fixed *before* the function is wired in, and
-   the stale comment corrected with it. See
-   `docs/superpowers/specs/2026-08-23-backlog-completion-design.md` §5.3.
+   because the result is discarded.
+
+   **Both halves are now done.** The geometry moved to `NCL::Interaction::ClampIntoRegion` in
+   `RegionOwnership.h`, beside the rule it has to agree with, and is asserted directly against
+   `OwningServerFor` at both 2- and 4-server partitions — reverting the Z bound fails exactly the
+   two interior-seam tests and nothing else. Both its inputs now come from `GetRegionBounds()`,
+   the same partition `GetObjectServer` feeds to `OwningServerFor`, rather than from a second copy
+   in `mServerBorderData`. The clamp is then **applied** rather than discarded, to both `position`
+   and `predictedPosition` so the build-from-archetype and promote-from-shadow paths cannot
+   disagree.
+
+   The defect was live, and the measurement says so: at 4 servers `hoClamp` on server 1 went
+   **0 → 2**, reproducibly, and on no other server — server 1 being in the row whose `maxZ` is
+   interior, while servers 2 and 3 sit on the world's outer Z edge where the closed-edge exception
+   makes the fix a no-op by construction. Those two arrivals per run were landing on `z = 0`, a
+   coordinate row 1 owns, and the old clamp left them there.
+
+   **`hoClamp` changed meaning on 2026-08-26** — it counted arrivals that *would* have been moved
+   and now counts arrivals that *were*. Figures either side are not comparable. See
+   `docs/superpowers/results/2026-08-26-D-ownership.md`.
 10. ~~**Bytes are counted as packets, not datagrams.**~~ **Fixed, with a corrected interpretation.**
    `net_cli_wire_bytes` and `net_peer_wire_bytes` (`tools/analyse.py`) now read ENet's own
    post-coalescing counters (`GetTotalSentData()`/`GetTotalSentPackets()`,
@@ -914,7 +948,7 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    same day, `2026-08-24-item13-counterfactual.md`, concluded this was a real build difference and is
    **retracted** there — it ran each build with its own harness and so reproduced the artefact.
 
-15. **Open, new 2026-08-24 — custody resends DUPLICATE objects under rebalancing.** Found only once
+15. ~~**Custody resends DUPLICATE objects under rebalancing.**~~ **Closed 2026-08-26.** Found only once
    the counter-staleness fix above made `@@FINAL` self-consistent; the old reporting could not
    express it, because a duplicate showed up as a *negative* conservation delta indistinguishable
    from a loss.
@@ -934,10 +968,24 @@ shift in interest management's own reduction fraction — shown not to be tick-r
    by `--handoff-max-attempts`. Under rebalancing that bound is not sufficient.
 
    **Duplication is a worse failure than loss**: the object exists twice, is integrated twice, and
-   can collide with itself. Belongs to Phase D with the ownership work, and is a stronger argument
-   for that phase than the ownership gap alone. Note it is intermittent — 1 of 3 repeats — so it
-   needs repeats to see at all. Write-up:
-   `docs/superpowers/results/2026-08-24-B-e4-attribution.md`.
+   can collide with itself. Note it is intermittent — 1 of 3 repeats — so it needs repeats to see
+   at all. Write-up: `docs/superpowers/results/2026-08-24-B-e4-attribution.md`.
+
+   **The fix.** `IsDuplicateHandoffArrival` tests object STATE, and a resend arriving after this
+   server handed the object *onward* finds it present-but-inactive — pool entries are never erased
+   — which is indistinguishable from a genuine handoff of an object returning. The transfer's own
+   identity settles it: custody holds the packet verbatim, so a resend reproduces
+   `(senderServerID, mSenderTick)` exactly, and both fields were already on the wire, so there was
+   **no wire-format change**. `IsResendOfAcceptedTransfer` tests "not strictly newer" rather than
+   "equal", because delivery can reorder; reclaims are exempt, since they carry the original
+   identity by construction and dropping one would strand the object.
+
+   **Verified under the conditions that produced it.** On a 4-server rebalancing repeat, 3,900
+   resends produced **3,906 duplicate arrivals, all rejected** — none survived. Conservation is
+   exact on all 12 of the 2-server runs. The positive conservation deltas seen at 4 servers are
+   end-of-run truncation, not duplication: `excess == hoPending` exactly on every repeat, with
+   `hoDup` and `hoResent` both 0 so this mechanism never fired there. See
+   `docs/superpowers/results/2026-08-26-D-ownership.md`.
 
 14. **Fixed 2026-08-24 - no client `@@FINAL` line existed in any run of this phase (F4, found
    2026-08-23).** Every client was force-killed before it could print `@@FINAL`. Checked across every
