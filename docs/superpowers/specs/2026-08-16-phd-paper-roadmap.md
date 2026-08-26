@@ -289,6 +289,31 @@ everyone reaches for, it was arrived at by a prediction that was stated in advan
 the refutation is what identifies the cause. Result 3 says the condition is necessary but the naive
 reading of it — "when in doubt, widen" — is actively wrong near the envelope.
 
+### 6.1a The bounds interact, and that is a result in itself (2026-08-27)
+
+§6.1 states the halo soundness condition and its measured latency envelope. Phase D added a second
+bound — the handoff lookahead needed for ownership atomicity — and the two are **not independent**.
+
+Measured (`docs/superpowers/results/2026-08-27-D2-ownership-under-latency.md`, 39 runs, a
+prediction stated in advance and confirmed on both ends):
+
+- The lookahead required to close the ownership gap rises with link delay as `L_min ~ 4 + T_L/dt`.
+  `L = 8` holds to 25 ms and collapses at 50; `L = 16` holds to 75 ms and fails at 100.
+- At `T_L = 100 ms` the gap needs `L = 32`, while the halo bound forbids anything above 16 at
+  `--halo-width 8`. **The run that closes the gap is the run that violates the other bound.**
+- The band width that satisfies both is a **compound** neither states alone: 12 from halo soundness,
+  16 from the lookahead, and the binding constraint is the interaction.
+- And §6.1's result 3 already showed a wider band is not always safer under latency, so the
+  compound requirement rises while the safe width does not.
+
+**For the paper this is worth more than either bound separately.** A single soundness condition is
+a contribution; two conditions on the same mechanism that provably conflict past a measured
+threshold is a sharper and less expected one, and it is the kind of claim that is hard to obtain
+without exactly the invariant-and-gate apparatus §6.3 describes. It also supplies a third instance
+of the project's recurring shape: raising the halo lookahead cannot absorb link latency (§6.1
+result 2), raising the handoff lookahead cannot absorb load (Phase D), and raising it to absorb
+latency works only until it collides with another guarantee's bound (here).
+
 ### 6.2 What now limits the paper, in priority order
 
 1. **It is one machine.** Everything runs as processes on loopback; latency is injected in-process,
