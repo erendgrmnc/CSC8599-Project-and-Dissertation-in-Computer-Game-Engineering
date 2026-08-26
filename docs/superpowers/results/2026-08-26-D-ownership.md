@@ -293,3 +293,53 @@ time to contact.
 Note this is a **separate** parameter from `--halo-lookahead` (default 4), whose own bound
 `MinimumSafeHaloWidth(4) = 0.5 * 4 + 4 = 6` is satisfied by the configured width of 8. The two
 lookaheads are deliberately independent; only the handoff one is swept here.
+
+### Step 2: the sweep at 2 servers, 30 runs
+
+`--workload uniform`, 400 objects, 1800 paced ticks, `--halo-width 8`, `--halo-reliable`,
+30 s drain, **6 repeats per point**. Every repeat is shown; no medians (see the bimodality
+finding above).
+
+| L | `ownership_gap_ticks`, per repeat | `double` | `hoLate` | verdict |
+|---|---|---|---|---|
+| 0 | 1712, 87, 1755, 87, 1766, 1744 | 2 | 0 | FAILS |
+| **2** | **1776, 1776, 1775, 1776, 1777, 1774** | **3** | **55** | **FAILS — worse than L = 0** |
+| 4 | 0, 0, 0, 0, 0, 0 | 0 | 0 | **CLEAN** |
+| 8 | 0, 0, 0, 0, 0, 0 | 0 | 0 | CLEAN |
+| 16 | 0, 0, 0, 0, 0, 0 | 0 | 0 | CLEAN |
+
+**L = 4 is the smallest lookahead that closes the gap at 2 servers**: zero on all six repeats,
+no double-ownership, no late arrivals.
+
+#### The finding this plan did not anticipate: a small lookahead is worse than none
+
+L = 2 is not merely insufficient. It is worse than the current default. At L = 0 the gap is
+bimodal — two repeats at 87, four at ~1750. At L = 2 **every** repeat sits at ~1776, it
+produces the most double-ownership of any point (3), and it is the only point with late
+arrivals.
+
+The mechanism is measured, not inferred. Per-server `hoLate` at L = 2 reads **18 and 31** —
+roughly 60% of the ~81 arrivals miss their scheduled slot — against **0** at both L = 4 and
+L = 8. Two ticks at 120 Hz is 16.7 ms, which is below the delivery-plus-pacing latency of this
+setup; four ticks (33 ms) is above it. When an arrival misses its slot the receiver applies it
+immediately, but the sender has already released at its own scheduled tick, so the transfer
+degrades to release-on-send *plus* a scheduling delay — strictly worse than release-on-send
+alone.
+
+**A precision note on `hoLate` at L = 0.** It reads 0 there, but that is structural, not a
+sign of timeliness: `StartHandlingObject` returns through the `mHandoffLookaheadTicks <= 0`
+branch before the late check is reached, so there is no scheduled slot to miss and the counter
+is unreachable. L = 0's zero and L = 4's zero mean different things.
+
+**Consequence.** The handoff lookahead is a **threshold** parameter with a wrong-side-of-it
+failure, not a dial on which more is monotonically better. Below the delivery latency it adds
+delay without buying atomicity. Neither `docs/superpowers/specs/2026-08-23-backlog-completion-design.md`
+§5 nor the roadmap says this, and a deployment that set a small non-zero lookahead "to be safe"
+would be worse off than leaving it at 0.
+
+#### The bimodality is more common than the baseline suggested
+
+At L = 0, **four of six** repeats landed in the high mode, where the 4-repeat baseline had
+shown one of four. The high mode is the common case, not the outlier. Raising the sweep from 3
+repeats to 6 was necessary: at 3 there was a real chance of drawing three low-mode runs and
+under-stating the defect by an order of magnitude.
