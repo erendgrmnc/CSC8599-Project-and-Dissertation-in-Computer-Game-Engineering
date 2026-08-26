@@ -247,3 +247,107 @@ Vector3 predictedPosition = transform->GetPosition() + linearVel * dt;   // = p 
 **The acceleration term is 2× the documented one.** At the hardcoded 100 ms horizon under gravity this is ≈5 cm of additional predicted displacement per handoff — a systematic bias in exactly the quantity experiment 4 measures (handoff position error).
 
 Resolution: keep the code (symplectic Euler is the better choice for stability) and **correct the algorithm in the write-up**. Also remove the hardcoded `0.1f` in `PredictFuturePositions` (the computed `dt` is currently discarded) so the horizon is a declared parameter rather than a magic number — it is a parameter the paper's soundness argument depends on.
+
+---
+
+## 6. Status and reassessment — 2026-08-26
+
+Written after Phase C closed. §2's contribution claim is no longer a plan; the core of it is measured.
+This section records where that leaves the paper, and what now limits it.
+
+### 6.1 The §2 contribution claim is validated, and sharper than it was stated
+
+§2 asked for a *"joint (lookahead horizon, halo width) condition ... that guarantees no missed
+cross-boundary contact within a stated latency envelope"*, and called it genuinely unpublished and
+defensible. As of 2026-08-25 it exists, is implemented as one shared definition
+(`CSC8503CoreClasses/DistributedSystemCommonFiles/HaloBound.h`), and has been swept over its latency
+term across 302 runs:
+
+    w_min = v_max * (L * dt + T_L + T_J) + 2 * r_max
+
+Three results, in descending order of how much they are worth to the paper:
+
+1. **The latency envelope is measured rather than stated.** §2 wrote "within a stated latency
+   envelope" as a hedge. It is now a number: the condition holds while **total** sample-to-apply lag
+   stays under roughly 200 ms and fails above roughly 267 ms *at every width, including widths above
+   the predicted floor*. Reached identically along two independent axes — lookahead 32 at zero
+   latency and lookahead 40 at 300 ms both pin at 60 missed contacts of 100, flat across every width
+   swept.
+2. **The two terms are not interchangeable, and the obvious mitigation does not work.** Below the
+   scheduling lookahead, injected latency does not move the required width *at all* — the lookahead
+   is a delay budget that latency spends rather than adds to. Above it, the width rises but stays
+   under the bound. Raising `--halo-lookahead` to absorb link latency was tested directly, at
+   L=40/300 ms, and failed: it moves the lag from one term into the other and the ceiling is on
+   their sum.
+3. **A cost term is missing from the derivation.** Above 200 ms, monotonicity in width breaks —
+   wider stops being safer. At L=24/200 ms, width 12 caught every contact and width 28, the bound's
+   own prescription, did not, because publishing that many shadows over a delayed link costs late
+   applications and bandwidth.
+
+Result 2 is the most publishable sentence in the project: it is a negative result about a mechanism
+everyone reaches for, it was arrived at by a prediction that was stated in advance and refuted, and
+the refutation is what identifies the cause. Result 3 says the condition is necessary but the naive
+reading of it — "when in doubt, widen" — is actively wrong near the envelope.
+
+### 6.2 What now limits the paper, in priority order
+
+1. **It is one machine.** Everything runs as processes on loopback; latency is injected in-process,
+   not measured. This was a modest weakness while the claims were about partitioning and throughput.
+   It is now the *binding* weakness, because the headline result is about network delay and was
+   measured with no network. Two or three physical machines on a LAN plus a WAN emulator would close
+   it, and nothing else on this list buys as much.
+2. **The ownership gap is the default behaviour, not an edge case.** At `--handoff-lookahead 0` —
+   what essentially every experiment in `docs/EVALUATION.md` ran at — the sender releases on send and
+   nobody owns the object for one network round trip; 1,397 of 1,800 ticks on a uniform run had an
+   unowned object. It is documented honestly and §6 of EVALUATION states the guarantee as
+   conditional, but a correctness paper resting on a default protocol with a known ownership hole
+   invites exactly one reviewer question. **Phase D item 2 is worth more to the paper than any
+   further sweep.**
+3. **The halo bound rests on one synthetic workload.** `headon` is collision-dense at the border by
+   construction, which is where linear dead reckoning over a long lag is worst — so the lag ceiling
+   in §6.1 is plausibly a property of the workload rather than of the design. The optional companion
+   in the Phase C spec (§4.7) is what would settle that, and it stopped being optional the moment the
+   ceiling became a headline number.
+4. **Scale and baselines.** 2 servers mostly, 4 occasionally; 100-400 objects; comparisons against
+   *published* numbers with declared deviations rather than against a running baseline system.
+
+### 6.3 An alternative framing worth considering
+
+The current framing — a distributed physics server with partitioning, handoff and halo regions — sits
+in a crowded space (§1.2, §1.3): AP, Colyseus, Kale & Kry, MMO zoning. The measured bound is the novel
+part, and §2 is right to build on it.
+
+But there is a second asset this project has that almost nobody else does, and it is currently
+treated as process rather than contribution: **the validation apparatus**. Invariants I1-I8 checked
+per tick and per run; a reproducibility gate distinguishing the 20 counters that reproduce from those
+that do not; unit tests for the analysis tooling itself; and — most unusually — a documented record of
+three separate occasions where a measurement artefact was mistaken for a system effect and then caught
+(E5 round 1's sampling design, item 13's harness-lifetime change, and Phase C's own to-floor error).
+
+A paper framed as *"how do you validate a distributed physics simulation, and what breaks when you
+try"*, with the halo bound as the worked example, would suffer far less from §6.2's item 1 — the
+contribution would be the method, for which one machine is a legitimate testbed. This is offered as an
+option, not a decision. MMSys OSS & Datasets (11 Jan, §4) rewards exactly this kind of artifact, and
+DS-RT and PADS both have reproducibility-minded audiences.
+
+### 6.4 Where the work stands
+
+| | Status |
+|---|---|
+| Phase A (instrumentation, harness) | Complete |
+| Phase B (E4 attribution) | Complete |
+| Phase C (latency + generalised bound) | **Complete**, 302 runs, both gates passed |
+| Phase D (ownership: items 2, 7, 15) | **Open** — the highest-value remaining work |
+| Backlog (`docs/EVALUATION.md` §7) | 15 items: **10 closed** (1, 4, 5, 8, 9, 10, 11, 12, 13, 14), **2 withdrawn** (3, 6), **3 open** (2, 7, 15) |
+| Jitter (`T_J`) sweep | Not started; implemented and asserted only |
+| Oblique/mixed-speed workload (Phase C §4.7) | Not started |
+| Multi-machine measurement | Not started — **not currently on any track** |
+
+**Recommended ordering:** Phase D item 2, then multi-machine, then the second halo workload. Jitter
+and further latency resolution are the lowest-value remaining options — they add precision to a claim
+whose weakness is validity, not precision.
+
+The timeline in §4 assumed a November arXiv preprint. Nothing in Phase C changes that date, but the
+priority list above does change what should be in it: a preprint carrying the measured lag envelope
+and a fixed ownership protocol is a substantially stronger artifact than one carrying more sweep
+points.

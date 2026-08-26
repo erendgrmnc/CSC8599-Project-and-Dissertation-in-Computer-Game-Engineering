@@ -493,6 +493,70 @@ the claim but is not required to close the latency gap.
 
 ---
 
+### 4.8 Implementation notes — what shipped, 2026-08-25/26
+
+Phase C is **complete**. Commits `8f95c53` (bound + injection), `5f1ed14` (analyser), `64fc17e`
+(sweep + documentation). Both gates passed before any sweep ran.
+
+**Five deviations from this plan, all recorded because each changed what the evidence can support.**
+
+| Planned | What actually happened |
+|---|---|
+| ~72 runs, one pass | **302 runs, four passes.** Two ranges overran, and one pass was invalidated by a design error (below) |
+| Sweep L=8, 16, 24 with added latency | Same, **plus three zero-latency controls** that were not in the plan |
+| Discriminator at whichever lookahead is convenient | Forced to L=16 by an envelope limit this document did not know about |
+| Analyser needs no change | **It did**, and the omission would have inverted the result |
+| The bound is validated or falsified | Neither, exactly: validated over `T_L`, and bounded by a ceiling on *total* lag that this plan did not anticipate |
+
+**1. Zero-latency controls were necessary and are not in §4.5.** Gate 4.4.1 pins 20 stable *counters*
+at one configuration; it does not re-establish E5's *result*. Round 2's knees were measured on a
+different binary, so a knee that moved under latency could have been Phase C's own code change. The
+controls reproduced 3, 4, 6 at L=8/16/24 exactly — including the partial-failure median of 44
+crossings at L=8 width 2 — which is what makes every later attribution to latency legitimate. 36 runs.
+**Any future phase that sweeps a new axis should budget the same control.**
+
+**2. `tools/analyse.py` mirrored the zero-latency floor and never read the run's injected delay.**
+§4.3 listed the server-side work and missed this entirely. The failure would have been quiet and
+one-directional: the zero-latency floor is *lower*, so a knee the generalised bound comfortably covers
+reads UNSOUND, and Phase C would have published a falsification of its own bound that was really a
+wiring bug. Fixed with 14 mutation-verified tests. The cross-experiment summary also keyed on
+lookahead alone, which would have silently dropped every latency point but one.
+
+**3. The extrapolation clamp is a third envelope limit, and §4.2 only found the second.**
+`ReimposeHaloState` clamps extrapolation to `3 * L` ticks, so injected delay beyond `3 * L * dt`
+leaves a shadow extrapolated over less time than it is actually stale — 200 ms at L=8, 400 ms at
+L=16. The planned discriminator at L=8 / 300 ms sits outside it and would have measured the clamp
+while reporting the bound, which is precisely the L=32 mistake §4.2 exists to prevent. Moved to L=16.
+Every point in all four passes was checked against both this clamp and the `30 + L` staleness horizon.
+
+**4. A sweep design error, caught from the data.** Passes 1 and 2 targeted the actual-speed knee —
+round 2's methodology, and correct while the knee sits far below the floor, which it did at every
+zero-latency point. At 300 ms it does not. Crossings never reached zero across widths 9-14 and that
+was nearly recorded as "no width works" at points where the bound *predicts* 30 and 34 and neither had
+been sampled. That is §4.5's warning 1 realised in the opposite direction from the one it warned
+about: round 1 swept *around* the floor and could only return all-pass or all-fail; this swept *below*
+it and could only return all-fail. A third pass put the floor inside the window.
+
+**5. The finding this plan did not anticipate.** §4.5 framed the question as whether the knee tracks
+the generalised floor as latency rises. It does, below the lookahead — but the sweep also found a
+ceiling on **total** sample-to-apply lag at roughly 200-267 ms, above which no band width catches every
+contact, reached identically via lookahead (L=32, zero latency) and via link delay (L=40, 300 ms).
+That reframes §4.1's stakes: the latency term is not a free parameter that a deployment can pay for
+with a wider band, and raising `--halo-lookahead` to absorb link latency was tested directly and does
+not work.
+
+**Deferred, explicitly:**
+
+- **§4.7 (oblique / mixed-speed `headon`) is unrun**, and matters more than when it was written as
+  optional. The lag ceiling is plausibly a property of how collision-dense `headon` is at the border,
+  so a second workload is what would tell you whether it is a design constant or a workload artefact.
+- **Jitter (`T_J`) was never swept.** Implemented, carried in the bound, asserted in
+  `tools/InteractionTests`; every one of the 302 runs used `T_J = 0`.
+- **The extrapolation attribution is still by elimination.** Round 3 excludes lateness by direct
+  measurement at a high-lag point, where round 1 could only assume it, but measuring the term itself
+  still needs a run with dead reckoning disabled — a simulation-affecting change, still build-phase
+  work.
+
 ## 5. Phase D — ownership
 
 **Closes:** backlog items 2 and 7; §6's conditional ownership guarantee.
