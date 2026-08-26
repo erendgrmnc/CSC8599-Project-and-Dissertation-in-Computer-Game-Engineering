@@ -565,7 +565,7 @@ elimination, not a measurement**: confirming it means disabling extrapolation an
 a simulation-affecting change and is recorded for the build phase rather than claimed here.
 
 Round 3 (2026-08-25) strengthens the elimination without closing it. At lookahead 40 with 300 ms of
-injected link delay — total lag 333 ms — crossings pin at 60 flat across widths 16-40, exactly as at
+injected link delay — total lag 333 ms — crossings pin at 60 (a `headon` figure — see below) flat across widths 16-40, exactly as at
 lookahead 32, while `haloLate` reads 135-385 instead of ~146,000. Late delivery is therefore excluded
 by measurement rather than by assumption at a high-lag point, the staleness horizon tracks the
 lookahead since Phase C, and invariant I8 holds throughout, so server divergence is excluded too. The
@@ -606,6 +606,36 @@ affect is contact totals and contact symmetry: on the L=32 width-20 run the two 
 both resolving exactly 55,980. No figure quoted in this document is drawn from a flooded run, but the
 distinction matters for anything read from those CSVs later: **their crossing counts are trustworthy
 and their contact counts are not.**
+
+---
+
+### 4.2 The lag ceiling generalises; its magnitude does not (2026-08-27)
+
+§4's ceiling — above roughly 200 ms of total sample-to-apply lag, no band width catches every
+border contact — was measured on `headon` alone: fixed lanes, one speed, strictly perpendicular
+approach, the most collision-dense configuration the border can have. Whether that was a property
+of the design or of the workload could not be told from `headon`.
+
+`--workload oblique` varies the approach angle (0-45°, so dead-reckoning error acquires a
+tangential component `headon` structurally cannot produce) and the speed magnitude (30-42.4 u/s,
+so `HALO_ASSUMED_MAX_SPEED` is a genuine bound rather than every object's exact speed), while
+holding the perpendicular component at `headon`'s own 30 u/s so time-to-contact is unchanged.
+
+At `--halo-lookahead 32`, 3 repeats, both workloads on the same binary:
+
+| workload | missed contacts | across widths 8-32 |
+|---|---|---|
+| `headon` | 60 of 100 | flat |
+| `oblique` | 42 of 98 | flat |
+
+**The ceiling is real in both and fails flat in both** — no band width covers the placement error.
+It is a design property, not a `headon` artefact. **But 60 is a `headon` number**: 60% of its
+all-missed baseline against `oblique`'s 43%. Quote it as a `headon` figure.
+
+At zero latency the two are indistinguishable — knee at 2 for both against a predicted floor of 6,
+so the bound is conservative by about 3x there. Full write-up, including a sampling artefact that
+briefly read as a falsification of the bound:
+`docs/superpowers/results/2026-08-27-oblique-workload.md`.
 
 ---
 

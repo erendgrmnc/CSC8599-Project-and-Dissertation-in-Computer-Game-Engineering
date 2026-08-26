@@ -271,7 +271,7 @@ Three results, in descending order of how much they are worth to the paper:
    envelope" as a hedge. It is now a number: the condition holds while **total** sample-to-apply lag
    stays under roughly 200 ms and fails above roughly 267 ms *at every width, including widths above
    the predicted floor*. Reached identically along two independent axes — lookahead 32 at zero
-   latency and lookahead 40 at 300 ms both pin at 60 missed contacts of 100, flat across every width
+   latency and lookahead 40 at 300 ms both pin at 60 missed contacts of 100, flat across every width **The number 60 is a `headon` figure, not the ceiling's magnitude in general**: the `oblique` workload, run on the same binary, pins at 42 instead — 43% of its own all-missed baseline against `headon`'s 60% — while failing flat across every width exactly as `headon` does. The ceiling generalises; its severity is workload-dependent (`docs/superpowers/results/2026-08-27-oblique-workload.md`).
    swept.
 2. **The two terms are not interchangeable, and the obvious mitigation does not work.** Below the
    scheduling lookahead, injected latency does not move the required width *at all* — the lookahead

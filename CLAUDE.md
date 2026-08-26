@@ -239,7 +239,7 @@ The midware spawns `./DistributedPhysicsServer/EntryPoint.exe` **relative to its
 > while the total sample-to-apply lag - `L * dt` plus any link delay - stays under roughly 200 ms,
 > and fails above roughly 267 ms *at every width, including widths above the predicted floor*.
 > Measured along two independent axes (E5 rounds 1 and 3): lookahead 32 at zero latency and
-> lookahead 40 at 300 ms both pin at 60 missed contacts of 100, flat across every width swept. The
+> lookahead 40 at 300 ms both pin at 60 missed contacts of 100, flat across every width swept. **The number 60 is a `headon` figure, not the ceiling's magnitude in general**: the `oblique` workload, run on the same binary, pins at 42 instead — 43% of its own all-missed baseline against `headon`'s 60% — while failing flat across every width exactly as `headon` does. The ceiling generalises; its severity is workload-dependent (`docs/superpowers/results/2026-08-27-oblique-workload.md`). The
 > cause is that a halo shadow is dead-reckoned from its sample tick with constant velocity, so past
 > some lag the shadow is simply in the wrong place and no band width covers a placement error. Two
 > practical consequences: **raising `--halo-lookahead` to absorb link latency does not work** (it
