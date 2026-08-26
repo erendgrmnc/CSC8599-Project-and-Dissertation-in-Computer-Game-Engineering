@@ -192,3 +192,68 @@ L that has not in fact closed the gap — and the sweep would then report that L
 That is structurally the same trap as backlog item 15, which appeared in 1 of 3 repeats and
 needed 6 to be seen at all. Task 5 is raised to **6 repeats**, and the sweep must report the
 per-repeat spread, not a median: a median of 6 repeats would show 0 while two of them failed.
+
+---
+
+## Tasks 2 and 3, and Gate A
+
+**Commits:** `6cce34d` (Task 2, clamp applied), `1d19c2c` (Task 3, item 15's resend guard).
+
+### The gate was split three ways, not two
+
+Plan ruling D1 says Gate A runs after Tasks 1 and 3 and must reproduce the baseline
+exactly, with Task 2 measured against it. The task numbering contradicts that — Gate A is
+Task 4, so Task 2 lands before it — and execution followed the numbering. Rather than
+conflate the two changes in one gate, each was isolated against the run that preceded it:
+
+| comparison | isolates | verdict |
+|---|---|---|
+| `exp-d0-base2` → `exp-d2-wired2` | Task 2 (clamp applied) | **PASSED** |
+| `exp-d2-wired2` → `exp-dA-gate2` | Task 3 (resend guard) | **PASSED** (after the fix below) |
+| `exp-d2-wired2` → `exp-dA-gate2b` | Task 3, second sample | **PASSED** |
+| `exp-d0-base2` → both gate runs | all three tasks | **PASSED**, 8 vs 16 server-runs |
+
+The Task 2 isolation cost no extra run: `exp-d2-wired2` was taken with Tasks 1 and 2
+deployed and Task 3 not yet built into the deployed binary, so it was already the right
+point. Task 2 relocates 8 arrivals per run at 2 servers and perturbs neither the stable
+counters nor conservation.
+
+### Gate A first failed, and the failure was in the gate
+
+`haloAhead`, pinned at 0 in `gate-compare.py`'s `STABLE` set, came back 1086.
+
+**It was not the change under test.** `hoResent = 0` and `hoDup = 0` on every server of
+every repeat: Task 3's guard only executes when a resend arrives, so the code path never
+ran at all. The spike was confined to one repeat of four, where it co-occurred with
+`haloLate` reaching 1989 and 250 on the two servers.
+
+Two independent confirmations:
+
+1. **It moves between repeats.** A second run of the same binary at the same configuration
+   spiked `haloAhead` in a *different* repeat and at a different magnitude — r3/1086 first,
+   r1/161 second — each paired with a `haloLate` spike on the other server (1989/250, then
+   328/43). Intermittent, not deterministic.
+2. **Two pre-change runs already disagree.** Gate-comparing `exp-d0-probe4u` against
+   `exp-d1-clampcheck` — both taken *before* Task 3, differing only by a halo-neutral edit —
+   fails on `haloSent`/`haloRecv` at 4 servers. This is the plan's own Task 4 Step 4
+   diagnostic, and it settles the question without a new binary.
+
+### The correction, and its blind spot
+
+`haloAhead` is moved out of `STABLE` and range-checked, exactly as Phase A's ruling P11 did
+for `haloLate`. **P11 fixed one face of a two-faced problem**: `haloAhead` and `haloLate`
+are the same inter-server clock skew observed from the two ends of a link, so reclassifying
+one while pinning the other at 0 could not hold. That it survived Phase A is because Phase A
+never produced a run where the skew fell the other way.
+
+A hazard note also records that `haloSent`/`haloRecv` are **not stable at 4 servers** — the
+`STABLE` list was derived from Phase A's 2-server data and validated only there. Anyone
+pointing the gate at a 4-server experiment must drop and range-check them, in the same
+manner as the existing `objs` note.
+
+**Blind spot, named rather than glossed:** the gate can no longer detect a change whose only
+effect is on halo scheduling. That is narrow — no Phase D change touches halo scheduling, and
+`hoResent = 0` independently establishes that Task 3 never executed on these runs — but it is
+a real loss of coverage and it now applies to both faces of the counter rather than one.
+
+`tools/test_gate_compare.py` and `tools/test_analyse.py` both still pass.

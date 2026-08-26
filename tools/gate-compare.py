@@ -14,9 +14,8 @@ import os
 import re
 import sys
 
-# Identical on every clean run measured. A Phase A regression would almost certainly
-# move one of these off its value - they are the failure counters plus the one
-# remaining tick-locked halo count (haloAhead; haloLate was moved out, see below).
+# Identical on every clean run measured. A regression would almost certainly move one
+# of these off its value - they are the failure counters plus the halo VOLUME counts.
 #
 # haloLate was in this list originally (it read 0 on all 8 pre-change server-runs
 # sampled for the Task 6 baseline) and was moved OUT after a counterfactual on the
@@ -27,10 +26,29 @@ import sys
 # clear the degraded-run thresholds while still posting a handful of late halo
 # updates. It is range-checked in Step 4 instead of pinned here. See
 # docs/superpowers/results/2026-08-23-A-instrumentation.md for the measurement.
+#
+# haloAhead was moved OUT on 2026-08-26, for the same reason and with the same
+# evidence, because Phase A fixed only one face of a two-faced problem: haloAhead and
+# haloLate are the SAME clock skew seen from the two ends of a link. Reclassifying one
+# and pinning the other at 0 could not hold. Measured on Phase D's Gate A: two runs of
+# one binary at one configuration, 4 repeats each, spiked haloAhead in a DIFFERENT
+# repeat each time - r3 at 1086, then r1 at 161 - each paired with a haloLate spike on
+# the other server (1989/250, then 328/43). hoResent was 0 on every server of every
+# repeat, so the change under test could not execute at all. Intermittent, load-driven,
+# and nothing to do with the code. See
+# docs/superpowers/results/2026-08-26-D-ownership.md.
+#
+# HAZARD, 4 servers (measured 2026-08-26): `haloSent` and `haloRecv` are NOT stable
+# there. Two experiments taken BEFORE the change under test, differing only by a
+# provably halo-neutral edit, already disagree - [3745, 3797, 3841, 3867, 4258, 4415,
+# 4462] against [3797, 3841, 4258, 4413, 4415]. This list was derived from Phase A's
+# 2-server data and validated only there. If this gate is pointed at a 4-server
+# experiment, drop haloSent and haloRecv and range-check them, exactly as haloLate and
+# haloAhead are range-checked here.
 STABLE = [
     "cmdApplied", "cmdRelayed", "cmdDup", "cmdRejected", "cmdFanout",
     "hoFail", "hoLate", "hoResent", "hoReclaimed", "hoCustody", "hoDup",
-    "hoPending", "hoSched", "haloAhead", "haloSent", "haloRecv",
+    "hoPending", "hoSched", "haloSent", "haloRecv",
     "manifestSent", "objPreseed", "objSpawned", "objDestroyed",
 ]
 
