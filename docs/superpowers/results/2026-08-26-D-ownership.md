@@ -394,3 +394,62 @@ advance for that reason, before any of this data existed.
 So the two rulings select values that do not overlap. This is recorded rather than resolved
 unilaterally, per Task 5 Step 4's instruction to stop and report rather than invent a
 mechanism.
+
+### Steps 4-6: the default is L = 8, and the harness was masking it
+
+**Decision.** The sweep left ruling D4 (smallest L clean everywhere → 16) and ruling D5 (halo
+margin → not 16) selecting non-overlapping values, so the choice was escalated rather than
+resolved in the plan's favour. **L = 8 was chosen**: 2× halo margin, clean at 2 servers, and
+the 4-server residual attributed to testbed contention rather than designed around. L = 16 was
+rejected because zero margin fails on any workload faster than `uniform`, and `headon` launches
+at the same 60 head-on.
+
+**The §5.6 gate passes.** An explicit `--handoff-lookahead 0` still reproduces the pre-change
+behaviour: 19 stable fields and 2 conserved totals unchanged, 16 pre-change server-runs against
+8 post-change. The old path is intact; only the default moved.
+
+#### The harness was forcing 0, and the first verification was therefore worthless
+
+The run intended to confirm the new default came back at 87, 91, 84, 90, 89, 92 — the L = 0 low
+mode, not L = 8's zeros. Cause: `measure.ps1` passed `--handoff-lookahead $HandoffLookahead`
+**unconditionally**, with both harness scripts defaulting the parameter to 0.
+
+This was worse than a bad verification. Left in place, **every future measurement would have
+silently run at L = 0** while the code shipped a default of 8, and the manifest would have
+recorded `0`, so nothing would have looked wrong. It is the mirror of the hazard `CLAUDE.md`
+already documents — a game-server flag being unreachable because the midware does not forward
+it — except here the harness reaches *past* the server's default and overrides it.
+
+Fixed with the sentinel convention the same script already uses for `-DrainSeconds`,
+`-HandoffRetryTicks` and `-HandoffMaxAttempts`: `-1` means "do not pass the flag", so
+`ServerStarter.cpp` is the single source of truth. A sweep still passes explicit values per
+point, including 0.
+
+#### Provenance, which the sentinel made load-bearing
+
+The per-run `manifest.json` had **never** recorded `handoffLookahead` — checked against runs
+predating this phase, the key is simply absent. That mattered little while the harness
+hardcoded 0. With the sentinel it is the only place a reader can learn which regime a run was
+in, so the per-run manifest now records `handoffLookahead` (the number, or `server-default`),
+`handoffDelayTicks` (which `CLAUDE.md` requires to be 0 for any measurement run — recording it
+is what lets a reader confirm that rather than take it on trust) and `drainSeconds`. The
+sweep-level `experiment.json` records the same. Both paths verified.
+
+#### The default, verified with the flag genuinely absent
+
+| servers | `ownership_gap_ticks`, per repeat | verdict |
+|---|---|---|
+| 2 | **2**, 0, 0, 0, 0, 0 | 5 of 6 clean |
+| 4 | 0, 0, 0, 0, 0, 0 | **6 of 6 clean** |
+
+Against the L = 0 baseline of 87–1766 at 2 servers and 99–109 at 4. The single residual gap of
+2 ticks in 1800 (0.11%) pairs with `hoLate = 2`, the same one-for-one causation established in
+the sweep.
+
+Note the residual landed at 2 servers here and at 4 servers in the sweep, which is consistent
+with it being a random contention tail rather than a systematic server-count effect: it appears
+wherever the machine happened to be loaded, not where the topology is largest.
+
+**Item 2 is substantially closed.** The window in which nobody owns an object falls from up to
+98% of ticks to 0-0.11%, and what remains is late delivery on a contended single machine, not
+release-on-send.

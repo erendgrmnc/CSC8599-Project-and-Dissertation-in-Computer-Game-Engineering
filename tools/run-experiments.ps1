@@ -63,7 +63,9 @@ param(
     [int]$DestroyEvery = 0,
     [int]$DriveEvery = 0,
 
-    [int]$HandoffLookahead = 0,
+    # -1 = let the server's own default stand (see measure.ps1). Sweeping this
+    # parameter still passes an explicit value per point, including 0.
+    [int]$HandoffLookahead = -1,
     [int]$EpochAlignUs = 0,
     [int]$DrainSeconds = -1,
     [int]$HandoffRetryTicks = -1,
@@ -127,6 +129,10 @@ $experimentDir = Join-Path $OutDir "exp-$Name"
 
 Remove-Item $experimentDir -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $experimentDir | Out-Null
+    # -1 means the flag was not passed, so the SERVER default applied. Recorded as a
+    # string rather than -1 so a manifest never claims a lookahead of minus one, and
+    # never silently omits which regime the run was in.
+    $lookaheadProvenance = if ($HandoffLookahead -ge 0) { $HandoffLookahead } else { "server-default" }
 
 # One manifest per experiment. Determinism is per-configuration, so a dataset without
 # its build metadata cannot be reproduced or even interpreted - and since several of
@@ -143,7 +149,7 @@ $manifest = [ordered]@{
         impulseTest = $ImpulseTest; misrouteEvery = $MisrouteEvery
         blastEvery = $BlastEvery; spawnEvery = $SpawnEvery
         destroyEvery = $DestroyEvery; driveEvery = $DriveEvery
-        handoffLookahead = $HandoffLookahead; epochAlignUs = $EpochAlignUs
+        handoffLookahead = $lookaheadProvenance; epochAlignUs = $EpochAlignUs
         drainSeconds = $DrainSeconds
         handoffRetryTicks = $HandoffRetryTicks; handoffMaxAttempts = $HandoffMaxAttempts
         haloWidth = $HaloWidth; haloLookahead = $HaloLookahead

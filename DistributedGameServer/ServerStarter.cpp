@@ -108,9 +108,37 @@ int StartGameServer(int argc, char* argv[]) {
 		// Fault injection, off by default. Deliberately changes handoff timing, so it
 		// must stay 0 for any measurement run.
 		worldManager->SetHandoffDelayTicks(config.GetInt("--handoff-delay-ticks", 0));
-		// Deterministic handoff application. Removes the last run-to-run variation
-		// without any inter-server barrier; 0 keeps apply-on-arrival.
-		worldManager->SetHandoffLookaheadTicks(config.GetInt("--handoff-lookahead", 0));
+		// Deterministic handoff application, and the atomicity of ownership. The sender
+		// releases at senderTick + L and the receiver installs at the same tick, so no
+		// tick has the object owned by nobody. 0 keeps the old apply-on-arrival
+		// behaviour, where the sender releases on send and ownership is vacant for one
+		// network round trip.
+		//
+		// The default was 0 until 2026-08-26. 8 was DERIVED from a 60-run sweep, not
+		// chosen: L in {0,2,4,8,16}, 6 repeats, at 2 and 4 servers
+		// (docs/superpowers/results/2026-08-26-D-ownership.md). Three things that sweep
+		// found, none of them obvious:
+		//
+		//  - L is a THRESHOLD, not a dial. L=2 is worse than L=0: 16.7ms is below this
+		//    setup's delivery latency, so ~60% of arrivals miss their slot (hoLate 18
+		//    and 31) and the transfer degrades to release-on-send PLUS a scheduling
+		//    delay. Every repeat sat at ~1776 gap ticks of 1800, against L=0's 87/~1750.
+		//    Do not set a small non-zero value "to be safe".
+		//  - Above the threshold, every remaining gap is a late arrival, one for one -
+		//    hoLate > 0 iff gap > 0 across 18 runs. The residual is delivery tail
+		//    latency, not a protocol defect.
+		//  - The tail is machine-dependent. L=8 is clean on all 6 repeats at 2 servers;
+		//    at 4 servers one repeat of six shows 3 late arrivals and a 10-tick gap,
+		//    because 4 servers plus manager, midware and client is 7 processes on 6
+		//    cores. That residual is a limit of the single-machine testbed and is
+		//    documented as one, not designed around.
+		//
+		// L is also bounded ABOVE by the halo band: the sender keeps simulating for L
+		// ticks after the object leaves its region, so it must still be inside the
+		// receiver's band - v_max * L * dt <= halo_width, i.e. L <= 16 at --halo-width
+		// 8. 8 keeps a 2x margin; 16 was clean at both server counts but lands the
+		// object exactly on the band edge, which no faster workload would survive.
+		worldManager->SetHandoffLookaheadTicks(config.GetInt("--handoff-lookahead", 8));
 		// Custody: how long to wait for a handoff ack before resending, and how many
 		// sends to count as "attempts" before the transfer is merely HELD rather than
 		// retried on the attempt counter. Exhausting attempts does NOT take the object

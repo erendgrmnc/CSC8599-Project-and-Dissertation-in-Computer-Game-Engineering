@@ -49,7 +49,12 @@ param(
     [int]$HandoffDelayTicks = 0,
     # Schedules incoming handoffs at senderTick + N instead of on arrival, making
     # handoff application deterministic. 0 keeps apply-on-arrival.
-    [int]$HandoffLookahead = 0,
+    # -1 means "do not pass the flag", so the SERVER's own default stands and there is
+    # one source of truth for it (ServerStarter.cpp, currently 8). Passing it
+    # unconditionally is how this harness silently forced 0 into every run on
+    # 2026-08-26, after the server default had been changed to 8 - the run behaved as
+    # L=0 and the manifest recorded 0, so nothing looked wrong.
+    [int]$HandoffLookahead = -1,
     # Aligns every server's tick 0 to a shared monotonic-clock boundary (us).
     [int]$EpochAlignUs = 0,
     # Seconds the server drains in-flight handoffs after the timed loop. 5 is the
@@ -130,6 +135,7 @@ $linkDelayArg = ""
 if ($LinkLatencyMs -gt 0) { $linkDelayArg += " --link-latency-ms $LinkLatencyMs" }
 if ($LinkJitterMs  -gt 0) { $linkDelayArg += " --link-jitter-ms $LinkJitterMs" }
 $drainArg = if ($DrainSeconds -ge 0) { "--drain-seconds $DrainSeconds" } else { "" }
+$lookaheadArg = if ($HandoffLookahead -ge 0) { " --handoff-lookahead $HandoffLookahead" } else { "" }
 $custodyArg = ""
 if ($HandoffRetryTicks -ge 0) { $custodyArg += " --handoff-retry-ticks $HandoffRetryTicks" }
 if ($HandoffMaxAttempts -ge 1) { $custodyArg += " --handoff-max-attempts $HandoffMaxAttempts" }
@@ -152,6 +158,15 @@ $manifest = [ordered]@{
     linkLatencyMs = $LinkLatencyMs
     linkJitterMs = $LinkJitterMs
     physicsThreads = $PhysicsThreads
+    # Handoff parameters were never recorded here before 2026-08-26, which mattered
+    # little while the lookahead was hardcoded to 0 by this script. It is now a
+    # sentinel: -1 means the flag is not passed and the SERVER's default applies, so
+    # this field is the only place a reader can learn which regime a run was in.
+    handoffLookahead = $(if ($HandoffLookahead -ge 0) { $HandoffLookahead } else { 'server-default' })
+    # Fault injection. CLAUDE.md requires 0 for any measurement run; recording it is
+    # what lets a reader confirm that rather than take it on trust.
+    handoffDelayTicks = $HandoffDelayTicks
+    drainSeconds = $DrainSeconds
     rebalanceInterval = $RebalanceInterval
     repartitionAt = $RepartitionAt
     repartitionX = $RepartitionX
@@ -170,7 +185,7 @@ $mgr = Start-Process -PassThru -FilePath (Join-Path $deploy "Manager\EntryPoint.
 Start-Sleep -Seconds 3
 
 $mid = Start-Process -PassThru -FilePath (Join-Path $deploy "Midware\EntryPoint.exe") `
-    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" --rebalance-interval $RebalanceInterval --handoff-delay-ticks $HandoffDelayTicks --handoff-lookahead $HandoffLookahead --physics-threads $PhysicsThreads --halo-width $HaloWidth --halo-lookahead $HaloLookahead $haloReliableArg$linkDelayArg --epoch-align-us $EpochAlignUs $drainArg$custodyArg $bound" `
+    -ArgumentList "--manager-ip 127.0.0.1 --manager-port 1234 --server-exe `"$serverExe`" --headless --fixed-step --seed $Seed --workload $Workload --metrics-dir `"$metricsDir`" --rebalance-interval $RebalanceInterval --handoff-delay-ticks $HandoffDelayTicks$lookaheadArg --physics-threads $PhysicsThreads --halo-width $HaloWidth --halo-lookahead $HaloLookahead $haloReliableArg$linkDelayArg --epoch-align-us $EpochAlignUs $drainArg$custodyArg $bound" `
     -WorkingDirectory $deploy -RedirectStandardOutput "$runDir\mid.log" -RedirectStandardError "$runDir\mid.err" -WindowStyle Hidden
 Start-Sleep -Seconds 4
 
