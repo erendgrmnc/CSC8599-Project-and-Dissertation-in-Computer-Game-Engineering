@@ -343,3 +343,54 @@ At L = 0, **four of six** repeats landed in the high mode, where the 4-repeat ba
 shown one of four. The high mode is the common case, not the outlier. Raising the sweep from 3
 repeats to 6 was necessary: at 3 there was a real chance of drawing three low-mode runs and
 under-stating the defect by an order of magnitude.
+
+### Step 3: the sweep at 4 servers, 30 runs — and a conflict between two rulings
+
+Same configuration, 4 servers, `--workload uniform`, 6 repeats per point.
+
+| L | `ownership_gap_ticks`, per repeat | `double` | `hoLate` | verdict |
+|---|---|---|---|---|
+| 0 | 99, 102, 108, 109, 101, 105 | 0 | 0 | FAILS |
+| 2 | 1777, 1777, 1776, 1775, 1775, 1775 | 3 | 63 | FAILS |
+| 4 | 0, 0, 0, **26, 13, 43** | 0 | 6 | **FAILS — 3 of 6** |
+| 8 | **10**, 0, 0, 0, 0, 0 | 0 | 3 | **FAILS — 1 of 6** |
+| 16 | 0, 0, 0, 0, 0, 0 | 0 | 0 | **CLEAN** |
+
+Two things differ from the 2-server sweep. The gap at L = 0 is **not bimodal** here — six
+repeats at 99–109, tightly clustered — and L = 4, which was clean on all six at 2 servers,
+fails half its repeats at 4.
+
+#### Every remaining gap is a late arrival, one for one
+
+The per-repeat correlation is exact:
+
+| L | repeat | `hoLate` (per server) | gap |
+|---|---|---|---|
+| 4 | r1–r3 | 0, 0, 0 | 0 |
+| 4 | r4 | 1+3+0+2 = 6 | 26 |
+| 4 | r5 | 4+0+0+0 = 4 | 13 |
+| 4 | r6 | 0+1+0+2 = 3 | 43 |
+| 8 | r1 | 0+3+0+0 = 3 | 10 |
+| 8 | r2–r6 | 0 | 0 |
+| 16 | r1–r6 | 0 | 0 |
+
+`hoLate > 0` ⟺ `gap > 0`, with no exceptions across 18 runs. Once the lookahead is above the
+threshold, **the ownership gap is entirely explained by arrivals missing their scheduled slot** —
+it is not a residual protocol defect but the tail of delivery latency exceeding the window.
+
+That tail is a property of *this machine*. Four servers plus manager, midware and client is
+seven processes on six cores; the same L = 4 that never produced a late arrival in 30 runs at 2
+servers produces a handful at 4. The required lookahead is therefore set by scheduling
+contention, not by the design.
+
+#### The conflict
+
+Ruling D4's criterion — the smallest L clean on **every** repeat at **both** server counts —
+selects **L = 16**. Ruling D5's bound admits L ≤ 16 at `--halo-width 8`, so L = 16 is
+admissible by the letter and has **zero margin**: a late-released object travels exactly
+`0.5 × 16 = 8` units, landing precisely on the band edge. Step 1 ruled 16 out as a default in
+advance for that reason, before any of this data existed.
+
+So the two rulings select values that do not overlap. This is recorded rather than resolved
+unilaterally, per Task 5 Step 4's instruction to stop and report rather than invent a
+mechanism.
