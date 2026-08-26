@@ -167,3 +167,45 @@ causation from Phase D would need re-deriving under jitter.
 **Design.** `T_L = 0`, `T_J` in {25, 50} x `L` in {8, 16}, 3 repeats, otherwise identical to the
 sweep above. Jitter is drawn from `--seed`, and release times are forced monotonic per target, so
 the runs stay reproducible and the delay never reorders a link.
+
+### Result: it binds on the worst case, and the discriminator is unambiguous
+
+| `T_J` | effective delay | mean | `L = 8` | `L = 16` |
+|---|---|---|---|---|
+| 25 ms | uniform [0, 25] | 12.5 ms | CLEAN | CLEAN |
+| **50 ms** | **uniform [0, 50]** | **25 ms** | **FAILS** (1770, 1770, 1770) | CLEAN |
+
+Conservation exact (400) at every point.
+
+`T_J = 50` has a mean of **25 ms**, and flat `T_L = 25` was measured **clean** at `L = 8` in the
+sweep above. It fails. The mean hypothesis is refuted; **the handoff lookahead binds on the worst
+case**, exactly as `HaloBound.h`'s published formula already assumes for the halo.
+
+The magnitudes line up point for point with the flat-latency equivalent:
+
+| configuration | worst-case delay | `L = 8` | gap |
+|---|---|---|---|
+| `T_L = 50`, `T_J = 0` | 50 ms | FAILS | 1772, 1769, 1770 |
+| `T_L = 0`, `T_J = 50` | 50 ms | FAILS | 1770, 1770, 1770 |
+
+So jitter of `J` and flat latency of `J` are interchangeable for this purpose. The threshold is
+`L_min ~ 4 + (T_L + T_J)/dt` — the same sum the halo bound carries, now shown to govern the
+handoff side too, which was assumed and never tested.
+
+**The strongest corroboration is in `hoLate`.** The two rows above produce the same ~1770 gap from
+**174** late arrivals (flat) versus **37** (jitter) — a 4.7x difference in event count for an
+identical outcome. Flat latency makes every arrival late; jitter makes only the tail late. That
+the gap is unchanged is the duration-not-count property in its clearest form, and it is why
+averaging a delay distribution is the wrong summary: what matters is whether the tail crosses the
+threshold, not how often it does.
+
+### Consequence for the compound bound
+
+§"Two guarantees whose bounds cross" derived the required band width at `T_L = 100 ms` from
+`L_min ~ 4 + T_L/dt`. That generalises: the lookahead term is driven by `T_L + T_J`, so a
+deployment with 50 ms of latency and 50 ms of jitter faces the same requirement as one with 100 ms
+of flat latency — where the ownership gap needs `L = 32` and the halo bound at `--halo-width 8`
+forbids it. **Jitter is not a second-order correction here; it enters at full weight.**
+
+`T_J` is therefore no longer "implemented, asserted and unswept". It is swept, and it behaves the
+way the bound says.
