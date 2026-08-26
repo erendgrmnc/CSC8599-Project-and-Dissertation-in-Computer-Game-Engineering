@@ -538,3 +538,55 @@ fixed below the pacing budget, and the pacing budget is the real limit."
 That is also a second instance of this project's recurring shape, after Phase C's finding that
 raising `--halo-lookahead` to absorb link latency does not work: **the obvious mitigation —
 raise the lookahead — was tested directly at 2x, 4x and 8x the default and failed.**
+
+---
+
+## Outcome
+
+| item | verdict |
+|---|---|
+| **7** — arrival clamp | **Closed.** Fixed against the ownership rule, then wired in. Measured live at 4 servers: `hoClamp` 0 → 2 on server 1 and no other, matching the predicted set exactly |
+| **15** — resend duplication | **Closed.** 3,900 resends produced 3,906 rejected duplicate arrivals and no survivors, under the configuration that produced the defect |
+| **2** — ownership gap | **Closed below the pacing budget, open above it.** 0-0.11% of ticks at 400 objects; ~98% at 8,000, at every lookahead tested |
+
+Six code commits, `dc3127d` through `5a1dfac`. 156 Tier-0 tests pass; both Python suites pass;
+Gate A and the §5.6 explicit-zero gate both pass.
+
+### What the phase found that it did not set out to find
+
+Four of the six findings below came from verification steps, not from the work itself. That is
+the argument for the verification apparatus being treated as a contribution rather than as
+process (roadmap §6.3).
+
+1. **`seam` produces zero handoffs.** The plan's original 4-server workload would have made Gate A
+   compare two runs with the handoff path switched off, and pass. Caught by probing before
+   executing.
+2. **The ownership gap is bimodal**, and the bad mode is the common case (4 of 6 repeats), not the
+   1-in-4 the first baseline suggested.
+3. **A small lookahead is worse than none** — the parameter is a threshold with a wrong-side
+   failure, not a dial.
+4. **`gate-compare.py`'s `STABLE` set is a 2-server field set.** `haloAhead` was pinned at 0 while
+   its mirror `haloLate` had already been reclassified by Phase A's P11 — one face of a two-faced
+   problem. `haloSent`/`haloRecv` are not stable at 4 servers either.
+5. **The harness was overriding the shipped default.** `measure.ps1` passed
+   `--handoff-lookahead 0` unconditionally, so the first verification of the new default ran at 0
+   and every future measurement would have too, with the manifest recording 0 and nothing looking
+   wrong.
+6. **The pacing budget bounds the ownership fix**, exactly as it already bounds halo scheduling.
+
+### Deferred, explicitly
+
+- **The ownership fix was measured at `T_L = 0`.** §5.1's whole argument for ordering D after C was
+  that Phase C's injected latency is what makes the gap proportional to link delay and therefore
+  worth measuring. No latency was injected in this phase. The argument was **not** honoured, and
+  the natural next experiment is the lookahead sweep re-run under `--link-latency-ms`.
+- **The repartition path still emits 1-D X slices** (§5.4). Documented in
+  `docs/SPATIAL-PARTITIONING.md` rather than fixed, so any 4-server rebalancing measurement is
+  measuring a whole-partition reshape.
+- **4-server E4 has no pre-Phase-D baseline**, because it had never been run. Its conservation
+  deltas are shown to be truncation rather than duplication, but are not attributed to before or
+  after this phase.
+- **The capacity-scale ownership gap is unfixed.** Raising the lookahead was tested at 2x, 4x and
+  8x the default and does not work. Closing it needs the servers to hold their pacing budget,
+  which is a load and hardware question — the same conclusion roadmap §6.2 reaches from the
+  scaling numbers, arrived at independently here.
