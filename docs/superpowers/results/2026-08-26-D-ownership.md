@@ -144,3 +144,51 @@ healthy-path configuration at 4 servers.
 Conservation and parity are unaffected: 400 objects both repeats, `hoSent` = `hoRecv` = 93.
 `ownership_gap_ticks` reads 105 and 100 against the baseline's 105 and 102 — the same defect,
 untouched, as expected at `--handoff-lookahead 0`.
+
+---
+
+## Step 0 (continued) — the 2-server baseline, and a bimodal ownership gap
+
+`--workload uniform`, 2 servers, 400 objects, 1800 paced ticks, `--halo-width 8`,
+`--halo-reliable`, `--handoff-lookahead 0`, 30 s drain, **4 repeats** (`runs/exp-d0-base2`).
+
+**Deviation, recorded rather than hidden:** this baseline was taken at `dc3127d`, after Task 1,
+not at the step-0 commit `5411f57`. Task 1 is inert at 2 servers by construction — the split is
+1-D, so there is no interior Z seam and the closed-outer-edge exception covers the whole Z axis
+— and the data confirms it: `hoClamp` reads **8 on server 0 and 0 on server 1 in all four
+repeats**, matching `docs/EVALUATION.md` §7 item 7's record of 7–8 across the four Phase A
+pre-change repeats and 8, 8, 8 across its three gate repeats. The clamp fix moved nothing here,
+which is exactly what `TwoServerSplitIsUnaffectedByTheZFix` asserts.
+
+Conservation is exact on every repeat: 198+202, 200+200, 197+203, 198+202 — 400 each time.
+
+### The finding: `ownership_gap_ticks` is bimodal, not ~85
+
+| repeat | `ownership_gap_ticks` (of 1800) | `ownership_double_ticks` |
+|---|---|---|
+| r1 | **1743** | **1** |
+| r2 | 87 | 0 |
+| r3 | 86 | 0 |
+| r4 | 85 | 0 |
+
+Three repeats sit at 85–87. One sits at 1743 — an object owned by nobody for **97% of the
+run** — and it is the only repeat that also produced a double-owner tick.
+
+This is not a new mechanism. `CLAUDE.md` already records "1,397 of 1,800 ticks on a uniform run
+had an object owned by nobody, up to 33 at once", and Phase A's ruling P6 accepted
+`ownership_gap_ticks = 84` as the documented baseline. What was not recorded is that **these are
+two modes of the same configuration**, not two different configurations: the same seed, the same
+tick count, the same binary, four repeats, and the gap lands either at ~85 or at ~1700.
+
+Phase A saw the low mode and characterised the defect from it. This baseline caught both.
+
+### Consequence for the plan: Task 5's repeat count is wrong
+
+Task 5 sweeps `--handoff-lookahead` over L ∈ {0, 2, 4, 8, 16} at **3 repeats** and picks the
+smallest L with `ownership_gap_ticks = 0`. Against a distribution that produces its bad mode
+roughly one repeat in four, three repeats have a fair chance of returning three clean runs at an
+L that has not in fact closed the gap — and the sweep would then report that L as the answer.
+
+That is structurally the same trap as backlog item 15, which appeared in 1 of 3 repeats and
+needed 6 to be seen at all. Task 5 is raised to **6 repeats**, and the sweep must report the
+per-repeat spread, not a median: a median of 6 repeats would show 0 while two of them failed.

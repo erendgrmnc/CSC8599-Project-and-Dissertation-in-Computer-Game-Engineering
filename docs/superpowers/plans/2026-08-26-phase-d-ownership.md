@@ -743,7 +743,7 @@ This is Phase C §4.5's lesson in the opposite direction: a sweep that never sam
 ```powershell
 foreach ($L in 0,2,4,8,16) {
   powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
-    -Name "d5-look$L-s2" -Sweep servers -Values "2" -Repeats 3 `
+    -Name "d5-look$L-s2" -Sweep servers -Values "2" -Repeats 6 `
     -Objects 400 -Ticks 1800 -Seed 42 -Workload uniform `
     -HaloWidth 8 -HaloReliable -HandoffLookahead $L -DrainSeconds 30
 }
@@ -754,7 +754,7 @@ foreach ($L in 0,2,4,8,16) {
 ```powershell
 foreach ($L in 0,2,4,8,16) {
   powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
-    -Name "d5-look$L-s4" -Sweep servers -Values "4" -Repeats 3 `
+    -Name "d5-look$L-s4" -Sweep servers -Values "4" -Repeats 6 `
     -Objects 400 -Ticks 1800 -Seed 42 -Workload uniform `
     -HaloWidth 8 -HaloReliable -HandoffLookahead $L -DrainSeconds 30
 }
@@ -769,7 +769,13 @@ foreach ($L in 0,2,4,8,16) {
 }
 ```
 
-The default is the **smallest** L with `ownership_gap_ticks = 0`, `ownership_double_ticks = 0` and `hoLate = 0` at **both** server counts, and satisfying Step 1's bound. Tabulate every point, including the ones that fail — a sweep reported only at its winner cannot be checked.
+The default is the **smallest** L with `ownership_gap_ticks = 0`, `ownership_double_ticks = 0` and `hoLate = 0` on **every repeat** at **both** server counts, and satisfying Step 1's bound. Tabulate every point, including the ones that fail — a sweep reported only at its winner cannot be checked.
+
+**Report the per-repeat spread, never a median.** The 2-server baseline measured
+`ownership_gap_ticks` at 1743, 87, 86, 85 across four repeats of one configuration — bimodal, with
+the bad mode appearing roughly one repeat in four. A median over six repeats would read 0 while two
+of them still failed. This is why the sweep runs at 6 repeats and not 3, and it is the same trap as
+item 15, which appears in 1 of 3.
 
 If no L satisfies all three, **stop and report**. That outcome means the ownership gap is not closable by scheduling alone at this configuration, which is a finding worth more than a default, and it is not this plan's job to invent a mechanism for it.
 
