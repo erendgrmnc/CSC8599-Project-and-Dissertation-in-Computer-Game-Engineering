@@ -337,15 +337,30 @@ DS-RT and PADS both have reproducibility-minded audiences.
 | Phase A (instrumentation, harness) | Complete |
 | Phase B (E4 attribution) | Complete |
 | Phase C (latency + generalised bound) | **Complete**, 302 runs, both gates passed |
-| Phase D (ownership: items 2, 7, 15) | **Open** — the highest-value remaining work |
-| Backlog (`docs/EVALUATION.md` §7) | 15 items: **10 closed** (1, 4, 5, 8, 9, 10, 11, 12, 13, 14), **2 withdrawn** (3, 6), **3 open** (2, 7, 15) |
+| Phase D (ownership: items 2, 7, 15) | **Complete** 2026-08-26. Items 7 and 15 closed; item 2 closes below the pacing budget and stays open above it |
+| Backlog (`docs/EVALUATION.md` §7) | 15 items: **12 closed** (1, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15), **2 withdrawn** (3, 6), **1 conditional** (2 — closed below the pacing budget) |
 | Jitter (`T_J`) sweep | Not started; implemented and asserted only |
 | Oblique/mixed-speed workload (Phase C §4.7) | Not started |
 | Multi-machine measurement | Not started — **not currently on any track** |
 
-**Recommended ordering:** Phase D item 2, then multi-machine, then the second halo workload. Jitter
-and further latency resolution are the lowest-value remaining options — they add precision to a claim
-whose weakness is validity, not precision.
+**Recommended ordering, revised 2026-08-26 after Phase D.** Item 2 is done, and what it found
+changes the ranking underneath it. The ownership gap closes cleanly while servers hold their pacing
+budget and does not close *at any lookahead* once they do not — 8, 16, 32 and 64 all leave ~1600 of
+1800 ticks with an unowned object at 8,000 objects, where `phys_p95` is 10.2-10.4 ms against an
+8.33 ms budget. That is the same tick-epoch divergence §6.2's item 1 is about, reached from a second
+direction.
+
+So **multi-machine measurement is now first by a wider margin than before**: it is no longer only
+the fix for a confounded scaling segment, it is the experiment that would separate "the atomicity
+guarantee is bounded by contention on one oversubscribed box" from "the atomicity guarantee is
+bounded by load in general". Those are very different claims and this testbed cannot tell them
+apart. Then the second halo workload; then jitter and further latency resolution, which remain the
+lowest-value options for the same reason as before.
+
+One experiment is cheap and was deferred rather than rejected: the Phase D lookahead sweep re-run
+under `--link-latency-ms`. §5.1 of the backlog design argued D should follow C precisely because
+injected latency makes the ownership gap proportional to link delay, and no latency was injected in
+Phase D. It is the natural companion to the result and needs no new code.
 
 The timeline in §4 assumed a November arXiv preprint. Nothing in Phase C changes that date, but the
 priority list above does change what should be in it: a preprint carrying the measured lag envelope
