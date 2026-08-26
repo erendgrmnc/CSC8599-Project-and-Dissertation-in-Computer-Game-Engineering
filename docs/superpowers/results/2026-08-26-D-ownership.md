@@ -257,3 +257,39 @@ effect is on halo scheduling. That is narrow — no Phase D change touches halo 
 a real loss of coverage and it now applies to both faces of the counter rather than one.
 
 `tools/test_gate_compare.py` and `tools/test_analyse.py` both still pass.
+
+---
+
+## Task 5 — the lookahead sweep
+
+### Step 1: the halo bound on candidate lookaheads, computed before the sweep ran
+
+Ruling D5: a handoff lookahead of `L` ticks means the sender keeps simulating the object for
+`L` ticks *after* it has left the sender's region, so the receiver only sees it during that
+window if it is inside the receiver's halo band:
+
+```
+v_max * L * dt <= halo_width
+```
+
+From `HaloBound.h`: `HALO_ASSUMED_MAX_SPEED = 60.0`, `HALO_ASSUMED_MAX_RADIUS = 2.0`,
+`HALO_DEFAULT_SUBSTEP_HZ = 120`. At the measurement configuration's `--halo-width 8`:
+
+```
+L_max = halo_width * 120 / v_max = 8 * 120 / 60 = 16
+```
+
+So the swept range {0, 2, 4, 8, 16} has its top point **exactly at the limit**, with zero
+margin: at L = 16 an object released late has travelled 0.5 * 16 = 8 units past the border,
+landing precisely on the band edge. L = 8 travels 4 units and sits comfortably inside it.
+
+L = 16 is kept in the sweep deliberately rather than trimmed. A point at the predicted
+boundary is the one that tells you whether the boundary is real, and Phase C §4.5's lesson is
+that a sweep which never samples the predicted point can only return all-pass or all-fail.
+It is **not** a candidate for the default: a default with zero margin would fail on any
+workload faster than `uniform`, and `headon` launches at the same 60 but head-on, halving the
+time to contact.
+
+Note this is a **separate** parameter from `--halo-lookahead` (default 4), whose own bound
+`MinimumSafeHaloWidth(4) = 0.5 * 4 + 4 = 6` is satisfied by the configured width of 8. The two
+lookaheads are deliberately independent; only the handoff one is swept here.
