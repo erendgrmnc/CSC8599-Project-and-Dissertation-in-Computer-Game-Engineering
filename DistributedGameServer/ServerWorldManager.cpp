@@ -2062,17 +2062,30 @@ bool DistributedGameServer::ServerWorldManager::ApplyIncomingObject(StartSimulat
 		return true;
 	}
 
-	// Incoming handoffs that land outside the receiving region, observed but not
-	// corrected: CalculateIncomingObjectOffsetPosition computes what a clamp would
-	// do and the result is DISCARDED below. A reclaim lands outside this server's
-	// region by construction (that is the whole point of a reclaim), so isReclaim
-	// is excluded here or every reclaim would fire this and the counter would lose
-	// its evidential value as a check on genuine handoff targeting.
+	// Incoming handoffs that land outside the receiving region are CORRECTED, not
+	// merely counted. A reclaim lands outside this server's region by construction
+	// (that is the whole point of a reclaim), so isReclaim is excluded here or every
+	// reclaim would fire this and the counter would lose its evidential value as a
+	// check on genuine handoff targeting.
+	//
+	// hoClamp counts arrivals that WERE moved. It counted arrivals that WOULD have
+	// been moved until 2026-08-26, so figures either side of that are not comparable.
+	// On a 4-server uniform run the counter reads 5/2/3/0 across the four servers,
+	// and the two on server 1 are arrivals landing exactly on z = 0 - a coordinate
+	// row 1 owns, not server 1. Before this change they were installed there and left.
 	if (!isReclaim && mServerBorderData != nullptr) {
 		const Maths::Vector3 incoming = packet->lastFullState.position;
 		const Maths::Vector3 clamped = CalculateIncomingObjectOffsetPosition(incoming);
 		if (clamped.x != incoming.x || clamped.z != incoming.z) {
 			++mHandoffsClamped;
+			packet->lastFullState.position = clamped;
+			// predictedPosition seeds CreateObjectFromArchetype for an object this
+			// server has never seen, while an object promoted from an existing halo
+			// shadow takes position. Clamping only one of them would leave the two
+			// arrival paths disagreeing about where the object is - the same class of
+			// defect as the clamp disagreeing with the ownership rule.
+			packet->lastFullState.predictedPosition =
+				CalculateIncomingObjectOffsetPosition(packet->lastFullState.predictedPosition);
 		}
 	}
 
