@@ -32,6 +32,7 @@ Recorded here in the Phase A phase-log pattern, because each changes what the ev
 | D2 | **Item 15's transfer identity is `(senderServerID, mSenderTick)`**, both already on `StartSimulatingObjectPacket`. No new field, no wire-format change, no version negotiation. | If two different transfers of the same object could ever share both values, a genuine handoff would be dropped as a duplicate — a loss, the failure this phase exists to remove. Task 3 Step 1 pins the cases that make this safe: a later transfer of the same object necessarily carries a later tick from that sender, and the sender id disambiguates servers that share no epoch. |
 | D3 | **The 4-server axis is correctness-only** — conservation, ownership gap, double-owner, duplication. No timing figure is taken at 4 servers. | None to the claims. 4 servers + manager + midware + client is 7 processes on 6 cores, so a 4-server *timing* number measures contention (`docs/EVALUATION.md` §5 says so). State and event measures are immune, under the same carve-out §5 grants E1 and E2. |
 | D4 | **The new default lookahead is derived by measurement in Task 5, not chosen here.** The sweep is L ∈ {0, 2, 4, 8, 16}; the default is the smallest L with `ownership_gap_ticks = 0` and `hoLate = 0` at both 2 and 4 servers. | A number picked by argument would encode this machine's loopback RTT as a design constant. Deriving it records the criterion instead, so a redeployment can re-derive it. |
+| D6 | **The 4-server correctness and gate runs use `uniform`, not `seam`.** This plan originally specified `seam` on the reasoning that it puts objects exactly on the interior Z seam. It does — and then leaves them there: `seam` falls through the velocity assignment at `ServerWorldManager.cpp:1159`, so a 4-server `seam` run produces `hoSent = hoRecv = hoClamp = 0` (measured, `runs/exp-d0-probe4`). It is a placement test, kept as Task 0 Step 4b. `uniform` moves and crosses both seams (measured: 92 handoffs, `hoClamp` 8, `ownership_gap_ticks` 105). | Caught before execution rather than after. Had it stood, Gate A at 4 servers would have compared two runs with the entire handoff path switched off and passed — the same shape as item 14, where invariant I4 passed vacuously in every run of a phase because no client ever printed `@@FINAL`. |
 | D5 | **Item 2 is bounded by the halo band, not only by RTT.** A lookahead of L ticks means the sender simulates the object for L ticks after it has left the sender's region, so it must still be inside the receiver's halo band: `v_max * L * dt <= halo_width`. Task 5 asserts this rather than discovering it in a sweep. | Without the bound, raising the default lookahead silently degrades cross-border fidelity — the object is integrated by a server that does not own its position and the owner has no shadow of it. This links item 2 to Phase C's bound, which no document currently does. |
 
 ---
@@ -93,11 +94,26 @@ Four repeats, not three: Gate A compares 4 pre against 4 post, which is what Pha
 ```powershell
 powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
   -Name d0-base4 -Sweep servers -Values "4" -Repeats 4 `
+  -Objects 400 -Ticks 1800 -Seed 42 -Workload uniform `
+  -HaloWidth 8 -HaloReliable -HandoffLookahead 0 -DrainSeconds 30
+```
+
+`uniform`, **not** `seam` — see ruling D6. `uniform` is the only bundled workload that both spreads across the whole world and moves (`ServerWorldManager.cpp:1159`: everything except `shuttle` and `uniform` falls through the velocity assignment). At 4 servers `CalculateServerBorders` builds a 2×2 grid (`numCols = ceil(sqrt(4)) = 2`, `numRows = 2`), so both `x = 0` and `z = 0` are interior seams, and `uniform`'s ±10 units/s `lateralZ` spread (`SHUTTLE_Z_SPREAD = 20.0f`) carries objects across the Z one over a 15-second run.
+
+Measured on this configuration, 2 repeats (`runs/exp-d0-probe4u`, 2026-08-26): 92 and 94 handoffs, `hoClamp` 5 and 3 on servers 0 and 2 in both repeats, conservation exact at 400, parity exact, `hoCustody` 0, `hoDup` 0 — and `ownership_gap_ticks` **105 and 102**, which `analyse.py` reports as an invariant failure (exit 1). That failure is the documented `--handoff-lookahead 0` behaviour this phase exists to remove, not a broken baseline: Phase A ruling P6 accepted the same thing at 2 servers (`ownership_gap_ticks = 84`).
+
+- [ ] **Step 4b: Take the seam placement check, separately**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
+  -Name d0-seam4 -Sweep servers -Values "4" -Repeats 2 `
   -Objects 400 -Ticks 1800 -Seed 42 -Workload seam `
   -HaloWidth 8 -HaloReliable -HandoffLookahead 0 -DrainSeconds 30
 ```
 
-`seam` deliberately: it centres each grid on the world origin, putting a whole row and column of objects exactly on `x = 0` / `z = 0`. At 4 servers `CalculateServerBorders` builds a 2×2 grid (`numCols = ceil(sqrt(4)) = 2`, `numRows = 2`), so `z = 0` is an **interior** Z seam — the coordinate the clamp defect targets and the one no run has ever exercised.
+`seam` is a **placement** test, not a crossing test: it centres each grid on the world origin so a whole row and column sit exactly on `x = 0` and `z = 0`, then leaves them there. It answers "does the half-open rule assign a 2-D seam point to exactly one server", which nothing had ever checked at 4 servers, and it answers nothing about handoffs.
+
+Measured 2026-08-26 (`runs/exp-d0-probe4`): `owned = 100` on each of the four servers, 400 total, `mismatch = 0` — the rule holds at a 2-D seam. And `hoSent = hoRecv = hoClamp = 0` on every server, which is why it cannot serve as the gate baseline.
 
 - [ ] **Step 5: Analyse both, and expect the 4-server run to be the interesting one**
 
@@ -662,7 +678,7 @@ powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
 
 powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
   -Name dA-gate4 -Sweep servers -Values "4" -Repeats 3 `
-  -Objects 400 -Ticks 1800 -Seed 42 -Workload seam `
+  -Objects 400 -Ticks 1800 -Seed 42 -Workload uniform `
   -HaloWidth 8 -HaloReliable -HandoffLookahead 0 -DrainSeconds 30
 ```
 
@@ -739,7 +755,7 @@ foreach ($L in 0,2,4,8,16) {
 foreach ($L in 0,2,4,8,16) {
   powershell -ExecutionPolicy Bypass -File tools\run-experiments.ps1 `
     -Name "d5-look$L-s4" -Sweep servers -Values "4" -Repeats 3 `
-    -Objects 400 -Ticks 1800 -Seed 42 -Workload seam `
+    -Objects 400 -Ticks 1800 -Seed 42 -Workload uniform `
     -HaloWidth 8 -HaloReliable -HandoffLookahead $L -DrainSeconds 30
 }
 ```
