@@ -128,3 +128,42 @@ bound — the mitigation is correct and still runs out.
   above the budget no lookahead closes the gap at any latency, so this whole table is the
   in-budget regime.
 - **Two servers.** The 4-server contention tail Phase D measured is not exercised here.
+
+---
+
+## Follow-up: does jitter bind on its worst case or its mean?
+
+`--link-jitter-ms J` adds a **worst-case** extra delay drawn deterministically from the seed, so
+effective one-way delay lands in `[T_L, T_L + J]`. `HaloBound.h` treats it as worst-case — the
+published formula is `v_max * (L * dt + T_L + T_J) + 2 * r_max`, adding `T_J` at its maximum, and
+`tools/InteractionTests` asserts that. But that is the **halo** bound. Nothing has ever tested
+whether the **handoff** lookahead binds the same way, because jitter has never been swept at all:
+zero in all 302 of Phase C's runs and all 39 above.
+
+### The discriminator, and the prediction
+
+The two hypotheses are separable with one point, because the sweep above already measured both
+candidate answers at zero jitter:
+
+| configuration | effective delay | measured at `L = 8` |
+|---|---|---|
+| `T_L = 25`, `T_J = 0` | 25 ms flat | **CLEAN** |
+| `T_L = 50`, `T_J = 0` | 50 ms flat | **FAILS** |
+| **`T_L = 0`, `T_J = 50`** | **uniform in [0, 50], mean 25** | **?** |
+
+- If the lookahead binds on the **mean** (25 ms), `L = 8` should be **CLEAN**.
+- If it binds on the **worst case** (50 ms), `L = 8` should **FAIL**.
+
+**Predicted: it binds on the worst case, and `L = 8` fails.** The reasoning is the finding
+recorded above — `ownership_gap_ticks` measures *duration*, not event count, and a single late
+arrival is enough to open a gap that persists. Three late arrivals produced 1,722 gap ticks at
+`L = 16 / 100 ms`. A delay distribution whose tail crosses the threshold will therefore be
+governed by that tail however rarely it is drawn, and averaging is the wrong summary.
+
+If instead `L = 8` comes back clean, the threshold model is incomplete: it would mean late
+arrivals are being absorbed somewhere rather than each opening a gap, and the one-for-one
+causation from Phase D would need re-deriving under jitter.
+
+**Design.** `T_L = 0`, `T_J` in {25, 50} x `L` in {8, 16}, 3 repeats, otherwise identical to the
+sweep above. Jitter is drawn from `--seed`, and release times are forced monotonic per target, so
+the runs stay reproducible and the delay never reorders a link.
