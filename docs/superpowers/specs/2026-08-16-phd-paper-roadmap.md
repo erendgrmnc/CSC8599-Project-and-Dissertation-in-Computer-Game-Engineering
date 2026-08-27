@@ -314,6 +314,46 @@ of the project's recurring shape: raising the halo lookahead cannot absorb link 
 result 2), raising the handoff lookahead cannot absorb load (Phase D), and raising it to absorb
 latency works only until it collides with another guarantee's bound (here).
 
+### 6.1b Prior-work check, 2026-08-27 — the width bound is NOT the novel claim
+
+A focused literature pass against claims 1-5 (the bound; the lag ceiling; lookahead-cannot-absorb-
+latency; conditional ownership atomicity; the width/lookahead conflict). The finding that matters:
+
+**§2's "genuinely unpublished" assessment of the width condition is wrong, and the prior art is
+in-house.** Aura Projection itself — Brown, Ushaw & Morgan, ACM I3D 2019, the same Newcastle group
+this project already benchmarks against — publishes a closed-form aura radius in its §3.3:
+`R_a = R_o + V_t * T_T`, with `T_T` a per-tick-rounded time that **includes inter-server latency**,
+plus the explicit statement that stability is not guaranteed above the stated tolerances. Brown's
+2021 PhD thesis (§5.2) then validates that bound empirically along the speed, latency and
+frame-time axes, and discusses jitter qualitatively (fold it into the latency tolerance). A
+reviewer finds this in minutes, and it is from the institution on the front page of the
+dissertation.
+
+**The honest deltas on claim 1**, which survive: the explicit worst-case jitter term `T_J`
+(measured here, and shown to bind at full weight — 2026-08-27); the scheduling lookahead `L` as a
+term separate from latency; the `2 * r_max` pair form; and above all the different **mechanism** —
+AP migrates objects so every contact is computed on one server, while this system holds
+non-migratory dead-reckoned shadows, which is exactly why the bound here *fails* past the lag
+ceiling where AP's evaluation (latencies <= 32 ms) never went. MD halo-exchange skin bounds
+(`v_max * n * dt` structure, no network terms — halo exchange is bulk-synchronous) are the deeper
+ancestor but AP is the nearest prior art.
+
+**Verdicts on the rest:** claim 2 (the total-lag ceiling, width-independent, reached along two lag
+axes) — appears novel as a quantified result; mechanism is textbook DR error, so present as
+measurement, not principle. Claim 3 (lookahead and latency are interchangeable poisons, ceiling on
+the sum) — novel; the inverse structure of Mauve et al.'s local lag, where added delay works and
+costs responsiveness. Claim 4 (ownership atomicity conditional on the pacing budget; the lookahead
+is a threshold, worse-than-none below it) — partially novel; lineage runs through local lag and
+SpatialOS's handover-timeout rule ("timeout >= worker-runtime round trip"), so claim the measured
+characterisation, not the idea. Claim 5 (width and lookahead requirements conflict past ~100 ms) —
+nothing found; also the most mechanism-specific, so present as a measured design tension.
+
+**Revised lead order: claims 2+3 together, then 5, then 4 with lineage; claim 1 is framing, not a
+contribution** — "AP's condition, ported to non-migratory ghosts, gains a jitter term and a
+lookahead term, and then measurably runs out". §6.1's headline ("validated, and sharper than it
+was stated") stands as a statement about the *measurement*; its implication of formula novelty
+does not. §2's sentence claiming the joint condition is unpublished is superseded by this note.
+
 ### 6.2 What now limits the paper, in priority order
 
 1. **It is one machine.** Everything runs as processes on loopback; latency is injected in-process,
